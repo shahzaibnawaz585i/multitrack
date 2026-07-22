@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../constants/app_theme.dart';
+
 class StatusCard extends StatelessWidget {
   final Color color;
   final String title;
@@ -27,20 +29,19 @@ class StatusCard extends StatelessWidget {
           alignment: Alignment.topCenter,
           clipBehavior: Clip.none,
           children: [
-            /// Card
             Container(
               width: double.infinity,
               margin: const EdgeInsets.only(top: 45),
               padding: const EdgeInsets.only(top: 45, bottom: 15),
               decoration: BoxDecoration(
-                color: isSelected ? color.withOpacity(.08) : Colors.white,
+                color: isSelected
+                    ? color.withOpacity(.08)
+                    : context.appSurface,
                 borderRadius: BorderRadius.circular(18),
-
                 border: Border.all(
                   color: isSelected ? color : Colors.transparent,
                   width: 2,
                 ),
-
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(.05),
@@ -49,33 +50,30 @@ class StatusCard extends StatelessWidget {
                   ),
                 ],
               ),
-
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     count,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
+                      color: context.appTextColor,
                     ),
                   ),
-
                   const SizedBox(height: 5),
-
-                  Text(title, style: TextStyle(color: Colors.grey.shade600)),
+                  Text(
+                    title,
+                    style: TextStyle(color: context.appSecondaryText),
+                  ),
                 ],
               ),
             ),
-
-            /// Floating Icon
             Positioned(
               top: 5,
-
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  // Shadow/Glow effect
                   Container(
                     height: 70,
                     width: 70,
@@ -89,17 +87,21 @@ class StatusCard extends StatelessWidget {
                     width: 40.5,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.grey[400],
+                      color: context.isDarkTheme
+                          ? const Color(0xFF555555)
+                          : Colors.grey.shade400,
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.grey.withOpacity(0.9),
+                          color: (context.isDarkTheme
+                                  ? Colors.black
+                                  : Colors.grey)
+                              .withOpacity(0.9),
                           blurRadius: 10,
                           spreadRadius: 13,
                         ),
                       ],
                     ),
                   ),
-                  // Inner Colored Circle
                   Container(
                     height: 40,
                     width: 40,

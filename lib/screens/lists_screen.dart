@@ -210,6 +210,7 @@
 // }
 import 'package:flutter/material.dart';
 
+import '../constants/app_theme.dart';
 import '../data/vehicle_data.dart';
 import '../models/vehicle_model.dart';
 import '../widgets/status_card.dart';
@@ -307,7 +308,7 @@ class _ListScreenState extends State<ListScreen> {
     final List<VehicleModel> vehicles = _filteredVehicles;
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade100,
+      backgroundColor: context.appBackground,
       body: SafeArea(
         child: Column(
           children: [
@@ -317,7 +318,7 @@ class _ListScreenState extends State<ListScreen> {
 
             const SizedBox(height: 10),
 
-            Container(height: 5, color: Colors.white),
+            Container(height: 5, color: context.appSurface),
 
             Expanded(
               child: vehicles.isEmpty
@@ -335,10 +336,14 @@ class _ListScreenState extends State<ListScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Text(
               'Vehicle List',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: context.appTextColor,
+              ),
             ),
           ),
 
@@ -383,13 +388,17 @@ class _ListScreenState extends State<ListScreen> {
                   ),
                   alignment: Alignment.center,
                   padding: const EdgeInsets.all(3),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
+                  decoration: BoxDecoration(
+                    color: context.appSurface,
                     shape: BoxShape.circle,
                   ),
-                  child: const Text(
+                  child: Text(
                     '0',
-                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: context.appTextColor,
+                    ),
                   ),
                 ),
               ),
@@ -474,18 +483,22 @@ class _ListScreenState extends State<ListScreen> {
             Icon(
               Icons.directions_car_outlined,
               size: 55,
-              color: Colors.grey.shade400,
+              color: context.appSecondaryText,
             ),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               'No Vehicle Found',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: context.appTextColor,
+              ),
             ),
             const SizedBox(height: 6),
             Text(
               'No vehicles are available in the selected status.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 13, color: context.appSecondaryText),
             ),
           ],
         ),

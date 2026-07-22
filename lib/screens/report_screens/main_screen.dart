@@ -1,6 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:multitrack/screens/lists_screen.dart';
-import 'package:multitrack/screens/report_screens/report_screen.dart';
+import 'package:multitrack/constants/app_theme.dart';
+import 'package:multitrack/screens/report_screens/ignition_report_screen.dart';
+import 'package:multitrack/screens/report_screens/ac_report_screen.dart';
+import 'package:multitrack/screens/report_screens/trip_report_screen.dart';
+import 'package:multitrack/screens/report_screens/summary_report_screen.dart';
+import 'package:multitrack/screens/report_screens/stoppage_report_screen.dart';
+import 'package:multitrack/screens/report_screens/daily_report_screen.dart';
+import 'package:multitrack/screens/report_screens/speed_report_screen.dart';
+import 'package:multitrack/screens/report_screens/geofence_report_screen.dart';
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -9,9 +16,6 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  static const Color backgroundColor = Color(0xFFF7F7F7);
-  static const Color scrolledColor = Color(0xFFE3F2FD);
-
   bool _isScrolled = false;
 
   bool _handleScrollNotification(ScrollNotification notification) {
@@ -30,24 +34,24 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: backgroundColor,
+      backgroundColor: context.appBackground,
 
 
       appBar: AppBar(
 
         automaticallyImplyLeading: false,
-        backgroundColor: _isScrolled ? scrolledColor : backgroundColor,
+        backgroundColor:
+            _isScrolled ? context.appScrolledHeader : context.appBackground,
         elevation: 0,
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
         shadowColor: Colors.transparent,
         title: Padding(
           padding: const EdgeInsets.only(left: 5),
-          child: const
-          Text(
+          child: Text(
             "Reports",
             style: TextStyle(
-              color: Color(0xFF292B32),
+              color: context.appTextColor,
               fontSize: 22,
               fontWeight: FontWeight.w700,
             ),
@@ -107,8 +111,7 @@ class _MainScreenState extends State<MainScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) =>
-                              ReportScreen(),
+                          builder: (_) => const IgnitionReportScreen(),
                         ),
                       );
                     },
@@ -136,7 +139,7 @@ class _MainScreenState extends State<MainScreen> {
                         context,
                         MaterialPageRoute(
                           builder: (_) =>
-                              ListScreen(),
+                              const AcReportScreen(),
                         ),
                       );
                     },
@@ -160,7 +163,13 @@ class _MainScreenState extends State<MainScreen> {
                     imageTextGap: 15,
 
                     onTap: () {
-                      debugPrint("Trip Report Clicked");
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              const TripReportScreen(),
+                        ),
+                      );
                     },
                   ),
 
@@ -182,7 +191,13 @@ class _MainScreenState extends State<MainScreen> {
                     imageTextGap: 10,
 
                     onTap: () {
-                      debugPrint("Stoppage Report Clicked");
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              const StoppageReportScreen(),
+                        ),
+                      );
                     },
                   ),
 
@@ -204,7 +219,13 @@ class _MainScreenState extends State<MainScreen> {
                     imageTextGap: 15,
 
                     onTap: () {
-                      debugPrint("Summary Report Clicked");
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              const SummaryReportScreen(),
+                        ),
+                      );
                     },
                   ),
 
@@ -226,7 +247,12 @@ class _MainScreenState extends State<MainScreen> {
                     imageTextGap: 15,
 
                     onTap: () {
-                      debugPrint("Daily Report Clicked");
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const DailyReportScreen(),
+                        ),
+                      );
                     },
                   ),
 
@@ -247,7 +273,12 @@ class _MainScreenState extends State<MainScreen> {
                     imageTextGap: 15,
 
                     onTap: () {
-                      debugPrint("Speed Report Clicked");
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const SpeedReportScreen(),
+                        ),
+                      );
                     },
                   ),
 
@@ -268,7 +299,12 @@ class _MainScreenState extends State<MainScreen> {
                     imageTextGap: 5,
 
                     onTap: () {
-                      debugPrint("Geofence Report Clicked");
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const GeofenceReportScreen(),
+                        ),
+                      );
                     },
                   ),
                 ],
@@ -323,7 +359,7 @@ class ReportCard extends StatelessWidget {
       height: cardHeight,
 
       child: Material(
-        color: Colors.white,
+        color: context.appSurface,
         borderRadius: BorderRadius.circular(10),
         clipBehavior: Clip.antiAlias,
 
@@ -351,11 +387,11 @@ class ReportCard extends StatelessWidget {
                       width: imageWidth,
                       height: imageHeight,
 
-                      child: const Center(
+                      child: Center(
                         child: Icon(
                           Icons.description_outlined,
                           size: 60,
-                          color: Colors.grey,
+                          color: context.appSecondaryText,
                         ),
                       ),
                     );
@@ -373,7 +409,7 @@ class ReportCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
 
                   style: TextStyle(
-                    color: const Color(0xFF292B32),
+                    color: context.appTextColor,
                     fontSize: fontSize,
                     fontWeight: FontWeight.w600,
                   ),

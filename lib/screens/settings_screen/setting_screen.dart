@@ -2,7 +2,10 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:multitrack/constants/app_theme.dart';
 import 'package:multitrack/screens/login_screen.dart';
+import 'package:multitrack/screens/settings_screen/app_setting_screen.dart';
+import 'package:multitrack/screens/settings_screen/live_support_screen.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -14,9 +17,7 @@ class SettingScreen extends StatefulWidget {
 }
 
 class _SettingScreenState extends State<SettingScreen> {
-  static const Color backgroundColor = Color(0xFFF7F7F7);
-  static const Color textColor = Color(0xFF292B32);
-  static const Color pinkColor = Color(0xFFFF2F68);
+  static const Color pinkColor = AppThemeContext.pinkColor;
 
   static const String _profileImageKey = 'saved_profile_image_path';
 
@@ -130,7 +131,7 @@ class _SettingScreenState extends State<SettingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: backgroundColor,
+      backgroundColor: context.appBackground,
 
       body: SafeArea(
         bottom: false,
@@ -155,10 +156,10 @@ class _SettingScreenState extends State<SettingScreen> {
 
               const SizedBox(height: 10),
 
-              const Text(
+              Text(
                 'version 99.71.197',
                 style: TextStyle(
-                  color: textColor,
+                  color: context.appTextColor,
                   fontSize: 14,
                   fontWeight: FontWeight.w400,
                 ),
@@ -186,17 +187,17 @@ class _SettingScreenState extends State<SettingScreen> {
           height: 300,
 
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: context.appSurface,
             borderRadius: BorderRadius.circular(20),
           ),
 
-          child: const Padding(
-            padding: EdgeInsets.only(left: 38, right: 25, top: 85),
+          child: Padding(
+            padding: const EdgeInsets.only(left: 38, right: 25, top: 85),
 
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
 
-              children: [
+              children: const [
                 AccountInfo(label: 'Name', value: 'mtdemo1'),
 
                 SizedBox(height: 35),
@@ -211,7 +212,7 @@ class _SettingScreenState extends State<SettingScreen> {
           ),
         ),
 
-        const Positioned(
+        Positioned(
           top: 4,
           left: 120,
 
@@ -219,7 +220,7 @@ class _SettingScreenState extends State<SettingScreen> {
             'Account',
 
             style: TextStyle(
-              color: textColor,
+              color: context.appTextColor,
               fontSize: 20,
               fontWeight: FontWeight.bold,
             ),
@@ -247,7 +248,7 @@ class _SettingScreenState extends State<SettingScreen> {
           padding: const EdgeInsets.all(5),
 
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: context.appSurface,
             shape: BoxShape.circle,
 
             boxShadow: [
@@ -318,11 +319,11 @@ class _SettingScreenState extends State<SettingScreen> {
 
       errorBuilder: (context, error, stackTrace) {
         return Container(
-          color: const Color(0xFFF5F5F5),
+          color: context.appFieldFill,
 
           alignment: Alignment.center,
 
-          child: const Icon(Icons.person, size: 65, color: Colors.grey),
+          child: Icon(Icons.person, size: 65, color: context.appSecondaryText),
         );
       },
     );
@@ -337,7 +338,7 @@ class _SettingScreenState extends State<SettingScreen> {
       width: double.infinity,
 
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.appSurface,
         borderRadius: BorderRadius.circular(20),
       ),
 
@@ -373,11 +374,11 @@ class _SettingScreenState extends State<SettingScreen> {
 
                 const SizedBox(width: 22),
 
-                const Text(
+                Text(
                   'Settings',
 
                   style: TextStyle(
-                    color: textColor,
+                    color: context.appTextColor,
                     fontSize: 20,
                     fontWeight: FontWeight.w900,
                   ),
@@ -392,7 +393,12 @@ class _SettingScreenState extends State<SettingScreen> {
               title: 'App Settings' ,
 
               onTap: () {
-                debugPrint('App Settings Clicked');
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (context) => const AppSettingScreen(),
+                  ),
+                );
               },
             ),
 
@@ -402,7 +408,12 @@ class _SettingScreenState extends State<SettingScreen> {
               title: 'Live Support',
 
               onTap: () {
-                debugPrint('Live Support Clicked');
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (context) => const LiveSupportScreen(),
+                  ),
+                );
               },
             ),
 
@@ -452,8 +463,8 @@ class AccountInfo extends StatelessWidget {
         Text(
           label,
 
-          style: const TextStyle(
-            color: Color(0xFFA8A8A8),
+          style: TextStyle(
+            color: context.appSecondaryText,
             fontSize: 12,
             fontWeight: FontWeight.w100,
           ),
@@ -464,8 +475,8 @@ class AccountInfo extends StatelessWidget {
         Text(
           value,
 
-          style: const TextStyle(
-            color: Color(0xFF292B32),
+          style: TextStyle(
+            color: context.appTextColor,
             fontSize: 14,
             fontWeight: FontWeight.w400,
           ),
@@ -514,10 +525,10 @@ class SettingItem extends StatelessWidget {
                   fit: BoxFit.contain,
 
                   errorBuilder: (context, error, stackTrace) {
-                    return const Icon(
+                    return Icon(
                       Icons.settings_outlined,
                       size: 35,
-                      color: Colors.grey,
+                      color: context.appSecondaryText,
                     );
                   },
                 ),
@@ -529,15 +540,15 @@ class SettingItem extends StatelessWidget {
                 child: Text(
                   title,
 
-                  style: const TextStyle(
-                    color: Color(0xFF292B32),
+                  style: TextStyle(
+                    color: context.appTextColor,
                     fontSize: 14,
                     fontWeight: FontWeight(1)
                    ),
                 ),
               ),
 
-              const Icon(Icons.arrow_right, color: Color(0xFFFF2F68), size: 28),
+              Icon(Icons.arrow_right, color: AppThemeContext.pinkColor, size: 28),
             ],
           ),
         ),

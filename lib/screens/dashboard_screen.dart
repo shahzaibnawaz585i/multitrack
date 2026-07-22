@@ -1,6 +1,7 @@
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:multitrack/constants/app_theme.dart';
 import 'package:multitrack/screens/report_screens/main_screen.dart';
 
 import 'lists_screen.dart';
@@ -92,6 +93,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildNavigationItem({
     required IconData icon,
     required int index,
+    required BuildContext context,
   }) {
     final bool isSelected = _selectedIndex == index;
 
@@ -99,13 +101,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       duration: const Duration(milliseconds: 200),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: isSelected ? Colors.black : Colors.transparent,
+        color: isSelected
+            ? (context.isDarkTheme ? Colors.white : Colors.black)
+            : Colors.transparent,
         shape: BoxShape.circle,
       ),
       child: Icon(
         icon,
         size: 26,
-        color: const Color(0xFFF43A6B),
+        color: context.appPrimaryColor,
       ),
     );
   }
@@ -113,7 +117,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade100,
+      backgroundColor: context.appBackground,
       body: PageStorage(
         bucket: _pageStorageBucket,
         child: _buildCurrentScreen(),
@@ -122,8 +126,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         index: _selectedIndex,
         height: 65,
         backgroundColor: Colors.transparent,
-        color: Colors.white,
-        buttonBackgroundColor: Colors.white,
+        color: context.appSurface,
+        buttonBackgroundColor: context.appSurface,
 
         // Curved selected button slow aur smoothly move karega.
         animationDuration: const Duration(milliseconds: 1000),
@@ -133,22 +137,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _buildNavigationItem(
             icon: Icons.dashboard,
             index: _dashboardIndex,
+            context: context,
           ),
           _buildNavigationItem(
             icon: Icons.location_on_rounded,
             index: _mapIndex,
+            context: context,
           ),
           _buildNavigationItem(
             icon: Icons.local_shipping,
             index: _listIndex,
+            context: context,
           ),
           _buildNavigationItem(
             icon: Icons.person,
             index: _reportIndex,
+            context: context,
           ),
           _buildNavigationItem(
             icon: Icons.settings,
             index: _settingsIndex,
+            context: context,
           ),
         ],
 
@@ -209,32 +218,34 @@ class MainDashboardContent extends StatelessWidget {
 
             const SizedBox(height: 20),
 
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text(
                 'Fleet Status',
                 style: TextStyle(
                   fontSize: 16,
                   fontFamily: 'NormalBold',
                   fontWeight: FontWeight.w600,
+                  color: context.appTextColor,
                 ),
               ),
             ),
 
-            _buildFleetStatusCard(),
+            _buildFleetStatusCard(context),
 
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text(
                 'Engine Hours',
                 style: TextStyle(
                   fontFamily: 'NormalBold',
                   fontSize: 16,
+                  color: context.appTextColor,
                 ),
               ),
             ),
 
-            _buildEngineHoursChart(),
+            _buildEngineHoursChart(context),
 
             const SizedBox(height: 30),
           ],
@@ -352,14 +363,14 @@ class MainDashboardContent extends StatelessWidget {
     );
   }
 
-  Widget _buildFleetStatusCard() {
+  Widget _buildFleetStatusCard(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: context.appSurface,
           borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
@@ -405,7 +416,7 @@ class MainDashboardContent extends StatelessWidget {
                     ),
                   ),
 
-                  const IgnorePointer(
+                  IgnorePointer(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -415,12 +426,13 @@ class MainDashboardContent extends StatelessWidget {
                             fontWeight: FontWeight.bold,
                             fontSize: 20,
                             fontFamily: 'NormalBold',
+                            color: context.appTextColor,
                           ),
                         ),
                         Text(
                           'Objects',
                           style: TextStyle(
-                            color: Colors.grey,
+                            color: context.appSecondaryText,
                             fontSize: 13,
                             fontFamily: 'NormalBold',
                           ),
@@ -532,7 +544,7 @@ class MainDashboardContent extends StatelessWidget {
     ];
   }
 
-  Widget _buildEngineHoursChart() {
+  Widget _buildEngineHoursChart(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Container(
@@ -540,7 +552,7 @@ class MainDashboardContent extends StatelessWidget {
         height: 220,
         width: double.infinity,
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: context.appSurface,
           borderRadius: BorderRadius.circular(16),
         ),
         child: RepaintBoundary(
