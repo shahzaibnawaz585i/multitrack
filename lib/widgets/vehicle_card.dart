@@ -1,852 +1,770 @@
 import 'package:flutter/material.dart';
+
+import '../constants/app_fonts.dart';
 import '../constants/app_images.dart';
-// import '../constants/app_fonts.dart';
 import '../models/vehicle_model.dart';
 import '../screens/vehicle_detail_screen.dart';
+import '../theme/app_theme_tokens.dart';
 
 class VehicleCard extends StatelessWidget {
-  final VehicleModel vehicle;
-
   const VehicleCard({super.key, required this.vehicle});
 
-  String getLockImage() {
+  final VehicleModel vehicle;
+
+  Color _expiredColor(BuildContext context) => context.expiredContainerColor;
+
+  bool get _isExpired => vehicle.status.trim().toLowerCase() == 'expired';
+
+  bool get _isLocked {
+    final String status = vehicle.status.toLowerCase();
+    return status == 'stopped' || status == 'inactive';
+  }
+
+  String get _lockImage {
+    if (_isLocked) {
+      return AppImages.stopLock;
+    }
+    if (vehicle.status.toLowerCase() == 'running') {
+      return AppImages.runningLock;
+    }
+    return AppImages.inactiveLock;
+  }
+
+  String get _carImage {
     switch (vehicle.status.toLowerCase()) {
-      case "running":
-        return AppImages.runningLock;
-
-      case "stopped":
-        return AppImages.stopLock;
-
-      case "idle":
-      case "idel":
-        return AppImages.idleLock;
-
-      case "inactive":
-        return AppImages.inactiveLock;
-
+      case 'running':
+        return AppImages.runningCar;
+      case 'stopped':
+        return AppImages.stopCar;
+      case 'idle':
+        return AppImages.idleCar;
+      case 'not reporting':
+        return AppImages.inactiveCar;
+      case 'expired':
+        return AppImages.stopCar;
       default:
-        return AppImages.inactiveLock;
+        return AppImages.stopCar;
     }
   }
 
-  String getCarImage() {
+  String get _statusLine {
+    final String status = vehicle.status;
+    if (status.toLowerCase() == 'running') {
+      return 'RUNNING ${vehicle.time}';
+    }
+    return '$status ${vehicle.time}';
+  }
+
+  String get _expiredStatusLine => 'EXPIRED ${vehicle.time}';
+
+  Color get _timelineIconColor {
     switch (vehicle.status.toLowerCase()) {
-      case "running":
-        return AppImages.runningCar;
-
-      case "stopped":
-        return AppImages.stopCar;
-
-      case "idle":
-      case "idel":
-        return AppImages.idleCar;
-
-      case "inactive":
-        return AppImages.inactiveCar;
-
+      case 'running':
+        return Colors.green;
+      case 'stopped':
+        return Colors.red;
       default:
-        return AppImages.inactiveCar;
+        return Colors.pinkAccent;
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isExpired) {
+      return _buildExpiredCard(context);
+    }
+
+    return _buildNormalCard(context);
+  }
+
+  Widget _buildExpiredCard(BuildContext context) {
     return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => VehicleDetailScreen(
-              name: vehicle.name,
-              status: vehicle.status,
-              color: vehicle.color,
-              speed: vehicle.speed,
-              distance: vehicle.distance,
-              time: vehicle.time,
-              livetime: vehicle.liveTime,
-              location: vehicle.location,
-              date: vehicle.date,
-            ),
-          ),
-        );
-      },
-
+      onTap: () => _openDetail(context),
       child: Container(
-        height: 160,
-        width: double.infinity,
-        margin: const EdgeInsets.only(bottom: 12),
-
+        height: 92,
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.fromLTRB(10, 10, 12, 10),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(2),
+          color: _expiredColor(context),
+          borderRadius: BorderRadius.circular(8),
+          border: context.appTokens.containerBorderColor == null
+              ? null
+              : Border.all(color: context.appTokens.containerBorderColor!),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.03),
-              blurRadius: 10,
+              color: Colors.black.withValues(alpha: 0.12),
+              blurRadius: 8,
               offset: const Offset(0, 4),
             ),
           ],
         ),
         child: Row(
           children: [
-            Row(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 100),
-                  child: Container(
-                    height: 30,
-                    width: 30,
-                    child: Image.asset(getLockImage(), fit: BoxFit.contain),
-                  ),
-                ),
-              ],
+            Container(
+              width: 56,
+              height: 56,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: Image.asset(
+                _carImage,
+                width: 40,
+                height: 30,
+                fit: BoxFit.contain,
+              ),
             ),
-            SizedBox(width: 10),
-            Row(
-              children: [
-                Column(
-                  children: [
-                    SizedBox(height: 40),
-                    Container(
-                      height: 50,
-                      width: 60,
-
-                      child: Image.asset(getCarImage(), fit: BoxFit.contain),
-                    ),
-                    SizedBox(height: 5),
-                    Text(
-                      vehicle.speed,
-                      style: TextStyle(fontFamily: 'numberfonts', fontSize: 20),
-                    ),
-                    Text('kmph', style: TextStyle(fontFamily: 'medium.ttf')),
-                  ],
-                ),
-              ],
-            ),
-
-            Row(
-              children: [
-                Container(
-                  height: 160,
-                  width: 235,
-                  child: Column(
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Row(
                     children: [
-                      SizedBox(height: 20),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 20),
-                        child: Row(
-                          children: [
-                            SizedBox(width: 1),
-                            Text(
-                              vehicle.name,
-                              style: TextStyle(
-                                fontFamily: 'loginfonts.ttf',
-                                fontSize: 16,
-                              ),
-                            ),
-                          ],
+                      const Icon(
+                        Icons.directions_car_filled,
+                        size: 16,
+                        color: Colors.orange,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          vehicle.name,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: context.textColor,
+                            fontFamily: AppFonts.regular,
+                          ),
                         ),
                       ),
-                      SizedBox(height: 5),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 20),
-                        child: Row(
-                          children: [
-                            Positioned(
-                              top: 5,
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  // Shadow/Glow effect
-                                  Stack(
-                                    alignment: Alignment.center,
-                                    children: [
-                                      // Outer Light Circle
-                                      Container(
-                                        height: 15,
-                                        width: 15,
-                                        decoration: BoxDecoration(
-                                          color: vehicle.color.withOpacity(
-                                            0.25,
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 15,
+                        child: Center(
+                          child: _TimelineStatusDot(
+                            color: Colors.red,
+                            status: vehicle.status,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _expiredStatusLine,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: context.textColor,
+                            fontFamily: AppFonts.regular,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openDetail(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => VehicleDetailScreen(
+          name: vehicle.name,
+          status: vehicle.status,
+          color: vehicle.color,
+          speed: vehicle.speed,
+          distance: vehicle.distance,
+          time: vehicle.time,
+          livetime: vehicle.liveTime,
+          location: vehicle.location,
+          date: vehicle.date,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNormalCard(BuildContext context) {
+    return GestureDetector(
+      onTap: () => _openDetail(context),
+      child: Container(
+        height: 180,
+        width: double.infinity,
+        margin: const EdgeInsets.only(bottom: 10),
+        decoration: BoxDecoration(
+          color: context.containerColor,
+          borderRadius: BorderRadius.circular(4),
+          border: context.appTokens.containerBorderColor == null
+              ? null
+              : Border.all(color: context.appTokens.containerBorderColor!),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.07),
+              blurRadius: 8,
+              offset: const Offset(-3, 4),
+            ),
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.07),
+              blurRadius: 8,
+              offset: const Offset(3, 4),
+            ),
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(26, 8, 12, 2),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          width: 70,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              const SizedBox(height: 30),
+                              Image.asset(
+                                _carImage,
+                                width: 54,
+                                height: 38,
+                                fit: BoxFit.contain,
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                vehicle.speed,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: context.textColor,
+                                  fontFamily: AppFonts.number,
+                                  height: 1,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'kmph',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w400,
+                                  color: context.mutedTextColor,
+                                  fontFamily: AppFonts.regular,
+                                  height: 1,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ClipRect(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.directions_car_filled,
+                                          size: 16,
+                                          color: vehicle.status.toLowerCase() ==
+                                                  'running'
+                                              ? Colors.green
+                                              : vehicle.status.toLowerCase() ==
+                                                      'stopped'
+                                                  ? Colors.red
+                                                  : Colors.grey.shade700,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Expanded(
+                                          child: Text(
+                                            vehicle.name,
+                                            style: TextStyle(
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w700,
+                                              fontFamily: AppFonts.regular,
+                                              color: context.textColor,
+                                            ),
                                           ),
-                                          shape: BoxShape.circle,
+                                        ),
+                                      ],
+                                    ),
+                                    const Padding(
+                                      padding: EdgeInsets.only(left: 6),
+                                      child: _DashedLine(),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      SizedBox(
+                                        width: 15,
+                                        child: Center(
+                                          child: _TimelineStatusDot(
+                                            color: vehicle.color,
+                                            status: vehicle.status,
+                                          ),
                                         ),
                                       ),
-
-                                      // Inner Dark Circle
-                                      Container(
-                                        height: 10,
-                                        width: 10,
-                                        decoration: BoxDecoration(
-                                          color: vehicle.color,
-                                          shape: BoxShape.circle,
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: _TimelineText(
+                                          text: _statusLine,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const Padding(
+                                    padding: EdgeInsets.only(left: 6),
+                                    child: _DashedLine(),
+                                  ),
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      SizedBox(
+                                        width: 15,
+                                        child: Center(
+                                          child: _TimelinePlainIcon(
+                                            icon: Icons.access_time,
+                                            color: _timelineIconColor,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: _TimelineText(
+                                          text:
+                                              '${vehicle.date} ${vehicle.liveTime}',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const Padding(
+                                    padding: EdgeInsets.only(left: 6),
+                                    child: _DashedLine(),
+                                  ),
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      SizedBox(
+                                        width: 15,
+                                        child: Padding(
+                                          padding:
+                                              const EdgeInsets.only(top: 1),
+                                          child: Center(
+                                            child: _TimelinePlainIcon(
+                                              icon: Icons.location_on_outlined,
+                                              color: _timelineIconColor,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: ClipRect(
+                                          child: _TimelineText(
+                                            text: vehicle.location,
+                                            maxLines: 2,
+                                          ),
                                         ),
                                       ),
                                     ],
                                   ),
                                 ],
                               ),
-                            ),
-
-                            SizedBox(width: 2),
-                            Text(
-                              vehicle.status,
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontFamily: 'loginfonts.ttf',
-                              ),
-                            ),
-                            SizedBox(width: 2),
-                            Text(
-                              vehicle.time,
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontFamily: 'loginfonts.ttf',
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
+                          ),
                         ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        _StatusIcon(
+                        icon: Icons.ac_unit,
+                        color: Colors.pinkAccent,
+                        isActive: true,
                       ),
-                      SizedBox(height: 5),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 20),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.access_time,
-                              color: Colors.pinkAccent,
-                              size: 15,
-                            ),
-                            SizedBox(width: 2),
-                            Text(
-                              vehicle.date,
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontFamily: "loginfonts.ttf",
-                              ),
-                            ),
-                            SizedBox(width: 2),
-                            Text(
-                              vehicle.liveTime,
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontFamily: "loginfonts.ttf",
-                              ),
-                            ),
-                          ],
-                        ),
+                      const SizedBox(width: 4),
+                      _StatusIcon(
+                        icon: Icons.satellite_alt,
+                        color: Colors.green,
+                        isActive:
+                            vehicle.status.toLowerCase() != 'not reporting',
                       ),
-                      SizedBox(height: 5),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 20),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.location_on_outlined,
-                              color: Colors.pinkAccent,
-                              size: 15,
-                            ),
-                            SizedBox(width: 2),
-                            Expanded(
-                              child: Text(
-                                vehicle.location,
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontFamily:
-                                      "loginfonts.ttf", // یہاں سے .ttf ہٹا دیا
-                                ),
-                                softWrap: true, // یہ اب TextStyle سے باہر ہے
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
+                      const SizedBox(width: 4),
+                      _StatusIcon(
+                        icon: Icons.power_settings_new,
+                        color: Colors.green,
+                        isActive:
+                            vehicle.status.toLowerCase() == 'running',
                       ),
-                      SizedBox(height: 5),
-                      Spacer(),
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10, left: 5),
+                      const SizedBox(width: 4),
+                      _StatusIcon(
+                        icon: Icons.vpn_key_outlined,
+                        color: Colors.pinkAccent,
+                        isActive: !_isLocked,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
                         child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
                           children: [
-                            Container(
-                              height: 25,
-                              width: 25,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(
-                                      0.3,
-                                    ), // شیڈو کا رنگ اور ہلکا پن
-                                    blurRadius:
-                                        12, // شیڈو کو کتنا دھندلا کرنا ہے
-                                    spreadRadius:
-                                        -3, // یہ سائیڈوں سے شیڈو کو چھپا دے گا (صرف نیچے دکھائے گا)
-                                    offset: const Offset(0, 10),
-                                  ),
-                                ],
-                              ),
-                              child: Icon(
-                                Icons.severe_cold_sharp,
-                                color: Colors.pink,
-                                size: 16,
+                            Flexible(
+                              child: _InfoPill(
+                                icon: Icons.local_gas_station_outlined,
+                                label: vehicle.distance,
                               ),
                             ),
-                            SizedBox(width: 8),
-                            Container(
-                              height: 25,
-                              width: 25,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.3),
-                                    blurRadius: 12,
-                                    spreadRadius: -3,
-                                    offset: const Offset(0, 10),
-                                  ),
-                                ],
-                              ),
-                              child: Icon(
-                                Icons.satellite_alt_outlined,
-                                color: Colors.green,
-                                size: 16,
-                              ),
-                            ),
-                            SizedBox(width: 8),
-                            Container(
-                              height: 25,
-                              width: 25,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(
-                                      0.3,
-                                    ), // شیڈو کا رنگ اور ہلکا پن
-                                    blurRadius:
-                                        12, // شیڈو کو کتنا دھندلا کرنا ہے
-                                    spreadRadius:
-                                        -3, // یہ سائیڈوں سے شیڈو کو چھپا دے گا (صرف نیچے دکھائے گا)
-                                    offset: const Offset(0, 10),
-                                  ),
-                                ],
-                              ),
-                              child: Icon(
-                                Icons.power_settings_new_outlined,
-                                color: Colors.green,
-                                size: 16,
-                              ),
-                            ),
-                            SizedBox(width: 8),
-                            Container(
-                              height: 25,
-                              width: 25,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(
-                                      0.3,
-                                    ), // شیڈو کا رنگ اور ہلکا پن
-                                    blurRadius:
-                                        12, // شیڈو کو کتنا دھندلا کرنا ہے
-                                    spreadRadius:
-                                        -3, // یہ سائیڈوں سے شیڈو کو چھپا دے گا (صرف نیچے دکھائے گا)
-                                    offset: const Offset(0, 10),
-                                  ),
-                                ],
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(5.0),
-                                child: Image.asset(
-                                  'assets/key.png',
-
-                                  color: Colors.pink,
-                                  colorBlendMode: BlendMode.srcIn,
-                                ),
-                              ),
-                            ),
-                            SizedBox(width: 8),
-                            Container(
-                              height: 25,
-                              width: 50,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(
-                                      0.3,
-                                    ), // شیڈو کا رنگ اور ہلکا پن
-                                    blurRadius:
-                                        12, // شیڈو کو کتنا دھندلا کرنا ہے
-                                    spreadRadius:
-                                        -3, // یہ سائیڈوں سے شیڈو کو چھپا دے گا (صرف نیچے دکھائے گا)
-                                    offset: const Offset(0, 10),
-                                  ),
-                                ],
-                              ),
-                              child: Center(
-                                child: Text(
-                                  vehicle.distance,
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontFamily: 'loginfonts.ttf',
-                                  ),
-                                ),
-                              ),
-                            ),
-                            SizedBox(width: 8),
-                            Container(
-                              height: 25,
-                              width: 25,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(
-                                      0.3,
-                                    ), // شیڈو کا رنگ اور ہلکا پن
-                                    blurRadius:
-                                        12, // شیڈو کو کتنا دھندلا کرنا ہے
-                                    spreadRadius:
-                                        -3, // یہ سائیڈوں سے شیڈو کو چھپا دے گا (صرف نیچے دکھائے گا)
-                                    offset: const Offset(0, 10),
-                                  ),
-                                ],
-                              ),
-                              child: Column(
-                                children: [
-                                  SizedBox(height: 4),
-                                  Container(
-                                    height: 4,
-                                    width: 4,
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey,
-                                      borderRadius: BorderRadius.circular(100),
-                                    ),
-                                  ),
-                                  SizedBox(height: 2),
-                                  Container(
-                                    height: 4,
-                                    width: 4,
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey,
-                                      borderRadius: BorderRadius.circular(100),
-                                    ),
-                                  ),
-                                  SizedBox(height: 2),
-                                  Container(
-                                    height: 4,
-                                    width: 4,
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey,
-                                      borderRadius: BorderRadius.circular(100),
-                                    ),
-                                  ),
-                                ],
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: _InfoPill(
+                                icon: Icons.calendar_month_outlined,
+                                label: vehicle.validityLabel,
                               ),
                             ),
                           ],
                         ),
                       ),
                     ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
+            ),
+            Positioned(
+              left: 0,
+              top: 15,
+              child: Image.asset(
+                _lockImage,
+                width: 28,
+                height: 28,
+                fit: BoxFit.contain,
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
 
-      // Container(
-      //   height: 160,
-      //   margin: const EdgeInsets.only(bottom: 12),
-      //   decoration: BoxDecoration(
-      //     color: Colors.white,
-      //     borderRadius: BorderRadius.circular(2),
-      //     boxShadow: [
-      //       BoxShadow(
-      //         color: Colors.black.withOpacity(.05),
-      //         blurRadius: 10,
-      //       ),
-      //     ],
-      //   ),
-      //
-      //   child:
-      //   Row(
-      //     children: [
-      //
-      //
-      //
-      //       Padding(
-      //         padding: const EdgeInsets.only(bottom: 110),
-      //         child: Image.asset(
-      //           getLockImage(),
-      //           width: 28,
-      //         ),
-      //       ),
-      //
-      //       const SizedBox(width: 8),
-      //
-      //       Column(
-      //         mainAxisAlignment: MainAxisAlignment.center,
-      //         children: [
-      //
-      //           Padding(
-      //             padding: const EdgeInsets.only(top: 30 ),
-      //             child: Image.asset(
-      //               getCarImage(),
-      //               width: 55,
-      //             ),
-      //           ),
-      //
-      //           const SizedBox(height: 10),
-      //
-      //           Text(
-      //             vehicle.speed,
-      //             style: const TextStyle(
-      //               fontSize: 20,
-      //               fontFamily: AppFonts.number,
-      //             ),
-      //           ),
-      //
-      //           const Text("kmph"),
-      //         ],
-      //       ),
-      //
-      //       const SizedBox(width: 20),
-      //
-      //       Expanded(
-      //         child: Padding(
-      //           padding: const EdgeInsets.symmetric(vertical: 15),
-      //           child: Column(
-      //             crossAxisAlignment: CrossAxisAlignment.start,
-      //             children: [
-      //
-      //               Text(
-      //                 vehicle.name,
-      //                 style: const TextStyle(
-      //                   fontSize: 16,
-      //                   fontWeight: FontWeight.bold,
-      //                   fontFamily: AppFonts.regular,
-      //                 ),
-      //               ),
-      //
-      //               const SizedBox(height: 6),
-      //
-      //               Row(
-      //                 children: [
-      //
-      //                   Positioned(
-      //                     top: 5,
-      //                     child: Stack(
-      //                       alignment: Alignment.center,
-      //                       children: [
-      //                         // Shadow/Glow effect
-      //                         Stack(
-      //                           alignment: Alignment.center,
-      //                           children: [
-      //                             // Outer Light Circle
-      //                             Container(
-      //                               height: 15,
-      //                               width: 15,
-      //                               decoration: BoxDecoration(
-      //                                 color: vehicle.color.withOpacity(0.25),
-      //                                 shape: BoxShape.circle,
-      //                               ),
-      //                             ),
-      //
-      //                             // Inner Dark Circle
-      //                             Container(
-      //                               height: 10,
-      //                               width: 10,
-      //                               decoration: BoxDecoration(
-      //                                 color: vehicle.color,
-      //                                 shape: BoxShape.circle,
-      //                               ),
-      //                             ),
-      //                           ],
-      //                         )
-      //
-      //
-      //                       ],
-      //                     ),
-      //                   ),
-      //
-      //                   const SizedBox(width: 5),
-      //
-      //                   Text(
-      //                     vehicle.status,
-      //                     style: const TextStyle(fontSize: 10),
-      //                   ),
-      //
-      //                   const SizedBox(width: 5),
-      //
-      //                   Expanded(
-      //                     child: Text(
-      //                       vehicle.time,
-      //                       style: const TextStyle(fontSize: 10),
-      //                     ),
-      //                   ),
-      //                 ],
-      //               ),
-      //
-      //               const SizedBox(height: 5),
-      //
-      //               Row(
-      //                 children: [
-      //
-      //                   const Icon(
-      //                     Icons.access_time,
-      //                     color: Colors.pink,
-      //                     size: 14,
-      //                   ),
-      //
-      //                   const SizedBox(width: 3),
-      //
-      //                   Text(
-      //                     vehicle.date,
-      //                     style: const TextStyle(fontSize: 10),
-      //                   ),
-      //
-      //                   const SizedBox(width: 5),
-      //
-      //                   Text(
-      //                     vehicle.liveTime,
-      //                     style: const TextStyle(fontSize: 10),
-      //                   ),
-      //                 ],
-      //               ),
-      //
-      //               const SizedBox(height: 5),
-      //
-      //               Row(
-      //                 crossAxisAlignment: CrossAxisAlignment.start,
-      //                 children: [
-      //
-      //                   const Icon(
-      //                     Icons.location_on,
-      //                     size: 14,
-      //                     color: Colors.pink,
-      //                   ),
-      //
-      //                   const SizedBox(width: 3),
-      //
-      //                   Expanded(
-      //                     child: Text(
-      //                       vehicle.location,
-      //                       maxLines: 2,
-      //                       overflow: TextOverflow.ellipsis,
-      //                       style: const TextStyle(fontSize: 10),
-      //                     ),
-      //                   ),
-      //                 ],
-      //               ),
-      //               SizedBox(
-      //                 height: 7,
-      //               ),
-      //               Padding(
-      //                 padding:   EdgeInsets.only(top: 1),
-      //                 child: Row(
-      //                   children: [
-      //                     Container(
-      //                       height: 25,
-      //                       width: 25,
-      //                       decoration: BoxDecoration(
-      //                         color: Colors.white,
-      //                         borderRadius: BorderRadius.circular(8),
-      //
-      //                         boxShadow: [
-      //                           BoxShadow(
-      //                             color: Colors.black.withOpacity(0.3), // شیڈو کا رنگ اور ہلکا پن
-      //                             blurRadius: 12,                       // شیڈو کو کتنا دھندلا کرنا ہے
-      //                             spreadRadius: -3,                    // یہ سائیڈوں سے شیڈو کو چھپا دے گا (صرف نیچے دکھائے گا)
-      //                             offset: const Offset(0, 10),
-      //                           ),
-      //                         ],
-      //                       ),
-      //                       child: Icon(Icons.severe_cold_sharp,color: Colors.pink,size: 16,),
-      //
-      //                     ),
-      //                     SizedBox(
-      //                       width: 8,
-      //                     ),
-      //                     Container(
-      //                               height: 25,
-      //                               width: 25,
-      //                               decoration: BoxDecoration(
-      //                                 color: Colors.white,
-      //                                 borderRadius: BorderRadius.circular(8),
-      //
-      //                                 boxShadow: [
-      //                                   BoxShadow(
-      //                                     color: Colors.black.withOpacity(0.3),
-      //                                     blurRadius: 12,
-      //                                     spreadRadius: -3,
-      //                                     offset: const Offset(0, 10),
-      //                                   ),
-      //                                 ],
-      //                               ),
-      //                               child: Icon(Icons.satellite_alt_outlined,color: Colors.green,size: 16,),
-      //
-      //                             ),
-      //                     SizedBox(
-      //                               width: 8,
-      //                             ),
-      //                             Container(
-      //                               height: 25,
-      //                               width: 25,
-      //                               decoration: BoxDecoration(
-      //                                 color: Colors.white,
-      //                                 borderRadius: BorderRadius.circular(8),
-      //
-      //                                 boxShadow: [
-      //                                   BoxShadow(
-      //                                     color: Colors.black.withOpacity(0.3), // شیڈو کا رنگ اور ہلکا پن
-      //                                     blurRadius: 12,                       // شیڈو کو کتنا دھندلا کرنا ہے
-      //                                     spreadRadius: -3,                    // یہ سائیڈوں سے شیڈو کو چھپا دے گا (صرف نیچے دکھائے گا)
-      //                                     offset: const Offset(0, 10),
-      //                                   ),
-      //                                 ],
-      //                               ),
-      //                               child: Icon(Icons.power_settings_new_outlined,color: Colors.green,size: 16,),
-      //
-      //                             ),
-      //                     SizedBox(
-      //                               width: 8,
-      //                             ),
-      //                             Container(
-      //                               height: 25,
-      //                               width: 25,
-      //                               decoration: BoxDecoration(
-      //                                 color: Colors.white,
-      //                                 borderRadius: BorderRadius.circular(8),
-      //
-      //                                 boxShadow: [
-      //                                   BoxShadow(
-      //                                     color: Colors.black.withOpacity(0.3), // شیڈو کا رنگ اور ہلکا پن
-      //                                     blurRadius: 12,                       // شیڈو کو کتنا دھندلا کرنا ہے
-      //                                     spreadRadius: -3,                    // یہ سائیڈوں سے شیڈو کو چھپا دے گا (صرف نیچے دکھائے گا)
-      //                                     offset: const Offset(0, 10),
-      //                                   ),
-      //                                 ],
-      //                               ),
-      //                               child: Padding(
-      //                                 padding: const EdgeInsets.all(5.0),
-      //                                 child: Image.asset('assets/key.png',
-      //
-      //                                   color: Colors.pink,
-      //                                   colorBlendMode: BlendMode.srcIn,
-      //                                 ),
-      //                               ),
-      //                             ),
-      //                             SizedBox(
-      //                               width: 8,
-      //                             ),
-      //                             Container(
-      //                               height: 25,
-      //                               width: 50,
-      //                               decoration: BoxDecoration(
-      //                               color: Colors.white,
-      //                                 borderRadius: BorderRadius.circular(8),
-      //
-      //                                 boxShadow: [
-      //                                   BoxShadow(
-      //                                     color: Colors.black.withOpacity(0.3), // شیڈو کا رنگ اور ہلکا پن
-      //                                     blurRadius: 12,                       // شیڈو کو کتنا دھندلا کرنا ہے
-      //                                     spreadRadius: -3,                    // یہ سائیڈوں سے شیڈو کو چھپا دے گا (صرف نیچے دکھائے گا)
-      //                                     offset: const Offset(0, 10),
-      //                                   ),
-      //                                 ],
-      //                               ),
-      //                               child:
-      //                               Center(child: Text(vehicle.distance,style: TextStyle(fontSize: 8,fontFamily:'loginfonts.ttf' ),)),
-      //
-      //                             ),
-      //                     SizedBox(
-      //                       width: 10,
-      //                     ),
-      //                     Container(
-      //                       height: 25,
-      //                       width: 25,
-      //                       decoration: BoxDecoration(
-      //                         color: Colors.white,
-      //                         borderRadius: BorderRadius.circular(8),
-      //
-      //                         boxShadow: [
-      //                           BoxShadow(
-      //                             color: Colors.black.withOpacity(0.3), // شیڈو کا رنگ اور ہلکا پن
-      //                             blurRadius: 12,                       // شیڈو کو کتنا دھندلا کرنا ہے
-      //                             spreadRadius: -3,                    // یہ سائیڈوں سے شیڈو کو چھپا دے گا (صرف نیچے دکھائے گا)
-      //                             offset: const Offset(0, 10),
-      //                           ),
-      //                         ],
-      //                       ),
-      //                       child: Column(
-      //                         children: [
-      //                           SizedBox(
-      //                             height: 4,
-      //                           ),
-      //                           Container(
-      //                             height: 4,
-      //                             width: 4,
-      //                             decoration: BoxDecoration(
-      //                                 color: Colors.grey,
-      //                                 borderRadius: BorderRadius.circular(100)
-      //                             ),
-      //                           ),
-      //                           SizedBox(
-      //                             height: 2,
-      //                           ),
-      //                           Container(
-      //                             height: 4,
-      //                             width: 4,
-      //                             decoration: BoxDecoration(
-      //                                 color: Colors.grey,
-      //                                 borderRadius: BorderRadius.circular(100)
-      //                             ),
-      //                           ),
-      //                           SizedBox(
-      //                             height: 2,
-      //                           ),
-      //                           Container(
-      //                             height: 4,
-      //                             width: 4,
-      //                             decoration: BoxDecoration(
-      //                                 color: Colors.grey,
-      //                                 borderRadius: BorderRadius.circular(100)
-      //                             ),
-      //                           ),
-      //                         ],
-      //                       ),
-      //
-      //                     ),
-      //
-      //                   ],
-      //
-      //                 ),
-      //               ),
-      //             ],
-      //           ),
-      //         ),
-      //       ),
-      //     ],
-      //   ),
-      // ),
+class _TimelineStatusDot extends StatelessWidget {
+  final Color color;
+  final String status;
+
+  const _TimelineStatusDot({
+    required this.color,
+    required this.status,
+  });
+
+  bool get _isRunning => status.trim().toLowerCase() == 'running';
+
+  Color get _innerColor => _isRunning ? Colors.green : color;
+
+  Color get _outerColor => _isRunning
+      ? Colors.green.withValues(alpha: 0.28)
+      : color.withValues(alpha: 0.28);
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 15,
+      height: 15,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            width: 15,
+            height: 15,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _outerColor,
+            ),
+          ),
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _innerColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimelinePlainIcon extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+
+  const _TimelinePlainIcon({
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 14,
+      child: Icon(
+        icon,
+        size: 13,
+        color: color,
+      ),
+    );
+  }
+}
+
+class _DashedLine extends StatelessWidget {
+  const _DashedLine();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Column(
+        children: [
+          _dash(),
+          const SizedBox(height: 2),
+          _dash(),
+        ],
+      ),
+    );
+  }
+
+  Widget _dash() {
+    return Container(
+      width: 1.5,
+      height: 4,
+      color: Colors.grey.shade400,
+    );
+  }
+}
+
+class _TimelineText extends StatelessWidget {
+  final String text;
+  final FontWeight fontWeight;
+  final int maxLines;
+
+  const _TimelineText({
+    required this.text,
+    this.fontWeight = FontWeight.w400,
+    this.maxLines = 1,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const double fontSize = 10;
+    const double textHeight = 1.25;
+    final Color textColor = context.mutedTextColor;
+
+    final text = Text(
+      this.text,
+      maxLines: maxLines,
+      overflow: TextOverflow.ellipsis,
+      softWrap: true,
+      style: TextStyle(
+        fontSize: fontSize,
+        height: textHeight,
+        fontWeight: fontWeight,
+        color: textColor,
+        fontFamily: AppFonts.regular,
+      ),
+    );
+
+    if (maxLines <= 1) {
+      return text;
+    }
+
+    return SizedBox(
+      height: fontSize * textHeight * maxLines,
+      child: Align(
+        alignment: Alignment.topLeft,
+        child: text,
+      ),
+    );
+  }
+}
+
+class _StatusIcon extends StatelessWidget {
+  static const double _boxSize = 28;
+  static const double _iconSize = 14;
+
+  final IconData icon;
+  final Color color;
+  final bool isActive;
+
+  const _StatusIcon({
+    required this.icon,
+    required this.color,
+    required this.isActive,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _MiniCardSurface(
+      width: _boxSize,
+      height: _boxSize,
+      child: Icon(
+        icon,
+        size: _iconSize,
+        color: isActive ? color : Colors.grey.shade400,
+      ),
+    );
+  }
+}
+
+class _MiniCardSurface extends StatelessWidget {
+  final Widget child;
+  final double? width;
+  final double height;
+  final EdgeInsetsGeometry? padding;
+
+  const _MiniCardSurface({
+    required this.child,
+    required this.height,
+    this.width,
+    this.padding,
+  });
+
+  static const BorderRadius _radius = BorderRadius.all(Radius.circular(6));
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      height: height,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            top: 3,
+            left: 0,
+            right: 0,
+            bottom: -4,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: _radius,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.grey.withValues(alpha: 0.22),
+                    blurRadius: 3,
+                    offset: const Offset(-2, 4),
+                  ),
+                  BoxShadow(
+                    color: Colors.grey.withValues(alpha: 0.22),
+                    blurRadius: 3,
+                    offset: const Offset(2, 4),
+                  ),
+                  BoxShadow(
+                    color: Colors.grey.withValues(alpha: 0.3),
+                    blurRadius: 5,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const SizedBox.expand(),
+            ),
+          ),
+          Container(
+            width: width,
+            height: height,
+            padding: padding,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: context.containerColor,
+              borderRadius: _radius,
+            ),
+            child: child,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoPill extends StatelessWidget {
+  static const double _boxHeight = 28;
+
+  final IconData icon;
+  final String label;
+
+  const _InfoPill({
+    required this.icon,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _MiniCardSurface(
+      height: _boxHeight,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: context.mutedTextColor),
+          const SizedBox(width: 3),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 9,
+                color: context.textColor,
+                fontFamily: AppFonts.regular,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

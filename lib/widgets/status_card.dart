@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_theme_tokens.dart';
+
 class StatusCard extends StatelessWidget {
   final Color color;
   final String title;
@@ -21,88 +23,90 @@ class StatusCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 130,
-        margin: const EdgeInsets.only(right: 12, top: 10),
+        width: 108,
+        height: 140,
+        margin: const EdgeInsets.only(right: 10, top: 2),
         child: Stack(
           alignment: Alignment.topCenter,
           clipBehavior: Clip.none,
           children: [
-            /// Card
             Container(
               width: double.infinity,
-              margin: const EdgeInsets.only(top: 45),
-              padding: const EdgeInsets.only(top: 45, bottom: 15),
+              margin: const EdgeInsets.only(top: 36),
+              padding: const EdgeInsets.only(top: 36, bottom: 12),
               decoration: BoxDecoration(
-                color: isSelected ? color.withOpacity(.08) : Colors.white,
-                borderRadius: BorderRadius.circular(18),
-
+                color: isSelected
+                    ? color.withValues(alpha: 0.08)
+                    : context.containerColor,
+                borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: isSelected ? color : Colors.transparent,
+                  color: isSelected
+                      ? color
+                      : (context.appTokens.containerBorderColor ??
+                          Colors.transparent),
                   width: 2,
                 ),
-
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 5),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
                   ),
                 ],
               ),
-
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     count,
-                    style: const TextStyle(
-                      fontSize: 22,
+                    style: TextStyle(
+                      fontSize: 18,
                       fontWeight: FontWeight.bold,
+                      color: context.textColor,
                     ),
                   ),
-
-                  const SizedBox(height: 5),
-
-                  Text(title, style: TextStyle(color: Colors.grey.shade600)),
+                  const SizedBox(height: 4),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: context.mutedTextColor,
+                    ),
+                  ),
                 ],
               ),
             ),
-
-            /// Floating Icon
             Positioned(
-              top: 5,
-
+              top: 4,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  // Shadow/Glow effect
                   Container(
-                    height: 70,
-                    width: 70,
+                    height: 58,
+                    width: 58,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: color.withOpacity(0.9),
                     ),
                   ),
                   Container(
-                    height: 40.5,
-                    width: 40.5,
+                    height: 34,
+                    width: 34,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: Colors.grey[400],
                       boxShadow: [
                         BoxShadow(
                           color: Colors.grey.withOpacity(0.9),
-                          blurRadius: 10,
-                          spreadRadius: 13,
+                          blurRadius: 8,
+                          spreadRadius: 10,
                         ),
                       ],
                     ),
                   ),
-                  // Inner Colored Circle
                   Container(
-                    height: 40,
-                    width: 40,
+                    height: 33,
+                    width: 33,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: LinearGradient(
@@ -114,7 +118,7 @@ class StatusCard extends StatelessWidget {
                     child: const Icon(
                       Icons.directions_car,
                       color: Colors.white,
-                      size: 24,
+                      size: 20,
                     ),
                   ),
                 ],

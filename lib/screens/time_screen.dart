@@ -1,8 +1,3 @@
-// import 'package:flutter/material.dart';
-// import 'package:multitrack/esaytracking_screen.dart';
-// import 'package:multitrack/login_screen.dart';
-// import 'package:multitrack/screens/esaytracking_screen.dart';
-// import 'package:multitrack/screens/login_screen.dart';
 import 'package:flutter/material.dart';
 
 import 'esaytracking_screen.dart';
@@ -18,51 +13,56 @@ class TimeScreen extends StatefulWidget {
 class _TimeScreenState extends State<TimeScreen> {
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color textColor = theme.colorScheme.onSurface;
+    final Color accentColor = theme.colorScheme.primary;
+
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: SingleChildScrollView(
         child: Column(
           children: [
-            SizedBox(height: 23),
-            Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(left: 295),
-                  child: TextButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (context) => LoginScreen()),
-                      );
-                    },
-                    child: Text("Skip", style: TextStyle(color: Colors.black)),
-                  ),
+            const SizedBox(height: 23),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (context) => const LoginScreen(),
+                    ),
+                  );
+                },
+                child: Text(
+                  'Skip',
+                  style: TextStyle(color: textColor),
                 ),
-              ],
+              ),
             ),
-            SizedBox(height: 60),
-            Column(
-              children: [
-                Container(child: Image.asset('assets/esaytracking.jpeg')),
-              ],
-            ),
-            SizedBox(height: 60),
+            const SizedBox(height: 60),
+            Image.asset('assets/esaytracking.jpeg'),
+            const SizedBox(height: 60),
             Text(
               'Esay Tracking',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+                color: textColor,
+              ),
             ),
-            SizedBox(height: 20),
+            const SizedBox(height: 20),
             Text(
               'Tracking any device with user friendly software',
-              style: TextStyle(fontSize: 13),
+              style: TextStyle(fontSize: 13, color: textColor),
             ),
-            SizedBox(height: 60),
+            const SizedBox(height: 60),
             Container(
-              padding: EdgeInsets.all(9), // gap between border & inner circle
+              padding: const EdgeInsets.all(9),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: Color(0xFFFF3B6F), // outer ring color
+                  color: accentColor,
                   width: 1.5,
                 ),
               ),
@@ -70,25 +70,20 @@ class _TimeScreenState extends State<TimeScreen> {
                 width: 70,
                 height: 70,
                 decoration: BoxDecoration(
-                  color: Color(0xFFFF3B6F),
+                  color: accentColor,
                   shape: BoxShape.circle,
                 ),
-                // child: Icon(
-                //   Icons.arrow_forward, // 👈 same icon
-                //   color: Colors.white,
-                //   size: 30,
-                // ),
                 child: IconButton(
                   onPressed: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
+                      MaterialPageRoute<void>(
                         builder: (context) => EsaytrackingScreen(),
                       ),
                     );
                   },
-                  icon: Icon(
-                    Icons.arrow_forward, // 👈 same icon
+                  icon: const Icon(
+                    Icons.arrow_forward,
                     color: Colors.white,
                     size: 30,
                   ),

@@ -3,8 +3,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:multitrack/screens/login_screen.dart';
+import 'package:multitrack/services/auth_service.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'app_setting_sreen.dart';
+import '../../theme/app_theme_tokens.dart';
 
 class SettingScreen extends StatefulWidget {
   const SettingScreen({super.key});
@@ -14,21 +18,33 @@ class SettingScreen extends StatefulWidget {
 }
 
 class _SettingScreenState extends State<SettingScreen> {
-  static const Color backgroundColor = Color(0xFFF7F7F7);
-  static const Color textColor = Color(0xFF292B32);
-  static const Color pinkColor = Color(0xFFFF2F68);
-
   static const String _profileImageKey = 'saved_profile_image_path';
 
   final ImagePicker _imagePicker = ImagePicker();
 
   File? _selectedImage;
 
+  bool _isProfileImageLoading = true;
+
   @override
   void initState() {
     super.initState();
+    _loadProfileImageWithLoader();
+  }
 
-    _loadSavedProfileImage();
+  Future<void> _loadProfileImageWithLoader() async {
+    await Future.wait<void>([
+      _loadSavedProfileImage(),
+      Future<void>.delayed(const Duration(seconds: 3)),
+    ]);
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isProfileImageLoading = false;
+    });
   }
 
   // ============================================================
@@ -129,33 +145,30 @@ class _SettingScreenState extends State<SettingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color backgroundColor = theme.scaffoldBackgroundColor;
+    final Color textColor = theme.colorScheme.onSurface;
+    final Color pinkColor = theme.colorScheme.primary;
+
     return Scaffold(
       backgroundColor: backgroundColor,
-
       body: SafeArea(
         bottom: false,
-
         child: SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
-
           padding: const EdgeInsets.only(
             left: 10,
             right: 10,
             top: 50,
             bottom: 110,
           ),
-
           child: Column(
             children: [
               _buildAccountCard(),
-
               const SizedBox(height: 10),
-
               _buildSettingsCard(),
-
               const SizedBox(height: 10),
-
-              const Text(
+              Text(
                 'version 99.71.197',
                 style: TextStyle(
                   color: textColor,
@@ -163,7 +176,6 @@ class _SettingScreenState extends State<SettingScreen> {
                   fontWeight: FontWeight.w400,
                 ),
               ),
-
               const SizedBox(height: 10),
             ],
           ),
@@ -185,41 +197,29 @@ class _SettingScreenState extends State<SettingScreen> {
           width: double.infinity,
           height: 300,
 
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-          ),
+          decoration: context.containerDecoration(),
 
-          child: const Padding(
-            padding: EdgeInsets.only(left: 38, right: 25, top: 85),
-
+          child: Padding(
+            padding: const EdgeInsets.only(left: 38, right: 25, top: 85),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-
-              children: [
+              children: const [
                 AccountInfo(label: 'Name', value: 'mtdemo1'),
-
                 SizedBox(height: 35),
-
                 AccountInfo(label: 'User ID', value: 'mtdemo1'),
-
                 SizedBox(height: 35),
-
                 AccountInfo(label: 'Mobile Number', value: ''),
               ],
             ),
           ),
         ),
-
-        const Positioned(
+        Positioned(
           top: 4,
           left: 120,
-
           child: Text(
             'Account',
-
             style: TextStyle(
-              color: textColor,
+              color: context.textColor,
               fontSize: 20,
               fontWeight: FontWeight.bold,
             ),
@@ -244,7 +244,7 @@ class _SettingScreenState extends State<SettingScreen> {
           width: 80,
           height: 80,
 
-          padding: const EdgeInsets.all(5),
+          padding: const EdgeInsets.all(2),
 
           decoration: BoxDecoration(
             color: Colors.white,
@@ -261,19 +261,37 @@ class _SettingScreenState extends State<SettingScreen> {
           ),
 
           child: ClipOval(
-            child: _selectedImage != null
-                ? Image.file(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (_isProfileImageLoading)
+                  Container(
+                    color: const Color(0xFFF5F5F5),
+                    alignment: Alignment.center,
+                    child: SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  )
+                else if (_selectedImage != null)
+                  Image.file(
                     _selectedImage!,
                     key: ValueKey(_selectedImage!.path),
                     width: double.infinity,
                     height: double.infinity,
                     fit: BoxFit.cover,
-
                     errorBuilder: (context, error, stackTrace) {
                       return _buildDefaultProfileImage();
                     },
                   )
-                : _buildDefaultProfileImage(),
+                else
+                  _buildDefaultProfileImage(),
+              ],
+            ),
           ),
         ),
 
@@ -282,7 +300,7 @@ class _SettingScreenState extends State<SettingScreen> {
           bottom: 4,
 
           child: Material(
-            color: pinkColor,
+            color: Theme.of(context).colorScheme.primary,
             shape: const CircleBorder(),
             elevation: 3,
 
@@ -336,10 +354,7 @@ class _SettingScreenState extends State<SettingScreen> {
     return Container(
       width: double.infinity,
 
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-      ),
+      decoration: context.containerDecoration(),
 
       child: Padding(
         padding: const EdgeInsets.only(
@@ -375,12 +390,7 @@ class _SettingScreenState extends State<SettingScreen> {
 
                 const Text(
                   'Settings',
-
-                  style: TextStyle(
-                    color: textColor,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                  ),
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
                 ),
               ],
             ),
@@ -389,10 +399,14 @@ class _SettingScreenState extends State<SettingScreen> {
 
             SettingItem(
               image: 'assets/app_setting.png',
-              title: 'App Settings' ,
-
+              title: 'App Settings',
               onTap: () {
-                debugPrint('App Settings Clicked');
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (context) => const AppSettingScreen(),
+                  ),
+                );
               },
             ),
 
@@ -419,12 +433,19 @@ class _SettingScreenState extends State<SettingScreen> {
               image: 'assets/sign_out.png',
               title: 'Sign Out',
 
-              onTap: () {
-                Navigator.push(
+              onTap: () async {
+                await AuthService.logout();
+                if (!context.mounted) {
+                  return;
+                }
+                Navigator.pushAndRemoveUntil(
                   context,
-                  MaterialPageRoute(builder: (context) => LoginScreen()),
+                  MaterialPageRoute<void>(
+                    builder: (context) => const LoginScreen(),
+                  ),
+                  (_) => false,
                 );
-               },
+              },
             ),
           ],
         ),
@@ -447,25 +468,20 @@ class AccountInfo extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-
       children: [
         Text(
           label,
-
-          style: const TextStyle(
-            color: Color(0xFFA8A8A8),
+          style: TextStyle(
+            color: context.labelTextColor,
             fontSize: 12,
             fontWeight: FontWeight.w100,
           ),
         ),
-
         const SizedBox(height: 8),
-
         Text(
           value,
-
-          style: const TextStyle(
-            color: Color(0xFF292B32),
+          style: TextStyle(
+            color: context.textColor,
             fontSize: 14,
             fontWeight: FontWeight.w400,
           ),
@@ -493,51 +509,45 @@ class SettingItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Color textColor = context.textColor;
+    final Color accentColor = Theme.of(context).colorScheme.primary;
+
     return Material(
       color: Colors.transparent,
-
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
-
         child: SizedBox(
           height: 50,
-
           child: Row(
             children: [
               SizedBox(
                 width: 25,
                 height: 25,
-
                 child: Image.asset(
                   image,
                   fit: BoxFit.contain,
-
                   errorBuilder: (context, error, stackTrace) {
-                    return const Icon(
+                    return Icon(
                       Icons.settings_outlined,
                       size: 35,
-                      color: Colors.grey,
+                      color: context.mutedTextColor,
                     );
                   },
                 ),
               ),
-
               const SizedBox(width: 18),
-
               Expanded(
                 child: Text(
                   title,
-
-                  style: const TextStyle(
-                    color: Color(0xFF292B32),
+                  style: TextStyle(
+                    color: textColor,
                     fontSize: 14,
-                    fontWeight: FontWeight(1)
-                   ),
+                    fontWeight: FontWeight.w400,
+                  ),
                 ),
               ),
-
-              const Icon(Icons.arrow_right, color: Color(0xFFFF2F68), size: 28),
+              Icon(Icons.arrow_right, color: accentColor, size: 28),
             ],
           ),
         ),

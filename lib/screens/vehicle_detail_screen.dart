@@ -3,6 +3,9 @@ import 'dart:math' as math;
 import 'dart:async';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../theme/app_theme_tokens.dart';
+import '../theme/hacking_map_style.dart';
+
 class VehicleDetailScreen extends StatefulWidget {
   final String name;
   final String status;
@@ -80,6 +83,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   Widget build(BuildContext context) {
     final double currentSpeed = double.tryParse(widget.speed) ?? 0.0;
     final double mediaHeight = MediaQuery.of(context).size.height;
+    final Color textColor = context.textColor;
+    final Color mutedColor = context.mutedTextColor;
+    final Color accentColor = Theme.of(context).colorScheme.primary;
 
     return Scaffold(
       body: Stack(
@@ -91,6 +97,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 target: _carLocation,
                 zoom: 16.0,
               ),
+              style: context.isHackingTheme ? hackingMapStyle : null,
               onMapCreated: (controller) => _mapController = controller,
               myLocationEnabled: false,
               zoomControlsEnabled: false,
@@ -116,7 +123,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             left: 16,
             child: _floatingMapButton(
               Icons.arrow_back_ios_new,
-              Colors.black,
+              textColor,
               () => Navigator.pop(context),
             ),
           ),
@@ -125,7 +132,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             right: 16,
             child: Column(
               children: [
-                _floatingMapButton(Icons.map_outlined, Colors.black, () {}),
+                _floatingMapButton(Icons.map_outlined, textColor, () {}),
                 const SizedBox(height: 12),
                 _floatingMapButton(Icons.lock, Colors.green, () {}),
                 const SizedBox(height: 12),
@@ -172,11 +179,18 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                       children: [
                         Container(
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: context.containerColor,
                             borderRadius: const BorderRadius.only(
                               topLeft: Radius.circular(24),
                               topRight: Radius.circular(24),
                             ),
+                            border: context.appTokens.containerBorderColor ==
+                                    null
+                                ? null
+                                : Border.all(
+                                    color: context
+                                        .appTokens.containerBorderColor!,
+                                  ),
                             boxShadow: [
                               BoxShadow(
                                 color: Colors.black.withOpacity(0.06),
@@ -192,7 +206,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                 height: 4,
                                 width: 40,
                                 decoration: BoxDecoration(
-                                  color: Colors.grey.shade300,
+                                  color: mutedColor.withValues(alpha: 0.4),
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                               ),
@@ -222,26 +236,28 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                             const SizedBox(width: 3),
                                             Text(
                                               widget.name,
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                 fontSize: 15,
                                                 fontWeight: FontWeight.bold,
+                                                color: textColor,
                                               ),
                                             ),
                                           ],
                                         ),
                                         Row(
                                           children: [
-                                            const Icon(
+                                            Icon(
                                               Icons.speed,
-                                              color: Colors.pink,
+                                              color: accentColor,
                                               size: 18,
                                             ),
                                             const SizedBox(width: 4),
                                             Text(
                                               widget.distance,
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                 fontSize: 15,
                                                 fontWeight: FontWeight.bold,
+                                                color: textColor,
                                               ),
                                             ),
                                           ],
@@ -251,14 +267,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                     const SizedBox(height: 10),
                                     Row(
                                       children: [
-                                        _buildOdometerDigit("0"),
-                                        _buildOdometerDigit("2"),
-                                        _buildOdometerDigit("6"),
-                                        _buildOdometerDigit("9"),
-                                        _buildOdometerDigit("3"),
-                                        _buildOdometerDigit("1"),
-                                        _buildOdometerDigit("1"),
-                                        _buildOdometerDigit("1"),
+                                        _buildOdometerDigit(context, "0"),
+                                        _buildOdometerDigit(context, "2"),
+                                        _buildOdometerDigit(context, "6"),
+                                        _buildOdometerDigit(context, "9"),
+                                        _buildOdometerDigit(context, "3"),
+                                        _buildOdometerDigit(context, "1"),
+                                        _buildOdometerDigit(context, "1"),
+                                        _buildOdometerDigit(context, "1"),
                                         const Spacer(),
                                         _miniIconBadge(
                                           Icons.severe_cold,
@@ -287,11 +303,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        const Padding(
-                                          padding: EdgeInsets.only(top: 2),
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(top: 2),
                                           child: Icon(
                                             Icons.location_on,
-                                            color: Colors.pink,
+                                            color: accentColor,
                                             size: 16,
                                           ),
                                         ),
@@ -301,7 +318,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                             widget.location,
                                             style: TextStyle(
                                               fontSize: 12,
-                                              color: Colors.grey.shade700,
+                                              color: mutedColor,
                                               fontWeight: FontWeight.w500,
                                               height: 1.3,
                                             ),
@@ -318,10 +335,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                         horizontal: 6,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: Colors.white,
+                                        color: context.containerColor,
                                         borderRadius: BorderRadius.circular(12),
                                         border: Border.all(
-                                          color: Colors.grey.shade200,
+                                          color: context.appTokens
+                                                  .containerBorderColor ??
+                                              mutedColor
+                                                  .withValues(alpha: 0.25),
                                         ),
                                       ),
                                       child: Row(
@@ -329,36 +349,43 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                             MainAxisAlignment.spaceAround,
                                         children: [
                                           _buildGridItem(
+                                            context,
                                             Icons.battery_alert,
                                             "0 V",
                                             "Car Battery",
                                           ),
                                           _buildGridItem(
+                                            context,
                                             Icons.satellite_alt_sharp,
                                             "15",
                                             "Satellite",
                                           ),
                                           _buildGridItem(
+                                            context,
                                             Icons.local_gas_station,
                                             "N/A",
                                             "Fuel",
                                           ),
                                           _buildGridItem(
+                                            context,
                                             Icons.grain,
                                             "0.0",
                                             "Accuracy",
                                           ),
                                           _buildGridItem(
+                                            context,
                                             Icons.device_thermostat,
                                             "N/A",
                                             "Temp",
                                           ),
                                           _buildGridItem(
+                                            context,
                                             Icons.alt_route,
                                             "true",
                                             "Movement",
                                           ),
                                           _buildGridItem(
+                                            context,
                                             Icons.sensor_door,
                                             "N/A",
                                             "Door",
@@ -373,10 +400,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                         horizontal: 8,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: Colors.white,
+                                        color: context.containerColor,
                                         borderRadius: BorderRadius.circular(12),
                                         border: Border.all(
-                                          color: Colors.grey.shade200,
+                                          color: context.appTokens
+                                                  .containerBorderColor ??
+                                              mutedColor
+                                                  .withValues(alpha: 0.25),
                                         ),
                                       ),
                                       child: Row(
@@ -386,19 +416,19 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                               children: [
                                                 Text(
                                                   widget.livetime,
-                                                  style: const TextStyle(
+                                                  style: TextStyle(
                                                     fontSize: 12,
-                                                    color: Colors.pink,
+                                                    color: accentColor,
                                                     fontWeight: FontWeight.bold,
                                                   ),
                                                 ),
                                                 const SizedBox(height: 2),
-                                                const Text(
+                                                Text(
                                                   "Device Time",
                                                   style: TextStyle(
                                                     fontSize: 11,
                                                     fontWeight: FontWeight.bold,
-                                                    color: Colors.black54,
+                                                    color: mutedColor,
                                                   ),
                                                 ),
                                               ],
@@ -407,26 +437,27 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                           Container(
                                             width: 1,
                                             height: 28,
-                                            color: Colors.grey.shade300,
+                                            color:
+                                                mutedColor.withValues(alpha: 0.3),
                                           ),
                                           Expanded(
                                             child: Column(
                                               children: [
                                                 Text(
                                                   widget.livetime,
-                                                  style: const TextStyle(
+                                                  style: TextStyle(
                                                     fontSize: 12,
-                                                    color: Colors.pink,
+                                                    color: accentColor,
                                                     fontWeight: FontWeight.bold,
                                                   ),
                                                 ),
                                                 const SizedBox(height: 2),
-                                                const Text(
+                                                Text(
                                                   "Server Time",
                                                   style: TextStyle(
                                                     fontSize: 11,
                                                     fontWeight: FontWeight.bold,
-                                                    color: Colors.black54,
+                                                    color: mutedColor,
                                                   ),
                                                 ),
                                               ],
@@ -439,15 +470,19 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                     Container(
                                       padding: const EdgeInsets.all(14),
                                       decoration: BoxDecoration(
-                                        color: Colors.white,
+                                        color: context.containerColor,
                                         borderRadius: BorderRadius.circular(12),
                                         border: Border.all(
-                                          color: Colors.grey.shade200,
+                                          color: context.appTokens
+                                                  .containerBorderColor ??
+                                              mutedColor
+                                                  .withValues(alpha: 0.25),
                                         ),
                                       ),
                                       child: Column(
                                         children: [
                                           _buildStateSummaryRow(
+                                            context,
                                             Colors.green,
                                             "Running :",
                                             "01:12 Hrs",
@@ -457,6 +492,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                             thickness: 0.5,
                                           ),
                                           _buildStateSummaryRow(
+                                            context,
                                             Colors.red,
                                             "Stop :",
                                             "00:04 Hrs",
@@ -466,6 +502,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                             thickness: 0.5,
                                           ),
                                           _buildStateSummaryRow(
+                                            context,
                                             Colors.orange,
                                             "Idle :",
                                             "00:20 Hrs",
@@ -497,8 +534,16 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                     height: 140,
                                     width: 140,
                                     decoration: BoxDecoration(
-                                      color: Colors.white,
+                                      color: context.containerColor,
                                       shape: BoxShape.circle,
+                                      border: context.appTokens
+                                                  .containerBorderColor ==
+                                              null
+                                          ? null
+                                          : Border.all(
+                                              color: context.appTokens
+                                                  .containerBorderColor!,
+                                            ),
                                       boxShadow: [
                                         BoxShadow(
                                           color: Colors.black.withOpacity(0.08),
@@ -514,6 +559,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                     child: CustomPaint(
                                       painter: FullCircularSpeedoPainter(
                                         speedValue: currentSpeed,
+                                        scaleTextColor: textColor,
                                       ),
                                     ),
                                   ),
@@ -524,19 +570,19 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                       children: [
                                         Text(
                                           widget.speed,
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                             fontSize: 24,
                                             fontWeight: FontWeight.bold,
-                                            color: Color(0xFF1E1E1E),
+                                            color: textColor,
                                             height: 1.0,
                                           ),
                                         ),
-                                        const Text(
+                                        Text(
                                           "kmph",
                                           style: TextStyle(
                                             fontSize: 10,
                                             fontWeight: FontWeight.w600,
-                                            color: Colors.black54,
+                                            color: mutedColor,
                                           ),
                                         ),
                                       ],
@@ -561,10 +607,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           ],
         ),
         child: BottomNavigationBar(
+          backgroundColor: context.containerColor,
           currentIndex: _currentBottomIndex,
           onTap: (index) => setState(() => _currentBottomIndex = index),
-          selectedItemColor: Colors.pink,
-          unselectedItemColor: Colors.black54,
+          selectedItemColor: accentColor,
+          unselectedItemColor: mutedColor,
           selectedLabelStyle: const TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 12,
@@ -600,8 +647,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         height: 38,
         width: 38,
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: context.containerColor,
           borderRadius: BorderRadius.circular(8),
+          border: context.appTokens.containerBorderColor == null
+              ? null
+              : Border.all(color: context.appTokens.containerBorderColor!),
           boxShadow: const [
             BoxShadow(
               color: Colors.black12,
@@ -615,21 +665,24 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     );
   }
 
-  Widget _buildOdometerDigit(String digit) {
+  Widget _buildOdometerDigit(BuildContext context, String digit) {
     return Container(
       margin: const EdgeInsets.only(right: 3),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
+        color: context.containerColor,
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: Colors.grey.shade300),
+        border: Border.all(
+          color: context.appTokens.containerBorderColor ??
+              context.mutedTextColor.withValues(alpha: 0.35),
+        ),
       ),
       child: Text(
         digit,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.bold,
-          color: Colors.black87,
+          color: context.textColor,
         ),
       ),
     );
@@ -647,19 +700,19 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     );
   }
 
-  Widget _buildGridItem(IconData icon, String value, String label) {
+  Widget _buildGridItem(BuildContext context, IconData icon, String value, String label) {
     return Expanded(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: Colors.black54, size: 18),
+          Icon(icon, color: context.mutedTextColor, size: 18),
           const SizedBox(height: 5),
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.bold,
-              color: Colors.black87,
+              color: context.textColor,
             ),
           ),
           const SizedBox(height: 2),
@@ -667,7 +720,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             label,
             style: TextStyle(
               fontSize: 8,
-              color: Colors.grey.shade600,
+              color: context.mutedTextColor,
               fontWeight: FontWeight.w500,
             ),
             textAlign: TextAlign.center,
@@ -680,6 +733,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   Widget _buildStateSummaryRow(
+    BuildContext context,
     Color color,
     String stateLabel,
     String durationValue,
@@ -704,19 +758,19 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         const SizedBox(width: 10),
         Text(
           stateLabel,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w600,
-            color: Colors.black87,
+            color: context.textColor,
           ),
         ),
         const Spacer(),
         Text(
           durationValue,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.bold,
-            color: Colors.black87,
+            color: context.textColor,
           ),
         ),
       ],
@@ -726,7 +780,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
 class FullCircularSpeedoPainter extends CustomPainter {
   final double speedValue;
-  FullCircularSpeedoPainter({required this.speedValue});
+  final Color scaleTextColor;
+
+  FullCircularSpeedoPainter({
+    required this.speedValue,
+    this.scaleTextColor = Colors.black87,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -766,7 +825,9 @@ class FullCircularSpeedoPainter extends CustomPainter {
     for (int i = 0; i < scale.length; i++) {
       final angle = startAngle + (i * maxSweepAngle / (scale.length - 1));
       final tickPaint = Paint()
-        ..color = scale[i] == "_" ? Colors.black38 : Colors.black87
+        ..color = scale[i] == "_"
+            ? scaleTextColor.withValues(alpha: 0.35)
+            : scaleTextColor
         ..strokeWidth = scale[i] == "_" ? 1.5 : 2;
 
       final tickStart = Offset(
@@ -826,8 +887,8 @@ class FullCircularSpeedoPainter extends CustomPainter {
     final textPainter = TextPainter(
       text: TextSpan(
         text: text,
-        style: const TextStyle(
-          color: Colors.black87,
+        style: TextStyle(
+          color: scaleTextColor,
           fontSize: 10,
           fontWeight: FontWeight.bold,
         ),
@@ -843,5 +904,6 @@ class FullCircularSpeedoPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant FullCircularSpeedoPainter oldDelegate) =>
-      oldDelegate.speedValue != speedValue;
+      oldDelegate.speedValue != speedValue ||
+      oldDelegate.scaleTextColor != scaleTextColor;
 }

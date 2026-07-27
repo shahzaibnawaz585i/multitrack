@@ -10,6 +10,7 @@ class VehicleModel {
   final String liveTime;
   final String location;
   final String date;
+  final String? validity;
 
   const VehicleModel({
     required this.name,
@@ -21,19 +22,23 @@ class VehicleModel {
     required this.liveTime,
     required this.location,
     required this.date,
+    this.validity,
   });
+
+  String get validityLabel => validity ?? '449 Days Validity';
 
   factory VehicleModel.fromJson(Map<String, dynamic> json) {
     return VehicleModel(
-      name: json["name"] ?? "",
-      status: json["status"] ?? "",
+      name: json['name'] ?? '',
+      status: json['status'] ?? '',
       color: Colors.green,
-      speed: json["speed"].toString(),
-      distance: json["distance"] ?? "",
-      time: json["time"] ?? "",
-      liveTime: json["liveTime"] ?? "",
-      location: json["location"] ?? "",
-      date: json["date"] ?? "",
+      speed: json['speed'].toString(),
+      distance: json['distance'] ?? '',
+      time: json['time'] ?? '',
+      liveTime: json['liveTime'] ?? '',
+      location: json['location'] ?? '',
+      date: json['date'] ?? '',
+      validity: json['validity'] as String?,
     );
   }
 }

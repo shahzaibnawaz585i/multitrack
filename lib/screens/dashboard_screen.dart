@@ -3,6 +3,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:multitrack/screens/report_screens/main_screen.dart';
 
+import '../../theme/app_theme_tokens.dart';
 import 'lists_screen.dart';
 import 'map_screen.dart';
  import 'settings_screen/setting_screen.dart';
@@ -99,21 +100,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
       duration: const Duration(milliseconds: 200),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: isSelected ? Colors.black : Colors.transparent,
+        color: isSelected
+            ? (Theme.of(context).brightness == Brightness.dark
+                ? Colors.white.withValues(alpha: 0.14)
+                : Colors.black)
+            : Colors.transparent,
         shape: BoxShape.circle,
       ),
       child: Icon(
         icon,
         size: 26,
-        color: const Color(0xFFF43A6B),
+        color: Theme.of(context).colorScheme.primary,
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+
     return Scaffold(
-      backgroundColor: Colors.grey.shade100,
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: PageStorage(
         bucket: _pageStorageBucket,
         child: _buildCurrentScreen(),
@@ -122,8 +129,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         index: _selectedIndex,
         height: 65,
         backgroundColor: Colors.transparent,
-        color: Colors.white,
-        buttonBackgroundColor: Colors.white,
+        color: theme.cardColor,
+        buttonBackgroundColor: theme.cardColor,
 
         // Curved selected button slow aur smoothly move karega.
         animationDuration: const Duration(milliseconds: 1000),
@@ -192,6 +199,10 @@ class MainDashboardContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Color textColor = Theme.of(context).colorScheme.onSurface;
+    final Color mutedColor = textColor.withValues(alpha: 0.6);
+    final Color accentColor = Theme.of(context).colorScheme.primary;
+
     return SafeArea(
       child: SingleChildScrollView(
         key: const PageStorageKey<String>('dashboard_scroll'),
@@ -201,40 +212,42 @@ class MainDashboardContent extends StatelessWidget {
           children: [
             const SizedBox(height: 10),
 
-            _buildHeader(),
+            _buildHeader(accentColor),
 
             const SizedBox(height: 10),
 
-            _buildDashboardTitle(),
+            _buildDashboardTitle(textColor, accentColor),
 
             const SizedBox(height: 20),
 
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text(
                 'Fleet Status',
                 style: TextStyle(
                   fontSize: 16,
                   fontFamily: 'NormalBold',
                   fontWeight: FontWeight.w600,
+                  color: textColor,
                 ),
               ),
             ),
 
-            _buildFleetStatusCard(),
+            _buildFleetStatusCard(context, mutedColor),
 
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text(
                 'Engine Hours',
                 style: TextStyle(
                   fontFamily: 'NormalBold',
                   fontSize: 16,
+                  color: textColor,
                 ),
               ),
             ),
 
-            _buildEngineHoursChart(),
+            _buildEngineHoursChart(context),
 
             const SizedBox(height: 30),
           ],
@@ -243,7 +256,7 @@ class MainDashboardContent extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(Color accentColor) {
     return Padding(
       padding: const EdgeInsets.all(9),
       child: Row(
@@ -264,21 +277,17 @@ class MainDashboardContent extends StatelessWidget {
               );
             },
           ),
-
           const SizedBox(width: 8),
-
-          const Text(
+          Text(
             'multiTrack',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
               fontFamily: 'NormalBold',
-              color: _primaryColor,
+              color: accentColor,
             ),
           ),
-
           const Spacer(),
-
           Image.asset(
             'assets/penicons.png',
             height: 50,
@@ -295,9 +304,7 @@ class MainDashboardContent extends StatelessWidget {
               );
             },
           ),
-
           const SizedBox(width: 8),
-
           const Icon(
             Icons.refresh_outlined,
             size: 27,
@@ -307,41 +314,40 @@ class MainDashboardContent extends StatelessWidget {
     );
   }
 
-  Widget _buildDashboardTitle() {
+  Widget _buildDashboardTitle(Color textColor, Color accentColor) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
-          const Text(
+          Text(
             'Dashboard',
             style: TextStyle(
               fontSize: 20,
               fontFamily: 'NormalBold',
               fontWeight: FontWeight.w600,
+              color: textColor,
             ),
           ),
-
           const Spacer(),
-
           Container(
             padding: const EdgeInsets.symmetric(
               horizontal: 8,
               vertical: 4,
             ),
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.black),
+              border: Border.all(color: textColor.withValues(alpha: 0.5)),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Row(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   'RJ14UG839',
-                  style: TextStyle(fontSize: 13),
+                  style: TextStyle(fontSize: 13, color: textColor),
                 ),
                 Icon(
                   Icons.arrow_drop_down,
-                  color: _primaryColor,
+                  color: accentColor,
                   size: 18,
                 ),
               ],
@@ -352,14 +358,13 @@ class MainDashboardContent extends StatelessWidget {
     );
   }
 
-  Widget _buildFleetStatusCard() {
+  Widget _buildFleetStatusCard(BuildContext context, Color mutedColor) {
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: Colors.white,
+        decoration: context.containerDecoration(
           borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
@@ -405,7 +410,7 @@ class MainDashboardContent extends StatelessWidget {
                     ),
                   ),
 
-                  const IgnorePointer(
+                  IgnorePointer(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -415,12 +420,13 @@ class MainDashboardContent extends StatelessWidget {
                             fontWeight: FontWeight.bold,
                             fontSize: 20,
                             fontFamily: 'NormalBold',
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                         Text(
                           'Objects',
                           style: TextStyle(
-                            color: Colors.grey,
+                            color: mutedColor,
                             fontSize: 13,
                             fontFamily: 'NormalBold',
                           ),
@@ -458,9 +464,9 @@ class MainDashboardContent extends StatelessWidget {
                   ),
                   StatusRow(
                     title: 'Expired',
-                    value: 0,
+                    value: 2,
                     color: Colors.pink,
-                    onTap: null,
+                    onTap: () => onStatusTap('expired'),
                   ),
                   StatusRow(
                     title: 'InActive',
@@ -532,15 +538,14 @@ class MainDashboardContent extends StatelessWidget {
     ];
   }
 
-  Widget _buildEngineHoursChart() {
+  Widget _buildEngineHoursChart(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Container(
         padding: const EdgeInsets.all(16),
         height: 220,
         width: double.infinity,
-        decoration: BoxDecoration(
-          color: Colors.white,
+        decoration: context.containerDecoration(
           borderRadius: BorderRadius.circular(16),
         ),
         child: RepaintBoundary(
@@ -667,10 +672,11 @@ class StatusRow extends StatelessWidget {
               Expanded(
                 child: Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
                     fontFamily: 'Bold',
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
               ),

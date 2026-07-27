@@ -1,6 +1,3 @@
-// import 'package:flutter/material.dart';
-// import 'package:multitrack/login_screen.dart';
-// import 'package:multitrack/screens/login_screen.dart';
 import 'package:flutter/material.dart';
 
 import 'login_screen.dart';
@@ -10,17 +7,20 @@ class ForgetScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color accentColor = theme.colorScheme.primary;
+
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: Column(
         children: [
-          SizedBox(height: 123),
-          Container(
+          const SizedBox(height: 123),
+          SizedBox(
             height: 400,
             width: double.infinity,
             child: Image.asset('assets/forgeticon.jpeg'),
           ),
-          SizedBox(height: 65),
+          const SizedBox(height: 65),
           SizedBox(
             width: 260,
             height: 50,
@@ -28,19 +28,24 @@ class ForgetScreen extends StatelessWidget {
               onPressed: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => LoginScreen()),
+                  MaterialPageRoute<void>(
+                    builder: (context) => const LoginScreen(),
+                  ),
                 );
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: Color(0xFFF43A6B), // button color
-                foregroundColor: Colors.white, // text color
-                padding: EdgeInsets.symmetric(horizontal: 40, vertical: 12),
+                backgroundColor: accentColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 40,
+                  vertical: 12,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              child: Text(
-                "Go Back",
+              child: const Text(
+                'Go Back',
                 style: TextStyle(fontFamily: 'normalbold.ttf'),
               ),
             ),

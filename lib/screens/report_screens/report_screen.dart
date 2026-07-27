@@ -1,38 +1,110 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../theme/app_theme_tokens.dart';
+
 class ReportScreen extends StatefulWidget {
-  const ReportScreen({super.key});
+  const ReportScreen({
+    super.key,
+    this.title = 'Ignition Report',
+  });
+
+  final String title;
 
   @override
-  State<ReportScreen> createState() => _IgnitionReportState();
+  State<ReportScreen> createState() => _ReportScreenState();
 }
 
-class _IgnitionReportState extends State<ReportScreen> {
-  final TextEditingController searchController = TextEditingController();
+class _ReportScreenState extends State<ReportScreen> {
+  static const Color _accent = Color(0xFFF53D6B);
+  static const Color _fromDateColor = Color(0xFF2E7D32);
+  static const Color _filterSelectedBg = Color(0xFFFFD6DE);
+  static const Color _filterUnselectedBg = Color(0xFFFFF0F3);
 
-  int selectedIndex = 0;
+  final TextEditingController _searchController = TextEditingController();
 
-  DateTime fromDate = DateTime.now();
+  int _selectedIndex = 0;
+  DateTime _fromDate = DateTime.now();
+  DateTime _endDate = DateTime.now();
+
+  final List<String> _filters = <String>[
+    'Today',
+    'Yesterday',
+    'Week',
+    'Month',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _changeFilter(0);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  String _formatDate(DateTime date) {
+    return DateFormat('dd MMM yyyy hh:mm a').format(date);
+  }
+
+  void _changeFilter(int index) {
+    final DateTime now = DateTime.now();
+
+    setState(() {
+      _selectedIndex = index;
+
+      switch (index) {
+        case 0:
+          _fromDate = DateTime(now.year, now.month, now.day);
+          _endDate = now;
+          break;
+        case 1:
+          final DateTime yesterday = now.subtract(const Duration(days: 1));
+          _fromDate = DateTime(yesterday.year, yesterday.month, yesterday.day);
+          _endDate = DateTime(
+            yesterday.year,
+            yesterday.month,
+            yesterday.day,
+            23,
+            59,
+          );
+          break;
+        case 2:
+          _fromDate = now.subtract(const Duration(days: 7));
+          _endDate = now;
+          break;
+        case 3:
+          _fromDate = DateTime(now.year, now.month, 1);
+          _endDate = now;
+          break;
+      }
+    });
+  }
+
   Future<void> _pickFromDate() async {
-    DateTime? pickedDate = await showDatePicker(
+    final DateTime? pickedDate = await showDatePicker(
       context: context,
-      initialDate: fromDate,
+      initialDate: _fromDate,
       firstDate: DateTime(2020),
       lastDate: DateTime(2050),
     );
+    if (pickedDate == null || !mounted) {
+      return;
+    }
 
-    if (pickedDate == null) return;
-
-    TimeOfDay? pickedTime = await showTimePicker(
+    final TimeOfDay? pickedTime = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(fromDate),
+      initialTime: TimeOfDay.fromDateTime(_fromDate),
     );
-
-    if (pickedTime == null) return;
+    if (pickedTime == null || !mounted) {
+      return;
+    }
 
     setState(() {
-      fromDate = DateTime(
+      _fromDate = DateTime(
         pickedDate.year,
         pickedDate.month,
         pickedDate.day,
@@ -43,24 +115,26 @@ class _IgnitionReportState extends State<ReportScreen> {
   }
 
   Future<void> _pickEndDate() async {
-    DateTime? pickedDate = await showDatePicker(
+    final DateTime? pickedDate = await showDatePicker(
       context: context,
-      initialDate: endDate,
+      initialDate: _endDate,
       firstDate: DateTime(2020),
       lastDate: DateTime(2050),
     );
+    if (pickedDate == null || !mounted) {
+      return;
+    }
 
-    if (pickedDate == null) return;
-
-    TimeOfDay? pickedTime = await showTimePicker(
+    final TimeOfDay? pickedTime = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(endDate),
+      initialTime: TimeOfDay.fromDateTime(_endDate),
     );
-
-    if (pickedTime == null) return;
+    if (pickedTime == null || !mounted) {
+      return;
+    }
 
     setState(() {
-      endDate = DateTime(
+      _endDate = DateTime(
         pickedDate.year,
         pickedDate.month,
         pickedDate.day,
@@ -69,372 +143,281 @@ class _IgnitionReportState extends State<ReportScreen> {
       );
     });
   }
-  void _changeFilter(int index) {
-    setState(() {
-      selectedIndex = index;
-
-      DateTime now = DateTime.now();
-
-      switch (index) {
-        case 0:
-          fromDate = DateTime(now.year, now.month, now.day);
-          endDate = now;
-          break;
-
-        case 1:
-          DateTime yesterday = now.subtract(const Duration(days: 1));
-
-          fromDate = DateTime(
-            yesterday.year,
-            yesterday.month,
-            yesterday.day,
-          );
-
-          endDate = DateTime(
-            yesterday.year,
-            yesterday.month,
-            yesterday.day,
-            23,
-            59,
-          );
-
-          break;
-
-        case 2:
-          fromDate = now.subtract(const Duration(days: 7));
-          endDate = now;
-          break;
-
-        case 3:
-          fromDate = DateTime(now.year, now.month, 1);
-          endDate = now;
-          break;
-      }
-    });
-  }
-  DateTime endDate = DateTime.now();
-
-  final List<String> filters = [
-    "Today",
-    "Yesterday",
-    "Week",
-    "Month",
-  ];
-
-  String formatDate(DateTime date) {
-    return DateFormat("dd MMM yyyy  hh:mm a").format(date);
-  }
-  @override
-  void initState() {
-    super.initState();
-    _changeFilter(0);
-  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xfff7f7f7),
+    final ThemeData theme = Theme.of(context);
+    final bool isHacking = context.isHackingTheme;
+    final Color accentColor =
+        isHacking ? theme.colorScheme.primary : _accent;
+    final Color textColor = context.textColor;
+    final Color mutedColor = context.mutedTextColor;
+    final Color scaffoldBg = theme.scaffoldBackgroundColor;
+    final Color surfaceColor = context.containerColor;
+    final Color contentBg = isHacking
+        ? Colors.transparent
+        : const Color(0xFFF3F3F3);
 
+    final Color selectedFilterBg =
+        isHacking ? accentColor.withValues(alpha: 0.28) : _filterSelectedBg;
+    final Color unselectedFilterBg =
+        isHacking ? accentColor.withValues(alpha: 0.10) : _filterUnselectedBg;
+    final Color fromValueColor =
+        isHacking ? const Color(0xFF00E676) : _fromDateColor;
+
+    return Scaffold(
+      backgroundColor: scaffoldBg,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Colors.white,
-        centerTitle: true,
-
+        scrolledUnderElevation: 0,
+        backgroundColor: isHacking ? Colors.transparent : Colors.white,
+        surfaceTintColor: Colors.transparent,
+        centerTitle: false,
         leading: IconButton(
-          icon: const Icon(
+          icon: Icon(
             Icons.arrow_back_ios_new,
-            color: Color(0xfff53d6b),
+            color: accentColor,
+            size: 20,
           ),
-          onPressed: () {
-            Navigator.pop(context);
-          },
+          onPressed: () => Navigator.pop(context),
         ),
-
-        title: const Text(
-          "Ignition Report",
+        title: Text(
+          widget.title,
           style: TextStyle(
-            color: Colors.black87,
-            fontWeight: FontWeight.bold,
-            fontSize: 28,
+            color: textColor,
+            fontWeight: FontWeight.w700,
+            fontSize: 18,
           ),
         ),
-
-        actions: [
-          PopupMenuButton(
-            icon: const Icon(
-              Icons.more_vert,
-              color: Color(0xfff53d6b),
-            ),
-            itemBuilder: (context) => [],
-          )
+        actions: <Widget>[
+          PopupMenuButton<String>(
+            icon: Icon(Icons.more_vert, color: accentColor),
+            color: surfaceColor,
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+              const PopupMenuItem<String>(
+                value: 'export',
+                child: Text('Export'),
+              ),
+              const PopupMenuItem<String>(
+                value: 'share',
+                child: Text('Share'),
+              ),
+            ],
+          ),
         ],
       ),
-
       body: Column(
-        children: [
-
-          const SizedBox(height: 15),
-
-          /// Search Box
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Container(
-              height: 55,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(35),
-                border: Border.all(
-                  color: Colors.black54,
-                  width: 1,
-                ),
-              ),
-              child: TextField(
-                controller: searchController,
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  prefixIcon: Icon(
-                    Icons.search,
-                    color: Color(0xfff53d6b),
-                    size: 30,
+        children: <Widget>[
+          ColoredBox(
+            color: isHacking ? Colors.transparent : Colors.white,
+            child: Column(
+              children: <Widget>[
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Container(
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: surfaceColor,
+                      borderRadius: BorderRadius.circular(28),
+                      border: Border.all(
+                        color: isHacking
+                            ? (context.appTokens.containerBorderColor ??
+                                accentColor.withValues(alpha: 0.45))
+                            : const Color(0xFF555555),
+                        width: 1.2,
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: TextField(
+                      controller: _searchController,
+                      style: TextStyle(color: textColor, fontSize: 15),
+                      cursorColor: accentColor,
+                      decoration: InputDecoration(
+                        isDense: true,
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 12,
+                        ),
+                        prefixIcon: Icon(
+                          Icons.search,
+                          color: accentColor,
+                          size: 26,
+                        ),
+                        hintText: 'Search Vehicle',
+                        hintStyle: TextStyle(
+                          color: mutedColor,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
                   ),
-                  hintText: "Search Vehicle",
                 ),
-              ),
-            ),
-          ),
+                const SizedBox(height: 14),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Row(
+                    children: List<Widget>.generate(_filters.length, (int index) {
+                      final bool selected = _selectedIndex == index;
 
-          const SizedBox(height: 18),
-
-          /// Filters
-          SizedBox(
-            height: 45,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              itemCount: filters.length,
-              itemBuilder: (context, index) {
-                bool selected = selectedIndex == index;
-
-                return GestureDetector(
-                  onTap: () {
-                    _changeFilter(index);
-                  },                  child: Container(
-                  margin: const EdgeInsets.only(right: 10),
-                  padding: const EdgeInsets.symmetric(horizontal: 28),
-                  decoration: BoxDecoration(
-                    color: selected
-                        ? const Color(0xfff53d6b)
-                        : const Color(0xffffd8df),
-                    borderRadius: BorderRadius.circular(30),
-                    boxShadow: [
-                      BoxShadow(
-                        blurRadius: 8,
-                        color: Colors.black.withOpacity(.08),
-                        offset: const Offset(0, 4),
-                      )
+                      return Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            right: index == _filters.length - 1 ? 0 : 8,
+                          ),
+                          child: Material(
+                            color: selected
+                                ? selectedFilterBg
+                                : unselectedFilterBg,
+                            borderRadius: BorderRadius.circular(22),
+                            child: InkWell(
+                              onTap: () => _changeFilter(index),
+                              borderRadius: BorderRadius.circular(22),
+                              child: Container(
+                                height: 40,
+                                alignment: Alignment.center,
+                                child: Text(
+                                  _filters[index],
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: selected
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                    color: accentColor,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                  child: Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: _DateCard(
+                          label: 'From Date',
+                          value: _formatDate(_fromDate),
+                          valueColor: fromValueColor,
+                          accentColor: accentColor,
+                          textColor: textColor,
+                          surfaceColor: surfaceColor,
+                          onTap: _pickFromDate,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _DateCard(
+                          label: 'End Date',
+                          value: _formatDate(_endDate),
+                          valueColor: accentColor,
+                          accentColor: accentColor,
+                          textColor: textColor,
+                          surfaceColor: surfaceColor,
+                          onTap: _pickEndDate,
+                        ),
+                      ),
                     ],
-                  ),
-                  child: Center(
-                    child: Text(
-                      filters[index],
-                      style: TextStyle(
-                        fontSize: 20,
-                        color: selected
-                            ? Colors.white
-                            : Colors.red,
-                      ),
-                    ),
-                  ),
-                ),
-                );
-              },
-            ),
-          ),
-
-          const SizedBox(height: 25),
-
-          /// Dates
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            child: Row(
-              children: [
-
-                Expanded(
-                  child:
-                  InkWell(
-                    onTap: () {
-                      _pickFromDate();
-                    },
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-
-                      child: Row(
-                        children: [
-
-                          const Icon(
-                            Icons.calendar_month,
-                            color: Color(0xfff53d6b),
-                            size: 38,
-                          ),
-
-                          const SizedBox(width: 10),
-
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment:
-                              CrossAxisAlignment.start,
-                              children: [
-
-                                const Text(
-                                  "From Date",
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 18,
-                                  ),
-                                ),
-
-                                const SizedBox(height: 3),
-
-                                Text(
-                                  formatDate(fromDate),
-                                  style: const TextStyle(
-                                    color: Colors.green,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(width: 12),
-
-                Expanded(
-                  child: InkWell(
-                    onTap: () {
-                      _pickEndDate();
-                    },
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-
-                      child: Row(
-                        children: [
-
-                          const Icon(
-                            Icons.calendar_month,
-                            color: Color(0xfff53d6b),
-                            size: 38,
-                          ),
-
-                          const SizedBox(width: 10),
-
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment:
-                              CrossAxisAlignment.start,
-                              children: [
-
-                                const Text(
-                                  "End Date",
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 18,
-                                  ),
-                                ),
-
-                                const SizedBox(height: 3),
-
-                                Text(
-                                  formatDate(endDate),
-                                  style: const TextStyle(
-                                    color: Colors.red,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                   ),
                 ),
               ],
             ),
           ),
-
-          const Spacer(),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: SizedBox(
-              width: double.infinity,
-              height: 55,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text("Generate Report Clicked"),
-                    ),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xfff53d6b),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                icon: const Icon(
-                  Icons.description,
-                  color: Colors.white,
-                ),
-                label: const Text(
-                  "Generate Report",
+          Expanded(
+            child: ColoredBox(
+              color: contentBg,
+              child: Center(
+                child: Text(
+                  '${widget.title} is not available',
+                  textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                    color: accentColor,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ),
             ),
           ),
-
-          const SizedBox(height: 25),
-
-          const Icon(
-            Icons.car_repair_outlined,
-            size: 70,
-            color: Colors.grey,
-          ),
-
-          const SizedBox(height: 15),
-
-          const Text(
-            "Ignition Report is not available",
-            style: TextStyle(
-              color: Color(0xfff53d6b),
-              fontSize: 24,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-
-          const SizedBox(height: 120),
         ],
+      ),
+    );
+  }
+}
+
+class _DateCard extends StatelessWidget {
+  const _DateCard({
+    required this.label,
+    required this.value,
+    required this.valueColor,
+    required this.accentColor,
+    required this.textColor,
+    required this.surfaceColor,
+    required this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final Color valueColor;
+  final Color accentColor;
+  final Color textColor;
+  final Color surfaceColor;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: surfaceColor,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          child: Row(
+            children: <Widget>[
+              Icon(
+                Icons.calendar_month,
+                color: accentColor,
+                size: 28,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: textColor,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      value,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: valueColor,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

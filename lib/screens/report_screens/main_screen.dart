@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:multitrack/screens/lists_screen.dart';
 import 'package:multitrack/screens/report_screens/report_screen.dart';
+import 'package:multitrack/theme/app_theme_tokens.dart';
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -29,6 +29,11 @@ class _MainScreenState extends State<MainScreen> {
   }
   @override
   Widget build(BuildContext context) {
+    final Color backgroundColor = Theme.of(context).scaffoldBackgroundColor;
+    final Color scrolledColor = Theme.of(context).brightness == Brightness.dark
+        ? Theme.of(context).colorScheme.surface
+        : const Color(0xFFE3F2FD);
+
     return Scaffold(
       backgroundColor: backgroundColor,
 
@@ -43,11 +48,10 @@ class _MainScreenState extends State<MainScreen> {
         shadowColor: Colors.transparent,
         title: Padding(
           padding: const EdgeInsets.only(left: 5),
-          child: const
-          Text(
-            "Reports",
+          child: Text(
+            'Reports',
             style: TextStyle(
-              color: Color(0xFF292B32),
+              color: Theme.of(context).colorScheme.onSurface,
               fontSize: 22,
               fontWeight: FontWeight.w700,
             ),
@@ -103,12 +107,12 @@ class _MainScreenState extends State<MainScreen> {
                     imageTextGap: 15,
 
                     onTap: () {
-
                       Navigator.push(
                         context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              ReportScreen(),
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ReportScreen(
+                            title: 'Ignition Report',
+                          ),
                         ),
                       );
                     },
@@ -134,9 +138,10 @@ class _MainScreenState extends State<MainScreen> {
                     onTap: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              ListScreen(),
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ReportScreen(
+                            title: 'AC Report',
+                          ),
                         ),
                       );
                     },
@@ -160,7 +165,14 @@ class _MainScreenState extends State<MainScreen> {
                     imageTextGap: 15,
 
                     onTap: () {
-                      debugPrint("Trip Report Clicked");
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ReportScreen(
+                            title: 'Trip Report',
+                          ),
+                        ),
+                      );
                     },
                   ),
 
@@ -182,7 +194,14 @@ class _MainScreenState extends State<MainScreen> {
                     imageTextGap: 10,
 
                     onTap: () {
-                      debugPrint("Stoppage Report Clicked");
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ReportScreen(
+                            title: 'Stoppage Report',
+                          ),
+                        ),
+                      );
                     },
                   ),
 
@@ -204,7 +223,14 @@ class _MainScreenState extends State<MainScreen> {
                     imageTextGap: 15,
 
                     onTap: () {
-                      debugPrint("Summary Report Clicked");
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ReportScreen(
+                            title: 'Summary Report',
+                          ),
+                        ),
+                      );
                     },
                   ),
 
@@ -226,7 +252,14 @@ class _MainScreenState extends State<MainScreen> {
                     imageTextGap: 15,
 
                     onTap: () {
-                      debugPrint("Daily Report Clicked");
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ReportScreen(
+                            title: 'Daily Report',
+                          ),
+                        ),
+                      );
                     },
                   ),
 
@@ -247,7 +280,14 @@ class _MainScreenState extends State<MainScreen> {
                     imageTextGap: 15,
 
                     onTap: () {
-                      debugPrint("Speed Report Clicked");
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ReportScreen(
+                            title: 'Speed Report',
+                          ),
+                        ),
+                      );
                     },
                   ),
 
@@ -268,7 +308,14 @@ class _MainScreenState extends State<MainScreen> {
                     imageTextGap: 5,
 
                     onTap: () {
-                      debugPrint("Geofence Report Clicked");
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ReportScreen(
+                            title: 'Geofence Report',
+                          ),
+                        ),
+                      );
                     },
                   ),
                 ],
@@ -323,7 +370,7 @@ class ReportCard extends StatelessWidget {
       height: cardHeight,
 
       child: Material(
-        color: Colors.white,
+        color: context.containerColor,
         borderRadius: BorderRadius.circular(10),
         clipBehavior: Clip.antiAlias,
 
@@ -373,7 +420,7 @@ class ReportCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
 
                   style: TextStyle(
-                    color: const Color(0xFF292B32),
+                    color: context.textColor,
                     fontSize: fontSize,
                     fontWeight: FontWeight.w600,
                   ),
