@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
- import '../models/vehicle_model.dart';
+
+import '../constants/app_theme.dart';
+import '../models/vehicle_model.dart';
 
 class VehiclePickerDialog extends StatefulWidget {
   final List<VehicleModel> vehicles;
@@ -61,7 +63,7 @@ class _VehiclePickerDialogState
   @override
   Widget build(BuildContext context) {
     return Dialog(
-        backgroundColor: Colors.white,
+        backgroundColor: context.appSurface,
 
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(25),
@@ -76,11 +78,12 @@ class _VehiclePickerDialogState
             child: Column(
                 children: [
                 const SizedBox(height: 20),
-             const Text(
+             Text(
               "Select Vehicle",
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
+                color: context.appTextColor,
               ),
             ),
              const SizedBox(height: 20),
@@ -91,8 +94,10 @@ class _VehiclePickerDialogState
               child: TextField(
                 controller: searchController,
                 textInputAction: TextInputAction.search,
+                style: TextStyle(color: context.appTextColor),
                 decoration: InputDecoration(
                   hintText: "Search Vehicle",
+                  hintStyle: TextStyle(color: context.appSecondaryText),
 
                   prefixIcon: const Icon(
                     Icons.search,
@@ -101,7 +106,7 @@ class _VehiclePickerDialogState
 
                   filled: true,
 
-                  fillColor: Colors.white,
+                  fillColor: context.appFieldFill,
 
                   contentPadding:
                   const EdgeInsets.symmetric(
@@ -113,7 +118,7 @@ class _VehiclePickerDialogState
                     BorderRadius.circular(12),
 
                     borderSide: BorderSide(
-                      color: Colors.grey.shade400,
+                      color: context.appBorder,
                     ),
                   ),
 
@@ -133,7 +138,7 @@ class _VehiclePickerDialogState
 
             const SizedBox(height: 15),
 
-            const Divider(),
+            Divider(color: context.appBorder),
 
             Expanded(
                 child: ListView.builder(
@@ -155,7 +160,7 @@ class _VehiclePickerDialogState
                           vertical: 5,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: context.appFieldFill,
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: RadioListTile<VehicleModel>(
@@ -176,9 +181,10 @@ class _VehiclePickerDialogState
 
                           title: Text(
                             vehicle.name,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 17,
                               fontWeight: FontWeight.bold,
+                              color: context.appTextColor,
                             ),
                           ),
 
@@ -196,7 +202,7 @@ class _VehiclePickerDialogState
                 ),
             ),
 
-                  const Divider(height: 1),
+                  Divider(height: 1, color: context.appBorder),
 
                   Padding(
                     padding: const EdgeInsets.all(15),

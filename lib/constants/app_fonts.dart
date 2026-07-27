@@ -1,10 +1,4 @@
-// class AppFonts {
-//   AppFonts._();
-//
-//   static const regular = "loginfonts";
-//   static const medium = "medium";
-//   static const number = "numberfonts";
-// }
+ 
 class AppFonts {
   AppFonts._();
 
