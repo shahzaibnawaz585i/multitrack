@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_setting_sreen.dart';
+import 'live_support_screen.dart';
 import '../../theme/app_theme_tokens.dart';
 
 class SettingScreen extends StatefulWidget {
@@ -414,9 +415,13 @@ class _SettingScreenState extends State<SettingScreen> {
             SettingItem(
               image: 'assets/live_support.png',
               title: 'Live Support',
-
               onTap: () {
-                debugPrint('Live Support Clicked');
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (context) => const LiveSupportScreen(),
+                  ),
+                );
               },
             ),
 

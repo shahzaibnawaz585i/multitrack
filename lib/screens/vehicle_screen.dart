@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:multitrack/screens/login_screen.dart';
+
+import 'login_screen.dart';
 
 class VehicleScreen extends StatefulWidget {
   const VehicleScreen({super.key});
@@ -9,6 +10,15 @@ class VehicleScreen extends StatefulWidget {
 }
 
 class _VehicleScreenState extends State<VehicleScreen> {
+  void _goToLogin() {
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => const LoginScreen(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -17,69 +27,83 @@ class _VehicleScreenState extends State<VehicleScreen> {
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            const SizedBox(height: 23),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: () {},
-                child: Text('Skip', style: TextStyle(color: textColor)),
-              ),
-            ),
-            const SizedBox(height: 60),
-            Image.asset('assets/icons.jpeg'),
-            const SizedBox(height: 60),
-            Text(
-              'Vehicle Maintenance',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
-                color: textColor,
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Get your daily mileageand other reports on your finger',
-              style: TextStyle(fontSize: 13, color: textColor),
-            ),
-            Text('tips', style: TextStyle(fontSize: 13, color: textColor)),
-            const SizedBox(height: 60),
-            Container(
-              padding: const EdgeInsets.all(9),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: accentColor,
-                  width: 1.5,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            children: <Widget>[
+              const SizedBox(height: 23),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: _goToLogin,
+                  child: Text('Skip', style: TextStyle(color: textColor)),
                 ),
               ),
-              child: Container(
-                width: 70,
-                height: 70,
+              const SizedBox(height: 60),
+              Image.asset(
+                'assets/icons.jpeg',
+                errorBuilder: (
+                  BuildContext context,
+                  Object error,
+                  StackTrace? stackTrace,
+                ) {
+                  return Icon(
+                    Icons.directions_car,
+                    size: 120,
+                    color: accentColor,
+                  );
+                },
+              ),
+              const SizedBox(height: 60),
+              Text(
+                'Vehicle Maintenance',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 20,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Get your daily mileage and other reports on your finger',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: textColor),
+              ),
+              Text(
+                'tips',
+                style: TextStyle(fontSize: 13, color: textColor),
+              ),
+              const SizedBox(height: 60),
+              Container(
+                padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
-                  color: accentColor,
                   shape: BoxShape.circle,
+                  border: Border.all(
+                    color: accentColor,
+                    width: 1.5,
+                  ),
                 ),
-                child: IconButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute<void>(
-                        builder: (context) => const LoginScreen(),
+                child: Material(
+                  color: accentColor,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: _goToLogin,
+                    child: const SizedBox(
+                      width: 70,
+                      height: 70,
+                      child: Icon(
+                        Icons.arrow_forward,
+                        color: Colors.white,
+                        size: 30,
                       ),
-                    );
-                  },
-                  icon: const Icon(
-                    Icons.arrow_forward,
-                    color: Colors.white,
-                    size: 30,
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 40),
+            ],
+          ),
         ),
       ),
     );

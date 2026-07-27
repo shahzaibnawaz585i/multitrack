@@ -1,6 +1,12 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../constants/app_theme.dart';
+import '../../utils/report_date_picker.dart';
 import 'raise_ticket_screen.dart';
 
 class LiveSupportScreen extends StatefulWidget {
@@ -12,6 +18,9 @@ class LiveSupportScreen extends StatefulWidget {
 
 class _LiveSupportScreenState extends State<LiveSupportScreen> {
   static const Color _pinkColor = AppThemeContext.pinkColor;
+  static const String _supportPhoneNumber = '';
+  static const MethodChannel _phoneChannel =
+      MethodChannel('com.example.multitrack/phone');
 
   int _selectedTabIndex = 2;
 
@@ -52,48 +61,75 @@ class _LiveSupportScreenState extends State<LiveSupportScreen> {
     final String minute = dateTime.minute.toString().padLeft(2, '0');
     final String period = dateTime.hour >= 12 ? 'PM' : 'AM';
 
-    return '${dateTime.day} ${months[dateTime.month - 1]} ${dateTime.year} '
-        '${hour.toString().padLeft(2, '0')}:$minute $period';
+    return '${hour.toString().padLeft(2, '0')}:$minute $period, '
+        '${dateTime.day} ${months[dateTime.month - 1]} ${dateTime.year}';
   }
 
   Future<void> _pickDateTime(bool isFromDate) async {
     final DateTime initial = isFromDate ? _fromDate : _endDate;
 
-    final DateTime? pickedDate = await showDatePicker(
-      context: context,
+    final DateTime? combined = await AppDateTimePicker.pickDateTime(
+      context,
       initialDate: initial,
       firstDate: DateTime(2020),
       lastDate: DateTime(2035),
     );
 
-    if (pickedDate == null || !mounted) {
-      return;
-    }
-
-    final TimeOfDay? pickedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(initial),
-    );
-
-    if (pickedTime == null || !mounted) {
+    if (combined == null || !mounted) {
       return;
     }
 
     setState(() {
-      final DateTime combined = DateTime(
-        pickedDate.year,
-        pickedDate.month,
-        pickedDate.day,
-        pickedTime.hour,
-        pickedTime.minute,
-      );
-
       if (isFromDate) {
         _fromDate = combined;
       } else {
         _endDate = combined;
       }
     });
+  }
+
+  Future<void> _openPhoneDialer() async {
+    final String number = _supportPhoneNumber.trim();
+
+    try {
+      if (!kIsWeb && Platform.isAndroid) {
+        await _phoneChannel.invokeMethod<void>(
+          'openDialer',
+          <String, String>{'number': number},
+        );
+        return;
+      }
+
+      final Uri phoneUri = Uri(
+        scheme: 'tel',
+        path: number.isEmpty ? '0' : number,
+      );
+      final bool launched = await launchUrl(
+        phoneUri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open phone app')),
+        );
+      }
+    } on PlatformException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.message ?? 'Could not open phone app'),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open phone app')),
+      );
+    }
   }
 
   void _showSupportHelpDialog() {
@@ -128,16 +164,24 @@ class _LiveSupportScreenState extends State<LiveSupportScreen> {
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.phone, color: _pinkColor, size: 22),
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.pop(dialogContext);
+                          _openPhoneDialer();
+                        },
+                        child: const Icon(
+                          Icons.phone,
+                          color: _pinkColor,
+                          size: 22,
+                        ),
+                      ),
                       const SizedBox(width: 10),
                       Icon(Icons.chat, color: Colors.green.shade600, size: 22),
                     ],
                   ),
                   onTap: () {
                     Navigator.pop(dialogContext);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Opening WhatsApp call...')),
-                    );
+                    _openPhoneDialer();
                   },
                 ),
                 const SizedBox(height: 6),
@@ -161,43 +205,54 @@ class _LiveSupportScreenState extends State<LiveSupportScreen> {
 
   @override
   Widget build(BuildContext context) {
+    const Color greyBg = Color(0xFFF0F0F0);
+
     return Scaffold(
-      backgroundColor: context.appSurface,
+      backgroundColor: greyBg,
       body: SafeArea(
         child: Stack(
           children: [
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildHeader(),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
-                    decoration: BoxDecoration(
-                      color: context.appSurface,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: context.appBorder),
+                Container(
+                  width: double.infinity,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      bottomLeft: Radius.circular(14),
+                      bottomRight: Radius.circular(14),
                     ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _DateField(
-                            label: 'From Date',
-                            value: _formatDateTime(_fromDate),
-                            onTap: () => _pickDateTime(true),
-                          ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildHeader(),
+                      const SizedBox(height: 20),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(10, 8, 10, 14),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: _DateField(
+                                label: 'From Date',
+                                value: _formatDateTime(_fromDate),
+                                onTap: () => _pickDateTime(true),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _DateField(
+                                label: 'End Date',
+                                value: _formatDateTime(_endDate),
+                                onTap: () => _pickDateTime(false),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _DateField(
-                            label: 'End Date',
-                            value: _formatDateTime(_endDate),
-                            onTap: () => _pickDateTime(false),
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -222,7 +277,7 @@ class _LiveSupportScreenState extends State<LiveSupportScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Material(
-                    color: context.appSurface,
+                    color: Colors.white,
                     elevation: 4,
                     shape: const CircleBorder(),
                     child: InkWell(
@@ -313,8 +368,16 @@ class _LiveSupportScreenState extends State<LiveSupportScreen> {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: context.appFieldFill,
-        borderRadius: BorderRadius.circular(4),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF5A5A5A).withValues(alpha: 0.22),
+            blurRadius: 8,
+            spreadRadius: 0,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -392,7 +455,7 @@ class _DateField extends StatelessWidget {
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
                     ),
-                    maxLines: 2,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),

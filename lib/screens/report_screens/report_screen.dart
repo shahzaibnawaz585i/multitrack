@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../data/vehicle_data.dart';
+import '../../models/vehicle_model.dart';
 import '../../theme/app_theme_tokens.dart';
+import '../../utils/report_date_picker.dart';
+import '../../widgets/select_vehicle_dialog.dart';
 
 class ReportScreen extends StatefulWidget {
   const ReportScreen({
@@ -17,12 +21,12 @@ class ReportScreen extends StatefulWidget {
 
 class _ReportScreenState extends State<ReportScreen> {
   static const Color _accent = Color(0xFFF53D6B);
+  static const Color _lightPinkColor = Color(0xFFFF7A9C);
   static const Color _fromDateColor = Color(0xFF2E7D32);
   static const Color _filterSelectedBg = Color(0xFFFFD6DE);
   static const Color _filterUnselectedBg = Color(0xFFFFF0F3);
 
-  final TextEditingController _searchController = TextEditingController();
-
+  VehicleModel? _selectedVehicle;
   int _selectedIndex = 0;
   DateTime _fromDate = DateTime.now();
   DateTime _endDate = DateTime.now();
@@ -40,14 +44,26 @@ class _ReportScreenState extends State<ReportScreen> {
     _changeFilter(0);
   }
 
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
+  Future<void> _showSelectVehicleDialog() async {
+    final VehicleModel? result = await showDialog<VehicleModel>(
+      context: context,
+      builder: (BuildContext context) {
+        return SelectVehicleDialog(
+          initialSelected: _selectedVehicle,
+          vehicles: VehicleData.vehicles,
+        );
+      },
+    );
+
+    if (result != null && mounted) {
+      setState(() {
+        _selectedVehicle = result;
+      });
+    }
   }
 
   String _formatDate(DateTime date) {
-    return DateFormat('dd MMM yyyy hh:mm a').format(date);
+    return DateFormat('hh:mm a, dd MMM yyyy').format(date);
   }
 
   void _changeFilter(int index) {
@@ -85,62 +101,30 @@ class _ReportScreenState extends State<ReportScreen> {
   }
 
   Future<void> _pickFromDate() async {
-    final DateTime? pickedDate = await showDatePicker(
-      context: context,
+    final DateTime? picked = await AppDateTimePicker.pickDateTime(
+      context,
       initialDate: _fromDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2050),
     );
-    if (pickedDate == null || !mounted) {
-      return;
-    }
-
-    final TimeOfDay? pickedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_fromDate),
-    );
-    if (pickedTime == null || !mounted) {
+    if (picked == null || !mounted) {
       return;
     }
 
     setState(() {
-      _fromDate = DateTime(
-        pickedDate.year,
-        pickedDate.month,
-        pickedDate.day,
-        pickedTime.hour,
-        pickedTime.minute,
-      );
+      _fromDate = picked;
     });
   }
 
   Future<void> _pickEndDate() async {
-    final DateTime? pickedDate = await showDatePicker(
-      context: context,
+    final DateTime? picked = await AppDateTimePicker.pickDateTime(
+      context,
       initialDate: _endDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2050),
     );
-    if (pickedDate == null || !mounted) {
-      return;
-    }
-
-    final TimeOfDay? pickedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_endDate),
-    );
-    if (pickedTime == null || !mounted) {
+    if (picked == null || !mounted) {
       return;
     }
 
     setState(() {
-      _endDate = DateTime(
-        pickedDate.year,
-        pickedDate.month,
-        pickedDate.day,
-        pickedTime.hour,
-        pickedTime.minute,
-      );
+      _endDate = picked;
     });
   }
 
@@ -159,7 +143,7 @@ class _ReportScreenState extends State<ReportScreen> {
         : const Color(0xFFF3F3F3);
 
     final Color selectedFilterBg =
-        isHacking ? accentColor.withValues(alpha: 0.28) : _filterSelectedBg;
+        isHacking ? accentColor.withValues(alpha: 0.28) : _lightPinkColor;
     final Color unselectedFilterBg =
         isHacking ? accentColor.withValues(alpha: 0.10) : _filterUnselectedBg;
     final Color fromValueColor =
@@ -208,47 +192,74 @@ class _ReportScreenState extends State<ReportScreen> {
       ),
       body: Column(
         children: <Widget>[
-          ColoredBox(
-            color: isHacking ? Colors.transparent : Colors.white,
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: isHacking ? Colors.transparent : Colors.white,
+              boxShadow: isHacking
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: const Color(0xFF4A4A4A).withValues(alpha: 0.40),
+                        blurRadius: 14,
+                        spreadRadius: 0,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+            ),
             child: Column(
               children: <Widget>[
                 const SizedBox(height: 8),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Container(
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: surfaceColor,
-                      borderRadius: BorderRadius.circular(28),
-                      border: Border.all(
-                        color: isHacking
-                            ? (context.appTokens.containerBorderColor ??
-                                accentColor.withValues(alpha: 0.45))
-                            : const Color(0xFF555555),
-                        width: 1.2,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: GestureDetector(
+                    onTap: _showSelectVehicleDialog,
+                    child: Container(
+                      height: 30,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: surfaceColor,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isHacking
+                              ? (context.appTokens.containerBorderColor ??
+                                  accentColor.withValues(alpha: 0.45))
+                              : const Color(0xFF555555),
+                          width: 1,
+                        ),
                       ),
-                    ),
-                    alignment: Alignment.center,
-                    child: TextField(
-                      controller: _searchController,
-                      style: TextStyle(color: textColor, fontSize: 15),
-                      cursorColor: accentColor,
-                      decoration: InputDecoration(
-                        isDense: true,
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 12,
-                        ),
-                        prefixIcon: Icon(
-                          Icons.search,
-                          color: accentColor,
-                          size: 26,
-                        ),
-                        hintText: 'Search Vehicle',
-                        hintStyle: TextStyle(
-                          color: mutedColor,
-                          fontSize: 15,
-                        ),
+                      child: Row(
+                        children: <Widget>[
+                          Icon(
+                            Icons.search_rounded,
+                            color: accentColor,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _selectedVehicle?.name ?? 'Search Vehicle',
+                              style: TextStyle(
+                                color: mutedColor,
+                                fontSize: 12,
+                                fontWeight: FontWeight.normal,
+                              ),
+                            ),
+                          ),
+                          if (_selectedVehicle != null)
+                            GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _selectedVehicle = null;
+                                });
+                              },
+                              child: Icon(
+                                Icons.clear,
+                                color: mutedColor,
+                                size: 16,
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ),
@@ -274,18 +285,20 @@ class _ReportScreenState extends State<ReportScreen> {
                               onTap: () => _changeFilter(index),
                               borderRadius: BorderRadius.circular(22),
                               child: Container(
-                                height: 40,
+                                height: 28,
                                 alignment: Alignment.center,
                                 child: Text(
                                   _filters[index],
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    fontSize: 14,
+                                    fontSize: 12,
                                     fontWeight: selected
                                         ? FontWeight.w700
-                                        : FontWeight.w500,
-                                    color: accentColor,
+                                        : FontWeight.w400,
+                                    color: selected
+                                        ? Colors.white
+                                        : accentColor.withValues(alpha: 0.85),
                                   ),
                                 ),
                               ),
@@ -296,9 +309,9 @@ class _ReportScreenState extends State<ReportScreen> {
                     }),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 4),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
                   child: Row(
                     children: <Widget>[
                       Expanded(
@@ -373,51 +386,49 @@ class _DateCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: surfaceColor,
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-          child: Row(
-            children: <Widget>[
-              Icon(
-                Icons.calendar_month,
-                color: accentColor,
-                size: 28,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      label,
-                      style: TextStyle(
-                        color: textColor,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      value,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: valueColor,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+    return InkWell(
+      onTap: onTap,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Icon(
+              Icons.calendar_month,
+              color: accentColor,
+              size: 34,
+            ),
           ),
-        ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: textColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: valueColor,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 10,
+                    height: 1.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

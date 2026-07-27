@@ -23,8 +23,8 @@ class StatusCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 108,
-        height: 140,
+        width: 106,
+        height: 115,
         margin: const EdgeInsets.only(right: 10, top: 2),
         child: Stack(
           alignment: Alignment.topCenter,
@@ -32,8 +32,8 @@ class StatusCard extends StatelessWidget {
           children: [
             Container(
               width: double.infinity,
-              margin: const EdgeInsets.only(top: 36),
-              padding: const EdgeInsets.only(top: 36, bottom: 12),
+              margin: const EdgeInsets.only(top: 28),
+              padding: const EdgeInsets.only(top: 28, bottom: 13),
               decoration: BoxDecoration(
                 color: isSelected
                     ? color.withValues(alpha: 0.08)
@@ -60,16 +60,16 @@ class StatusCard extends StatelessWidget {
                   Text(
                     count,
                     style: TextStyle(
-                      fontSize: 18,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                       color: context.textColor,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
                   Text(
                     title,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 11,
                       color: context.mutedTextColor,
                     ),
                   ),
@@ -77,36 +77,36 @@ class StatusCard extends StatelessWidget {
               ),
             ),
             Positioned(
-              top: 4,
+              top: 2,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
                   Container(
-                    height: 58,
-                    width: 58,
+                    height: 46,
+                    width: 46,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: color.withOpacity(0.9),
                     ),
                   ),
                   Container(
-                    height: 34,
-                    width: 34,
+                    height: 28,
+                    width: 28,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: Colors.grey[400],
                       boxShadow: [
                         BoxShadow(
                           color: Colors.grey.withOpacity(0.9),
-                          blurRadius: 8,
-                          spreadRadius: 10,
+                          blurRadius: 6,
+                          spreadRadius: 6,
                         ),
                       ],
                     ),
                   ),
                   Container(
-                    height: 33,
-                    width: 33,
+                    height: 27,
+                    width: 27,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: LinearGradient(
@@ -118,7 +118,7 @@ class StatusCard extends StatelessWidget {
                     child: const Icon(
                       Icons.directions_car,
                       color: Colors.white,
-                      size: 20,
+                      size: 16,
                     ),
                   ),
                 ],

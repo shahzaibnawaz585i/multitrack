@@ -258,83 +258,89 @@ class _ListScreenState extends State<ListScreen> {
     final Color textColor = context.textColor;
     final Color mutedColor = context.mutedTextColor;
     final bool isHacking = context.isHackingTheme;
+    final Color pinkBorder = isHacking
+        ? (context.appTokens.containerBorderColor ?? accentColor)
+        : const Color(0xFFF43A6B);
 
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeInOut,
-      alignment: Alignment.topCenter,
-      child: _isSearchVisible
-          ? Container(
-              height: 60,
-              width: double.infinity,
-              color: isHacking ? context.containerColor : Colors.white,
-              alignment: Alignment.center,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Container(
-                height: 40,
-                decoration: BoxDecoration(
-                  color: isHacking ? Colors.transparent : Colors.white,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: isHacking
-                        ? (context.appTokens.containerBorderColor ??
-                            accentColor.withValues(alpha: 0.5))
-                        : const Color(0xFFF43A6B),
-                    width: 1.2,
-                  ),
-                ),
-                alignment: Alignment.center,
-                child: TextField(
-                  controller: _searchController,
-                  focusNode: _searchFocusNode,
-                  onChanged: (String value) {
-                    setState(() {
-                      _searchQuery = value;
-                    });
-                  },
-                  style: TextStyle(
-                    color: textColor,
-                    fontSize: 14,
-                  ),
-                  cursorColor: accentColor,
-                  decoration: InputDecoration(
-                    isDense: true,
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
+    if (!_isSearchVisible) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      height: 60,
+      width: double.infinity,
+      color: isHacking ? context.containerColor : Colors.white,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      child: Container(
+        height: 40,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: isHacking ? Colors.transparent : Colors.white,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: pinkBorder,
+            width: 1.2,
+          ),
+        ),
+        alignment: Alignment.centerLeft,
+        child: TextField(
+          controller: _searchController,
+          focusNode: _searchFocusNode,
+          onChanged: (String value) {
+            setState(() {
+              _searchQuery = value;
+            });
+          },
+          style: TextStyle(
+            color: textColor,
+            fontSize: 14,
+            height: 1.2,
+          ),
+          cursorColor: accentColor,
+          decoration: InputDecoration(
+            isDense: true,
+            border: InputBorder.none,
+            enabledBorder: InputBorder.none,
+            focusedBorder: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 10,
+            ),
+            hintText: 'Search Vehicle',
+            hintStyle: TextStyle(
+              color: mutedColor,
+              fontSize: 14,
+            ),
+            suffixIcon: _searchQuery.isEmpty
+                ? null
+                : IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
                     ),
-                    hintText: 'Search Vehicle',
-                    hintStyle: TextStyle(
+                    onPressed: () {
+                      _searchController.clear();
+                      setState(() {
+                        _searchQuery = '';
+                      });
+                    },
+                    icon: Icon(
+                      Icons.close,
+                      size: 18,
                       color: mutedColor,
-                      fontSize: 14,
                     ),
-                    suffixIcon: _searchQuery.isEmpty
-                        ? null
-                        : IconButton(
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() {
-                                _searchQuery = '';
-                              });
-                            },
-                            icon: Icon(
-                              Icons.close,
-                              size: 18,
-                              color: mutedColor,
-                            ),
-                          ),
                   ),
-                ),
-              ),
-            )
-          : const SizedBox(width: double.infinity),
+          ),
+        ),
+      ),
     );
   }
 
   Widget _buildStatusCards() {
     return SizedBox(
-      height: 142,
+      height: 117,
       child: ListView(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),

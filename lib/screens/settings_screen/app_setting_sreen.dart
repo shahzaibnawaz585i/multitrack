@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'expense_screen.dart';
 import 'general_setting_screen.dart';
 import '../../theme/app_theme_tokens.dart';
 
@@ -144,6 +145,14 @@ class AppSettingScreen extends StatelessWidget {
         return;
       case 'Change Password':
         _showChangePasswordDialog(context);
+        return;
+      case 'Expense':
+        Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (context) => const ExpenseScreen(),
+          ),
+        );
         return;
       default:
         ScaffoldMessenger.of(context).showSnackBar(

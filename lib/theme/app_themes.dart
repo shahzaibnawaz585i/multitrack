@@ -90,6 +90,8 @@ class AppThemes {
         dividerColor: Color(0x14000000),
         textTheme: _textTheme(lightText),
         iconTheme: const IconThemeData(color: lightText),
+        datePickerTheme: _datePickerTheme,
+        timePickerTheme: _timePickerTheme,
         extensions: const <ThemeExtension<dynamic>>[
           AppThemeTokens.light,
         ],
@@ -116,6 +118,8 @@ class AppThemes {
         dividerColor: Color(0x24FFFFFF),
         textTheme: _textTheme(Colors.white),
         iconTheme: const IconThemeData(color: Colors.white),
+        datePickerTheme: _datePickerTheme,
+        timePickerTheme: _timePickerTheme,
         extensions: const <ThemeExtension<dynamic>>[
           AppThemeTokens.dark,
         ],
@@ -162,10 +166,61 @@ class AppThemes {
           unselectedLabelColor: hackText,
           indicatorColor: hackAccent,
         ),
+        datePickerTheme: _datePickerTheme,
+        timePickerTheme: _timePickerTheme,
         extensions: <ThemeExtension<dynamic>>[
           AppThemeTokens.hacking,
         ],
       );
+
+  static const Color _pickerHeader = Color(0xFF292B32);
+
+  static final DatePickerThemeData _datePickerTheme = DatePickerThemeData(
+    backgroundColor: Colors.white,
+    surfaceTintColor: Colors.transparent,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+    headerBackgroundColor: _pickerHeader,
+    headerForegroundColor: Colors.white,
+    dayForegroundColor: WidgetStateProperty.resolveWith((Set<WidgetState> s) {
+      if (s.contains(WidgetState.selected)) {
+        return Colors.white;
+      }
+      if (s.contains(WidgetState.disabled)) {
+        return Colors.grey.shade400;
+      }
+      return _pickerHeader;
+    }),
+    dayBackgroundColor: WidgetStateProperty.resolveWith((Set<WidgetState> s) {
+      if (s.contains(WidgetState.selected)) {
+        return _pickerHeader;
+      }
+      return Colors.transparent;
+    }),
+    todayForegroundColor: WidgetStateProperty.all(_pickerHeader),
+    cancelButtonStyle: TextButton.styleFrom(foregroundColor: _pickerHeader),
+    confirmButtonStyle: TextButton.styleFrom(foregroundColor: _pickerHeader),
+  );
+
+  static final TimePickerThemeData _timePickerTheme = TimePickerThemeData(
+    backgroundColor: Colors.white,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+    hourMinuteColor: WidgetStateColor.resolveWith((Set<WidgetState> s) {
+      if (s.contains(WidgetState.selected)) {
+        return _pickerHeader;
+      }
+      return const Color(0xFFE8E8E8);
+    }),
+    hourMinuteTextColor: WidgetStateColor.resolveWith((Set<WidgetState> s) {
+      if (s.contains(WidgetState.selected)) {
+        return Colors.white;
+      }
+      return _pickerHeader;
+    }),
+    dialHandColor: _pickerHeader,
+    entryModeIconColor: _pickerHeader,
+    cancelButtonStyle: TextButton.styleFrom(foregroundColor: _pickerHeader),
+    confirmButtonStyle: TextButton.styleFrom(foregroundColor: _pickerHeader),
+  );
 
   static ThemeData hackingOverlayTheme(ThemeData base) {
     return base.copyWith(
@@ -176,6 +231,9 @@ class AppThemes {
         textColor: hackText,
         iconColor: hackText,
       ),
+      // Keep calendar/time pickers on the shared light charcoal look.
+      datePickerTheme: _datePickerTheme,
+      timePickerTheme: _timePickerTheme,
       dialogTheme: DialogThemeData(
         backgroundColor: hackSurface.withValues(alpha: 0.92),
         titleTextStyle: const TextStyle(

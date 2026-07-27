@@ -189,6 +189,9 @@ dependencies:
   shared_preferences: ^2.5.3
   path_provider: ^2.1.5
 
+  # External links / dialer
+  url_launcher: ^6.3.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../constants/app_theme.dart';
 import '../../data/vehicle_data.dart';
+import '../../utils/report_date_picker.dart';
 
 class AddExpenseScreen extends StatefulWidget {
   final String? initialVehicle;
@@ -116,34 +117,19 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   }
 
   Future<void> _pickDateTime() async {
-    final DateTime? pickedDate = await showDatePicker(
-      context: context,
+    final DateTime? picked = await AppDateTimePicker.pickDateTime(
+      context,
       initialDate: _selectedDate,
       firstDate: DateTime(2020),
       lastDate: DateTime(2030),
     );
 
-    if (pickedDate == null || !mounted) {
-      return;
-    }
-
-    final TimeOfDay? pickedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_selectedDate),
-    );
-
-    if (pickedTime == null || !mounted) {
+    if (picked == null || !mounted) {
       return;
     }
 
     setState(() {
-      _selectedDate = DateTime(
-        pickedDate.year,
-        pickedDate.month,
-        pickedDate.day,
-        pickedTime.hour,
-        pickedTime.minute,
-      );
+      _selectedDate = picked;
     });
   }
 

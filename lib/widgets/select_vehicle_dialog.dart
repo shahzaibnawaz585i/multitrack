@@ -48,62 +48,68 @@ class _SelectVehicleDialogState extends State<SelectVehicleDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final Size screenSize = MediaQuery.sizeOf(context);
+
     return Dialog(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(28),
       ),
       backgroundColor: Theme.of(context).cardColor,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Select Vehicle',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF292B32),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
+      child: SizedBox(
+        width: screenSize.width * 0.94,
+        height: screenSize.height * 0.72,
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Select Vehicle',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF292B32),
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              height: 48,
-              decoration: BoxDecoration(
-                color: const Color(0xfff5f5f5),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.black12),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: dialogSearchController,
-                      style: const TextStyle(fontSize: 16),
-                      decoration: const InputDecoration(
-                        hintText: 'Search vehicle...',
-                        hintStyle: TextStyle(color: Colors.black38),
-                        border: InputBorder.none,
-                        isDense: true,
-                        contentPadding: EdgeInsets.symmetric(vertical: 10),
+              const SizedBox(height: 16),
+              Container(
+                height: 48,
+                decoration: BoxDecoration(
+                  color: const Color(0xfff5f5f5),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.black12),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: dialogSearchController,
+                        style: const TextStyle(fontSize: 16),
+                        decoration: const InputDecoration(
+                          hintText: 'Search vehicle...',
+                          hintStyle: TextStyle(color: Colors.black38),
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(vertical: 10),
+                        ),
                       ),
                     ),
-                  ),
-                  if (dialogSearchController.text.isNotEmpty)
-                    GestureDetector(
-                      onTap: dialogSearchController.clear,
-                      child: const Icon(Icons.clear, color: Colors.grey, size: 20),
-                    ),
-                ],
+                    if (dialogSearchController.text.isNotEmpty)
+                      GestureDetector(
+                        onTap: dialogSearchController.clear,
+                        child: const Icon(
+                          Icons.clear,
+                          color: Colors.grey,
+                          size: 20,
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Flexible(
-              child: SizedBox(
-                height: 280,
+              const SizedBox(height: 16),
+              Expanded(
                 child: filteredList.isEmpty
                     ? const Center(
                         child: Text(
@@ -112,7 +118,6 @@ class _SelectVehicleDialogState extends State<SelectVehicleDialog> {
                         ),
                       )
                     : ListView.builder(
-                        shrinkWrap: true,
                         padding: EdgeInsets.zero,
                         itemCount: filteredList.length,
                         itemBuilder: (context, index) {
@@ -168,60 +173,60 @@ class _SelectVehicleDialogState extends State<SelectVehicleDialog> {
                         },
                       ),
               ),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(
-                  child: SizedBox(
-                    height: 48,
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _pinkColor,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 48,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _pinkColor,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 0,
                         ),
-                        elevation: 0,
-                      ),
-                      child: const Text(
-                        'CANCEL',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: SizedBox(
-                    height: 48,
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.pop(context, tempSelected),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _pinkColor,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 0,
-                      ),
-                      child: const Text(
-                        'Apply',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
+                        child: const Text(
+                          'CANCEL',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              ],
-            ),
-          ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SizedBox(
+                      height: 48,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(context, tempSelected),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _pinkColor,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 0,
+                        ),
+                        child: const Text(
+                          'Apply',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

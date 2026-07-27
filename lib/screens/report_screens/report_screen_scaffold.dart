@@ -40,6 +40,7 @@ class ReportScreenScaffold extends StatefulWidget {
 
 class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
   static const Color _pinkColor = Color(0xfff53d6b);
+  static const Color _lightPinkColor = Color(0xffff7a9c);
   static const Color _topSectionColor = Colors.white;
   static const Color _bottomSectionColor = Color(0xFFF0F0F0);
 
@@ -125,7 +126,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
   }
 
   String formatDate(DateTime date) {
-    return DateFormat('dd MMM yyyy  hh:mm a').format(date);
+    return DateFormat('hh:mm a, dd MMM yyyy').format(date);
   }
 
   Future<void> _showExportDialog() async {
@@ -161,10 +162,12 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
               child: GestureDetector(
                 onTap: () => _changeFilter(index),
                 child: Container(
-                  height: 35,
+                  height: 28,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: selected ? _pinkColor : const Color(0xffffd8df),
+                    color: selected
+                        ? _lightPinkColor
+                        : const Color(0xffffd8df),
                     borderRadius: BorderRadius.circular(30),
                     boxShadow: [
                       BoxShadow(
@@ -178,9 +181,12 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                     filters[index],
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      color: selected ? Colors.white : _pinkColor,
+                      fontSize: 12,
+                      fontWeight:
+                          selected ? FontWeight.w700 : FontWeight.w400,
+                      color: selected
+                          ? Colors.white
+                          : _pinkColor.withValues(alpha: 0.85),
                     ),
                   ),
                 ),
@@ -325,61 +331,38 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
       ),
       body: Column(
         children: [
-          Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: _topSectionColor,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.22),
-                  blurRadius: 20,
-                  spreadRadius: 0,
-                  offset: const Offset(0, 8),
-                ),
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.10),
-                  blurRadius: 8,
-                  spreadRadius: 0,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
+          Material(
+            color: Colors.white,
+            elevation: 0,
             child: Column(
               children: [
                 const SizedBox(height: 15),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
                   child: GestureDetector(
                     onTap: _showSelectVehicleDialog,
                     child: Container(
-                      height: 35,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      height: 30,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
                       decoration: BoxDecoration(
-                        color: _topSectionColor,
+                        color: Colors.white,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(color: Colors.black, width: 1),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.04),
-                            blurRadius: 6,
-                            offset: const Offset(0, 3),
-                          ),
-                        ],
                       ),
                       child: Row(
                         children: [
                           const Icon(
                             Icons.search_rounded,
                             color: _pinkColor,
-                            size: 25,
+                            size: 18,
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               selectedVehicle?.name ?? 'Search Vehicle',
                               style: const TextStyle(
                                 color: Colors.black54,
-                                fontSize: 14,
+                                fontSize: 12,
                                 fontWeight: FontWeight.normal,
                               ),
                             ),
@@ -395,7 +378,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                               child: const Icon(
                                 Icons.clear,
                                 color: Colors.grey,
-                                size: 22,
+                                size: 16,
                               ),
                             ),
                         ],
@@ -412,7 +395,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                 ],
                 const SizedBox(height: 10),
                 _buildFilterChips(),
-                const SizedBox(height: 10),
+                const SizedBox(height: 4),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 18),
                   child: Row(
@@ -430,7 +413,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                       Expanded(
                         child: _DatePickerCard(
                           label: 'End Date',
-                          labelFontSize: 13,
+                          labelFontSize: 12,
                           value: formatDate(endDate),
                           valueColor: Colors.red,
                           onTap: _pickEndDate,
@@ -439,8 +422,27 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 12),
               ],
+            ),
+          ),
+          // Bottom dark-grey blur under the white top container
+          IgnorePointer(
+            child: Container(
+              height: 12,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    const Color(0xFF5A5A5A).withValues(alpha: 0.28),
+                    const Color(0xFF5A5A5A).withValues(alpha: 0.10),
+                    const Color(0xFF5A5A5A).withValues(alpha: 0.0),
+                  ],
+                  stops: const [0.0, 0.45, 1.0],
+                ),
+              ),
             ),
           ),
           Expanded(
@@ -640,18 +642,23 @@ class _DatePickerCard extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(vertical: 0),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            const Icon(
-              Icons.calendar_month,
-              color: Color(0xfff53d6b),
-              size: 20,
+            const Padding(
+              padding: EdgeInsets.only(top: 4),
+              child: Icon(
+                Icons.calendar_month,
+                color: Color(0xfff53d6b),
+                size: 34,
+              ),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
                     label,
@@ -660,13 +667,16 @@ class _DatePickerCard extends StatelessWidget {
                       fontSize: labelFontSize,
                     ),
                   ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 2),
                   Text(
                     value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: valueColor,
                       fontWeight: FontWeight.w600,
-                      fontSize: 9,
+                      fontSize: 10,
+                      height: 1.2,
                     ),
                   ),
                 ],

@@ -1,5 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:multitrack/screens/report_screens/report_screen.dart';
+import 'package:multitrack/screens/report_screens/ac_report_screen.dart';
+import 'package:multitrack/screens/report_screens/daily_report_screen.dart';
+import 'package:multitrack/screens/report_screens/geofence_report_screen.dart';
+import 'package:multitrack/screens/report_screens/ignition_report_screen.dart';
+import 'package:multitrack/screens/report_screens/speed_report_screen.dart';
+import 'package:multitrack/screens/report_screens/stoppage_report_screen.dart';
+import 'package:multitrack/screens/report_screens/summary_report_screen.dart';
+import 'package:multitrack/screens/report_screens/trip_report_screen.dart';
 import 'package:multitrack/theme/app_theme_tokens.dart';
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -110,9 +117,7 @@ class _MainScreenState extends State<MainScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute<void>(
-                          builder: (_) => const ReportScreen(
-                            title: 'Ignition Report',
-                          ),
+                          builder: (_) => const IgnitionReportScreen(),
                         ),
                       );
                     },
@@ -139,9 +144,7 @@ class _MainScreenState extends State<MainScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute<void>(
-                          builder: (_) => const ReportScreen(
-                            title: 'AC Report',
-                          ),
+                          builder: (_) => const AcReportScreen(),
                         ),
                       );
                     },
@@ -168,9 +171,7 @@ class _MainScreenState extends State<MainScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute<void>(
-                          builder: (_) => const ReportScreen(
-                            title: 'Trip Report',
-                          ),
+                          builder: (_) => const TripReportScreen(),
                         ),
                       );
                     },
@@ -197,9 +198,7 @@ class _MainScreenState extends State<MainScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute<void>(
-                          builder: (_) => const ReportScreen(
-                            title: 'Stoppage Report',
-                          ),
+                          builder: (_) => const StoppageReportScreen(),
                         ),
                       );
                     },
@@ -226,9 +225,7 @@ class _MainScreenState extends State<MainScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute<void>(
-                          builder: (_) => const ReportScreen(
-                            title: 'Summary Report',
-                          ),
+                          builder: (_) => const SummaryReportScreen(),
                         ),
                       );
                     },
@@ -255,9 +252,7 @@ class _MainScreenState extends State<MainScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute<void>(
-                          builder: (_) => const ReportScreen(
-                            title: 'Daily Report',
-                          ),
+                          builder: (_) => const DailyReportScreen(),
                         ),
                       );
                     },
@@ -283,9 +278,7 @@ class _MainScreenState extends State<MainScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute<void>(
-                          builder: (_) => const ReportScreen(
-                            title: 'Speed Report',
-                          ),
+                          builder: (_) => const SpeedReportScreen(),
                         ),
                       );
                     },
@@ -311,9 +304,7 @@ class _MainScreenState extends State<MainScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute<void>(
-                          builder: (_) => const ReportScreen(
-                            title: 'Geofence Report',
-                          ),
+                          builder: (_) => const GeofenceReportScreen(),
                         ),
                       );
                     },
@@ -365,39 +356,42 @@ class ReportCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    return Container(
       width: cardWidth,
       height: cardHeight,
-
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF4A4A4A).withValues(alpha: 0.40),
+            blurRadius: 12,
+            spreadRadius: 0,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
       child: Material(
-        color: context.containerColor,
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(10),
         clipBehavior: Clip.antiAlias,
-
         child: InkWell(
-          // POORA CONTAINER CLICKABLE
           onTap: onTap,
-
           borderRadius: BorderRadius.circular(10),
-
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // IMAGE
                 Image.asset(
                   image,
                   width: imageWidth,
                   height: imageHeight,
                   fit: BoxFit.contain,
-
                   errorBuilder: (context, error, stackTrace) {
                     return SizedBox(
                       width: imageWidth,
                       height: imageHeight,
-
                       child: const Center(
                         child: Icon(
                           Icons.description_outlined,
@@ -408,17 +402,12 @@ class ReportCard extends StatelessWidget {
                     );
                   },
                 ),
-
-                // IMAGE AUR TEXT KA GAP
                 SizedBox(height: imageTextGap),
-
-                // TITLE
                 Text(
                   title,
                   textAlign: TextAlign.center,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-
                   style: TextStyle(
                     color: context.textColor,
                     fontSize: fontSize,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/app_theme_tokens.dart';
+import '../../utils/report_date_picker.dart';
 
 class NotificationFilterResult {
   final Set<String> eventTypes;
@@ -228,33 +229,16 @@ class _NotificationFilterScreenState extends State<NotificationFilterScreen> {
   Future<void> _pickDateTime({required bool isStart}) async {
     final DateTime initial = isStart ? _startDate : _endDate;
 
-    final DateTime? pickedDate = await showDatePicker(
-      context: context,
+    final DateTime? combined = await AppDateTimePicker.pickDateTime(
+      context,
       initialDate: initial,
       firstDate: DateTime(2020),
       lastDate: DateTime(2030),
     );
 
-    if (pickedDate == null || !mounted) {
+    if (combined == null || !mounted) {
       return;
     }
-
-    final TimeOfDay? pickedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(initial),
-    );
-
-    if (pickedTime == null || !mounted) {
-      return;
-    }
-
-    final DateTime combined = DateTime(
-      pickedDate.year,
-      pickedDate.month,
-      pickedDate.day,
-      pickedTime.hour,
-      pickedTime.minute,
-    );
 
     setState(() {
       if (isStart) {
