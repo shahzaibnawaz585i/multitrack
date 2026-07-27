@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 
+import 'configure_alerts_screen.dart';
+import 'drivers_screen.dart';
 import 'expense_screen.dart';
+import 'geofence_screen.dart';
 import 'general_setting_screen.dart';
+import 'groups_screen.dart';
+import 'reminders_screen.dart';
 import '../../theme/app_theme_tokens.dart';
 
 class AppSettingScreen extends StatelessWidget {
@@ -146,11 +151,51 @@ class AppSettingScreen extends StatelessWidget {
       case 'Change Password':
         _showChangePasswordDialog(context);
         return;
+      case 'Configure Alerts':
+        Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (context) => const ConfigureAlertsScreen(),
+          ),
+        );
+        return;
       case 'Expense':
         Navigator.push(
           context,
           MaterialPageRoute<void>(
             builder: (context) => const ExpenseScreen(),
+          ),
+        );
+        return;
+      case 'Drivers':
+        Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (context) => const DriversScreen(),
+          ),
+        );
+        return;
+      case 'Geofences':
+        Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (context) => const GeofenceScreen(),
+          ),
+        );
+        return;
+      case 'Groups':
+        Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (context) => const GroupsScreen(),
+          ),
+        );
+        return;
+      case 'Reminders':
+        Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (context) => const RemindersScreen(),
           ),
         );
         return;
