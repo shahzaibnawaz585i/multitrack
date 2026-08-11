@@ -148,7 +148,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         backgroundColor: Colors.transparent,
         color: theme.cardColor,
         buttonBackgroundColor: theme.cardColor,
-        animationDuration: const Duration(milliseconds: 2000),
+        animationDuration: const Duration(milliseconds: 400),
         animationCurve: Curves.easeInOutCubic,
         items: <Widget>[
           _buildNavigationItem(

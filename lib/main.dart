@@ -5,6 +5,7 @@ import 'screens/settings_screen/general_setting_screen.dart';
 import 'screens/splash_screen.dart';
 import 'theme/app_theme_controller.dart';
 import 'theme/app_themes.dart';
+import 'widgets/screen_hack_overlay.dart';
 
 AppThemeController? appThemeController;
 
@@ -60,7 +61,9 @@ class MultiTrackApp extends StatelessWidget {
                   ColoredBox(color: AppThemes.hackBackground),
                   Positioned.fill(
                     child: IgnorePointer(
-                      child: HackingOverlay(),
+                      child: ScreenHackOverlay(
+                        child: SizedBox.shrink(),
+                      ),
                     ),
                   ),
                 ],

@@ -370,13 +370,11 @@ class _MapScreenState extends State<MapScreen> {
       },
     );
 
-    await Future<void>.delayed(const Duration(seconds: 2));
+    await _initCurrentLocation();
 
     if (mounted && Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
     }
-
-    await _initCurrentLocation();
   }
 
   Widget _buildTopIconButton({

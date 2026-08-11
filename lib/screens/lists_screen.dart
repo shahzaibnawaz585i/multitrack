@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../data/notification_data.dart';
@@ -23,6 +25,7 @@ class _ListScreenState extends State<ListScreen> {
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  Timer? _searchDebounce;
 
   static const List<String> _validFilters = <String>[
     'all',
@@ -41,6 +44,7 @@ class _ListScreenState extends State<ListScreen> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
@@ -138,21 +142,48 @@ class _ListScreenState extends State<ListScreen> {
     }
   }
 
-  int _getVehicleCount(String status) {
-    if (status == 'all') {
-      return VehicleData.vehicles.length;
+  Map<String, int> get _statusCounts {
+    int running = 0;
+    int idle = 0;
+    int stopped = 0;
+    int expired = 0;
+    int inactive = 0;
+
+    for (final VehicleModel vehicle in VehicleData.vehicles) {
+      final String value = vehicle.status.trim().toLowerCase();
+      if (value == 'running') {
+        running++;
+      } else if (value == 'idle') {
+        idle++;
+      } else if (value == 'stopped') {
+        stopped++;
+      } else if (value == 'expired') {
+        expired++;
+      } else if (value == 'inactive' || value == 'not reporting') {
+        inactive++;
+      }
     }
 
-    if (status == 'inactive') {
-      return VehicleData.vehicles.where((VehicleModel vehicle) {
-        final String value = vehicle.status.trim().toLowerCase();
-        return value == 'inactive' || value == 'not reporting';
-      }).length;
-    }
+    return <String, int>{
+      'all': VehicleData.vehicles.length,
+      'running': running,
+      'idle': idle,
+      'stopped': stopped,
+      'expired': expired,
+      'inactive': inactive,
+    };
+  }
 
-    return VehicleData.vehicles.where((VehicleModel vehicle) {
-      return vehicle.status.trim().toLowerCase() == status;
-    }).length;
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _searchQuery = value;
+      });
+    });
   }
 
   @override
@@ -287,11 +318,7 @@ class _ListScreenState extends State<ListScreen> {
         child: TextField(
           controller: _searchController,
           focusNode: _searchFocusNode,
-          onChanged: (String value) {
-            setState(() {
-              _searchQuery = value;
-            });
-          },
+          onChanged: _onSearchChanged,
           style: TextStyle(
             color: textColor,
             fontSize: 14,
@@ -321,6 +348,7 @@ class _ListScreenState extends State<ListScreen> {
                       minHeight: 36,
                     ),
                     onPressed: () {
+                      _searchDebounce?.cancel();
                       _searchController.clear();
                       setState(() {
                         _searchQuery = '';
@@ -339,6 +367,8 @@ class _ListScreenState extends State<ListScreen> {
   }
 
   Widget _buildStatusCards() {
+    final Map<String, int> counts = _statusCounts;
+
     return SizedBox(
       height: 117,
       child: ListView(
@@ -350,42 +380,42 @@ class _ListScreenState extends State<ListScreen> {
           StatusCard(
             color: Colors.purple,
             title: 'All vehicles',
-            count: _getVehicleCount('all').toString(),
+            count: (counts['all'] ?? 0).toString(),
             isSelected: selectedFilter == 'all',
             onTap: () => _changeFilter('all'),
           ),
           StatusCard(
             color: Colors.green,
             title: 'Running',
-            count: _getVehicleCount('running').toString(),
+            count: (counts['running'] ?? 0).toString(),
             isSelected: selectedFilter == 'running',
             onTap: () => _changeFilter('running'),
           ),
           StatusCard(
             color: Colors.orange,
             title: 'Idle',
-            count: _getVehicleCount('idle').toString(),
+            count: (counts['idle'] ?? 0).toString(),
             isSelected: selectedFilter == 'idle',
             onTap: () => _changeFilter('idle'),
           ),
           StatusCard(
             color: Colors.red,
             title: 'Stopped',
-            count: _getVehicleCount('stopped').toString(),
+            count: (counts['stopped'] ?? 0).toString(),
             isSelected: selectedFilter == 'stopped',
             onTap: () => _changeFilter('stopped'),
           ),
           StatusCard(
             color: const Color(0xFFF43A6B),
             title: 'Expired',
-            count: _getVehicleCount('expired').toString(),
+            count: (counts['expired'] ?? 0).toString(),
             isSelected: selectedFilter == 'expired',
             onTap: () => _changeFilter('expired'),
           ),
           StatusCard(
             color: Colors.grey,
             title: 'Inactive',
-            count: _getVehicleCount('inactive').toString(),
+            count: (counts['inactive'] ?? 0).toString(),
             isSelected: selectedFilter == 'inactive',
             onTap: () => _changeFilter('inactive'),
           ),
@@ -403,7 +433,7 @@ class _ListScreenState extends State<ListScreen> {
         final VehicleModel vehicle = vehicles[index];
 
         return VehicleCard(
-          key: ValueKey<String>('${vehicle.name}_${vehicle.status}_$index'),
+          key: ValueKey<String>(vehicle.name),
           vehicle: vehicle,
         );
       },

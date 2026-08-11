@@ -113,6 +113,8 @@ class VehicleCard extends StatelessWidget {
                 width: 40,
                 height: 30,
                 fit: BoxFit.contain,
+                cacheWidth: (40 * MediaQuery.devicePixelRatioOf(context)).round(),
+                cacheHeight: (30 * MediaQuery.devicePixelRatioOf(context)).round(),
               ),
             ),
             const SizedBox(width: 10),
@@ -214,19 +216,9 @@ class VehicleCard extends StatelessWidget {
               : Border.all(color: context.appTokens.containerBorderColor!),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.07),
-              blurRadius: 8,
-              offset: const Offset(-3, 4),
-            ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.07),
-              blurRadius: 8,
-              offset: const Offset(3, 4),
-            ),
-            BoxShadow(
               color: Colors.black.withValues(alpha: 0.08),
-              blurRadius: 10,
-              offset: const Offset(0, 5),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
@@ -253,6 +245,12 @@ class VehicleCard extends StatelessWidget {
                                 width: 54,
                                 height: 38,
                                 fit: BoxFit.contain,
+                                cacheWidth:
+                                    (54 * MediaQuery.devicePixelRatioOf(context))
+                                        .round(),
+                                cacheHeight:
+                                    (38 * MediaQuery.devicePixelRatioOf(context))
+                                        .round(),
                               ),
                               const SizedBox(height: 6),
                               Text(
@@ -484,6 +482,8 @@ class VehicleCard extends StatelessWidget {
                 width: 28,
                 height: 28,
                 fit: BoxFit.contain,
+                cacheWidth: (28 * MediaQuery.devicePixelRatioOf(context)).round(),
+                cacheHeight: (28 * MediaQuery.devicePixelRatioOf(context)).round(),
               ),
             ),
           ],
@@ -694,19 +694,9 @@ class _MiniCardSurface extends StatelessWidget {
                 borderRadius: _radius,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.grey.withValues(alpha: 0.22),
-                    blurRadius: 3,
-                    offset: const Offset(-2, 4),
-                  ),
-                  BoxShadow(
-                    color: Colors.grey.withValues(alpha: 0.22),
-                    blurRadius: 3,
-                    offset: const Offset(2, 4),
-                  ),
-                  BoxShadow(
-                    color: Colors.grey.withValues(alpha: 0.3),
-                    blurRadius: 5,
-                    offset: const Offset(0, 4),
+                    color: Colors.grey.withValues(alpha: 0.25),
+                    blurRadius: 4,
+                    offset: const Offset(0, 3),
                   ),
                 ],
               ),

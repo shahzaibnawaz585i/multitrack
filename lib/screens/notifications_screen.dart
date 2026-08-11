@@ -4,8 +4,10 @@ import '../data/notification_data.dart';
 import '../models/notification_model.dart';
 import '../theme/app_theme_tokens.dart';
 import 'notification_filter_screen.dart';
+
 class NotificationsScreen extends StatefulWidget {
-  const NotificationsScreen({super.key});
+  final bool showAlertsOnly;
+  const NotificationsScreen({super.key, this.showAlertsOnly = false});
 
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
@@ -13,7 +15,8 @@ class NotificationsScreen extends StatefulWidget {
 
 class _NotificationsScreenState extends State<NotificationsScreen>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabController;  bool _isLoading = true;
+  late final TabController _tabController;
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -92,12 +95,14 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new, color: accent, size: 20),
-          onPressed: () => Navigator.pop(context),
-        ),
+        leading: widget.showAlertsOnly 
+            ? null 
+            : IconButton(
+                icon: Icon(Icons.arrow_back_ios_new, color: accent, size: 20),
+                onPressed: () => Navigator.pop(context),
+              ),
         title: Text(
-          'Notifications',
+          widget.showAlertsOnly ? 'Alerts' : 'Notifications',
           style: TextStyle(
             color: textColor,
             fontWeight: FontWeight.bold,
@@ -110,63 +115,68 @@ class _NotificationsScreenState extends State<NotificationsScreen>
             onPressed: _openFilter,
           ),
         ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(34),
-          child: ColoredBox(
-            color: screenBackground,
-            child: TabBar(
-              controller: _tabController,
-              isScrollable: false,
-              tabAlignment: TabAlignment.fill,
-              indicatorSize: TabBarIndicatorSize.label,
-              indicator: UnderlineTabIndicator(
-                borderSide: BorderSide(color: accent, width: 2.5),
-              ),
-              labelColor: accent,
-              unselectedLabelColor: textColor.withValues(alpha: 0.55),
-              labelPadding: const EdgeInsets.symmetric(horizontal: 2),
-              labelStyle: const TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 11,
-                height: 1.1,
-              ),
-              unselectedLabelStyle: const TextStyle(
-                fontWeight: FontWeight.w500,
-                fontSize: 11,
-                height: 1.1,
-              ),
-              dividerColor: theme.dividerColor,
-              dividerHeight: 1,
-              tabs: [                Tab(
-                  text: _isLoading
-                      ? 'Alerts(0)'
-                      : 'Alerts(${NotificationData.alertCount})',
+        bottom: widget.showAlertsOnly 
+            ? null 
+            : PreferredSize(
+                preferredSize: const Size.fromHeight(34),
+                child: ColoredBox(
+                  color: screenBackground,
+                  child: TabBar(
+                    controller: _tabController,
+                    isScrollable: false,
+                    tabAlignment: TabAlignment.fill,
+                    indicatorSize: TabBarIndicatorSize.label,
+                    indicator: UnderlineTabIndicator(
+                      borderSide: BorderSide(color: accent, width: 2.5),
+                    ),
+                    labelColor: accent,
+                    unselectedLabelColor: textColor.withValues(alpha: 0.55),
+                    labelPadding: const EdgeInsets.symmetric(horizontal: 2),
+                    labelStyle: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 11,
+                      height: 1.1,
+                    ),
+                    unselectedLabelStyle: const TextStyle(
+                      fontWeight: FontWeight.w500,
+                      fontSize: 11,
+                      height: 1.1,
+                    ),
+                    dividerColor: theme.dividerColor,
+                    dividerHeight: 1,
+                    tabs: [
+                      Tab(
+                        text: _isLoading
+                            ? 'Alerts(0)'
+                            : 'Alerts(${NotificationData.alertCount})',
+                      ),
+                      Tab(
+                        text: _isLoading
+                            ? 'Announcements(0)'
+                            : 'Announcements(${NotificationData.announcementCount})',
+                      ),
+                      Tab(
+                        text: _isLoading
+                            ? 'Reminders(0)'
+                            : 'Reminders(${NotificationData.reminderCount})',
+                      ),
+                    ],
+                  ),
                 ),
-                Tab(
-                  text: _isLoading
-                      ? 'Announcements(0)'
-                      : 'Announcements(${NotificationData.announcementCount})',
-                ),
-                Tab(
-                  text: _isLoading
-                      ? 'Reminders(0)'
-                      : 'Reminders(${NotificationData.reminderCount})',
-                ),
-              ],
-            ),
-          ),
-        ),
+              ),
       ),
       body: _isLoading
           ? const _ThreeDotLoader()
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _buildNotificationList(NotificationData.alerts),
-                _buildEmptyState('No announcements'),
-                _buildNotificationList(NotificationData.reminders),
-              ],
-            ),
+          : widget.showAlertsOnly
+              ? _buildNotificationList(NotificationData.alerts)
+              : TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _buildNotificationList(NotificationData.alerts),
+                    _buildEmptyState('No announcements'),
+                    _buildNotificationList(NotificationData.reminders),
+                  ],
+                ),
     );
   }
 

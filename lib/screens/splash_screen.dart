@@ -22,13 +22,14 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _startNavigation() async {
-    await Future<void>.delayed(const Duration(seconds: 3));
+    final Future<bool> loginFuture = AuthService.isLoggedIn();
+    await Future<void>.delayed(const Duration(milliseconds: 600));
 
     if (!mounted) {
       return;
     }
 
-    final bool isLoggedIn = await AuthService.isLoggedIn();
+    final bool isLoggedIn = await loginFuture;
 
     if (!mounted) {
       return;
