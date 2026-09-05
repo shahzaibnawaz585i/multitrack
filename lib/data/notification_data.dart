@@ -6,7 +6,7 @@ class NotificationData {
   static const String _location =
       'Jagdamba Packaging Industries, Samana - Sehjapur Kalan Rd, Samana Rural, Punjab 147101, India';
 
-  static final List<AppNotification> alerts = <AppNotification>[
+  static List<AppNotification> alerts = <AppNotification>[
     AppNotification(
       vehicleId: 'PB11DD9661',
       eventTitle: 'Ignition Off',

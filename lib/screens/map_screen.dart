@@ -4,14 +4,22 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../l10n/app_l10n.dart';
+import '../data/vehicle_data.dart';
+import '../models/vehicle_model.dart';
+import '../services/app_bootstrap_service.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme_tokens.dart';
-import '../theme/hacking_map_style.dart';
 import 'notification_filter_screen.dart';
 import 'notifications_screen.dart';
 
 class MapScreen extends StatefulWidget {
-  const MapScreen({super.key});
+  final bool isVisible;
+
+  const MapScreen({
+    super.key,
+    this.isVisible = true,
+  });
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -20,21 +28,11 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   static const double _panScrollPixels = 120;
 
-  static const List<LatLng> _liveLocations = <LatLng>[
-    LatLng(31.5204, 74.3587),
-    LatLng(31.5497, 74.3436),
-    LatLng(31.5820, 74.3290),
-    LatLng(31.6105, 74.3155),
-    LatLng(31.6390, 74.3010),
-  ];
-
   double _carRotation = 90.0;
   GoogleMapController? _mapController;
 
-  LatLng _carLocation = _liveLocations.first;
+  LatLng _carLocation = const LatLng(31.5204, 74.3587);
   LatLng? _currentUserLocation;
-
-  int _currentLocationIndex = 0;
 
   double _zoom = 16;
 
@@ -42,22 +40,83 @@ class _MapScreenState extends State<MapScreen> {
   bool _isLiveLocationActive = false;
   bool _locationPermissionGranted = false;
   bool _isFetchingLocation = false;
+  List<VehicleModel> _vehicles = VehicleData.vehicles;
+  Timer? _vehicleRefreshTimer;
 
   MapType _mapType = MapType.normal;
 
   StreamSubscription<Position>? _positionSubscription;
+  final ValueNotifier<Set<Marker>> _markers = ValueNotifier<Set<Marker>>(
+    <Marker>{
+      const Marker(
+        markerId: MarkerId('car'),
+        position: LatLng(31.5204, 74.3587),
+        rotation: 90.0,
+      ),
+    },
+  );
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initCurrentLocation(requestOnStart: true);
+    _loadVehicles();
+    _syncMarkers();
+  }
+
+  Future<void> _loadVehicles() async {
+    final List<VehicleModel> fetched =
+        await AppBootstrapService.refreshVehicles(forceRefresh: true);
+    if (!mounted || fetched.isEmpty) {
+      return;
+    }
+    setState(() {
+      _vehicles = fetched;
+      final VehicleModel first = fetched.firstWhere(
+        (VehicleModel v) => v.latitude != null && v.longitude != null,
+        orElse: () => fetched.first,
+      );
+      if (first.latitude != null && first.longitude != null) {
+        _carLocation = LatLng(first.latitude!, first.longitude!);
+      }
     });
+    _syncMarkers();
+  }
+
+  void _startVehicleRefresh() {
+    _vehicleRefreshTimer?.cancel();
+    _vehicleRefreshTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      _loadVehicles();
+    });
+  }
+
+  void _stopVehicleRefresh() {
+    _vehicleRefreshTimer?.cancel();
+    _vehicleRefreshTimer = null;
+  }
+
+  @override
+  void didUpdateWidget(covariant MapScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isVisible == widget.isVisible) {
+      return;
+    }
+    if (widget.isVisible) {
+      _startVehicleRefresh();
+      if (_locationPermissionGranted) {
+        _startLocationStream();
+      }
+    } else {
+      _stopVehicleRefresh();
+      _positionSubscription?.cancel();
+      _positionSubscription = null;
+    }
   }
 
   @override
   void dispose() {
+    _stopVehicleRefresh();
     _positionSubscription?.cancel();
+    _markers.dispose();
     super.dispose();
   }
 
@@ -74,8 +133,8 @@ class _MapScreenState extends State<MapScreen> {
       final bool serviceEnabled = await LocationService.isServiceEnabled();
       if (!serviceEnabled && mounted) {
         _showLocationMessage(
-          'Location services are off. Please enable GPS.',
-          actionLabel: 'Settings',
+          context.tr('Location services are off. Please enable GPS.'),
+          actionLabel: context.tr('Settings'),
           onAction: LocationService.openLocationSettings,
         );
         setState(() {
@@ -84,13 +143,14 @@ class _MapScreenState extends State<MapScreen> {
         return;
       }
 
-      final bool granted = await LocationService.requestAllPermissions();
+      final bool granted = await LocationService.requestForegroundPermission();
       if (!granted && mounted) {
         _showLocationMessage(
-          'Location permission is required to show your current position.',
-          actionLabel: 'Allow',
+          context.tr('Location permission is required to show your current position.'),
+          actionLabel: context.tr('Allow'),
           onAction: () async {
-            final bool retry = await LocationService.requestAllPermissions();
+            final bool retry =
+                await LocationService.requestForegroundPermission();
             if (retry) {
               await _initCurrentLocation();
             } else {
@@ -114,7 +174,7 @@ class _MapScreenState extends State<MapScreen> {
       setState(() {
         _isFetchingLocation = false;
       });
-      _showLocationMessage('Unable to get current location. Try again.');
+      _showLocationMessage(context.tr('Unable to get current location. Try again.'));
       return;
     }
 
@@ -146,15 +206,14 @@ class _MapScreenState extends State<MapScreen> {
   void _applyUserLocation(Position position, {required bool moveCamera}) {
     final LatLng userLocation = LatLng(position.latitude, position.longitude);
 
-    setState(() {
-      _currentUserLocation = userLocation;
-      if (_isLiveLocationActive) {
-        _carLocation = userLocation;
-        if (position.heading >= 0) {
-          _carRotation = position.heading;
-        }
+    _currentUserLocation = userLocation;
+    if (_isLiveLocationActive) {
+      _carLocation = userLocation;
+      if (position.heading >= 0) {
+        _carRotation = position.heading;
       }
-    });
+    }
+    _syncMarkers();
 
     if (moveCamera) {
       _mapController?.animateCamera(
@@ -167,6 +226,50 @@ class _MapScreenState extends State<MapScreen> {
         ),
       );
     }
+  }
+
+  List<VehicleModel> get _mappedVehicles => _vehicles
+      .where(
+        (VehicleModel v) =>
+            v.latitude != null &&
+            v.longitude != null &&
+            (v.latitude != 0.0 || v.longitude != 0.0),
+      )
+      .toList();
+
+  void _syncMarkers() {
+    final Set<Marker> nextMarkers = <Marker>{};
+    for (final VehicleModel vehicle in _mappedVehicles) {
+      nextMarkers.add(
+        Marker(
+          markerId: MarkerId('vehicle_${vehicle.id ?? vehicle.name}'),
+          position: LatLng(vehicle.latitude!, vehicle.longitude!),
+          infoWindow: InfoWindow(title: vehicle.name, snippet: vehicle.status),
+        ),
+      );
+    }
+
+    if (nextMarkers.isEmpty) {
+      nextMarkers.add(
+        Marker(
+          markerId: const MarkerId('car'),
+          position: _carLocation,
+          rotation: _carRotation,
+        ),
+      );
+    }
+
+    if (_currentUserLocation != null && !_isLiveLocationActive) {
+      nextMarkers.add(
+        Marker(
+          markerId: const MarkerId('my_location'),
+          position: _currentUserLocation!,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        ),
+      );
+    }
+
+    _markers.value = nextMarkers;
   }
 
   void _showLocationMessage(
@@ -191,22 +294,6 @@ class _MapScreenState extends State<MapScreen> {
               ),
       ),
     );
-  }
-
-  Set<Marker> _buildMarkers() {
-    return <Marker>{
-      Marker(
-        markerId: const MarkerId('car'),
-        position: _carLocation,
-        rotation: _carRotation,
-      ),
-      if (_currentUserLocation != null && !_isLiveLocationActive)
-        Marker(
-          markerId: const MarkerId('my_location'),
-          position: _currentUserLocation!,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-        ),
-    };
   }
 
   Future<void> _openFilter() async {
@@ -269,19 +356,36 @@ class _MapScreenState extends State<MapScreen> {
       _isLiveLocationActive = false;
     });
 
-    final int nextIndex = _currentLocationIndex + direction;
-    if (nextIndex < 0 || nextIndex >= _liveLocations.length) {
+    final List<VehicleModel> mapped = _mappedVehicles;
+    if (mapped.isEmpty) {
       await _panMapHorizontal(direction * _panScrollPixels);
       return;
     }
 
-    final LatLng nextLocation = _liveLocations[nextIndex];
+    int currentIndex = mapped.indexWhere(
+      (VehicleModel v) =>
+          v.latitude == _carLocation.latitude &&
+          v.longitude == _carLocation.longitude,
+    );
+    if (currentIndex < 0) {
+      currentIndex = 0;
+    }
+
+    final int nextIndex = currentIndex + direction;
+    if (nextIndex < 0 || nextIndex >= mapped.length) {
+      await _panMapHorizontal(direction * _panScrollPixels);
+      return;
+    }
+
+    final VehicleModel nextVehicle = mapped[nextIndex];
+    final LatLng nextLocation =
+        LatLng(nextVehicle.latitude!, nextVehicle.longitude!);
 
     setState(() {
-      _currentLocationIndex = nextIndex;
       _carLocation = nextLocation;
       _carRotation = direction > 0 ? 90 : 270;
     });
+    _syncMarkers();
 
     await _mapController?.animateCamera(
       CameraUpdate.newCameraPosition(
@@ -356,7 +460,7 @@ class _MapScreenState extends State<MapScreen> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Loading...',
+                  context.tr('Loading...'),
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -440,29 +544,38 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     final Color accentColor = Theme.of(context).colorScheme.primary;
     final Color iconColor = context.textColor;
-    final bool isHacking = context.isHackingTheme;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Stack(
         children: [
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: _carLocation,
-              zoom: _zoom,
+          RepaintBoundary(
+            child: ValueListenableBuilder<Set<Marker>>(
+              valueListenable: _markers,
+              builder: (BuildContext context, Set<Marker> markers, _) {
+                return GoogleMap(
+                  key: const ValueKey<String>('live_google_map'),
+                  initialCameraPosition: CameraPosition(
+                    target: _carLocation,
+                    zoom: _zoom,
+                  ),
+                  style: _mapType == MapType.normal
+                      ? context.themedMapStyle
+                      : null,
+                  mapType: _mapType,
+                  trafficEnabled: _trafficEnabled,
+                  myLocationEnabled: _locationPermissionGranted,
+                  myLocationButtonEnabled: false,
+                  zoomControlsEnabled: false,
+                  compassEnabled: false,
+                  mapToolbarEnabled: false,
+                  markers: markers,
+                  onMapCreated: (GoogleMapController controller) {
+                    _mapController = controller;
+                  },
+                );
+              },
             ),
-            style: isHacking && _mapType == MapType.normal
-                ? hackingMapStyle
-                : null,
-            mapType: _mapType,
-            trafficEnabled: _trafficEnabled,
-            myLocationEnabled: _locationPermissionGranted,
-            myLocationButtonEnabled: false,
-            zoomControlsEnabled: false,
-            markers: _buildMarkers(),
-            onMapCreated: (GoogleMapController controller) {
-              _mapController = controller;
-            },
           ),
 
           if (_isFetchingLocation)
@@ -476,18 +589,12 @@ class _MapScreenState extends State<MapScreen> {
             child: Column(
               children: [
                 _buildMapButton(Icons.add, () {
-                  setState(() {
-                    _zoom++;
-                  });
-
+                  _zoom++;
                   _mapController?.animateCamera(CameraUpdate.zoomTo(_zoom));
                 }),
                 const SizedBox(height: 1),
                 _buildMapButton(Icons.remove, () {
-                  setState(() {
-                    _zoom--;
-                  });
-
+                  _zoom--;
                   _mapController?.animateCamera(CameraUpdate.zoomTo(_zoom));
                 }),
                 const SizedBox(height: 10),

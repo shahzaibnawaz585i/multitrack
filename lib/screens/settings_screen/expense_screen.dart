@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../constants/app_theme.dart';
 import '../../data/vehicle_data.dart';
+import '../../l10n/app_l10n.dart';
 import '../../models/expense_model.dart';
 import 'add_expense_screen.dart';
 import 'expense_detail_screen.dart';
@@ -28,7 +29,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
 
   final List<String> _filters = [
     'Today',
-    'Yesterd...',
+    'Yesterday',
     'Week',
     'Month',
   ];
@@ -89,8 +90,8 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
   void _openAddExpenseScreen() {
     if (_selectedVehicleForAdd == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select a vehicle first'),
+        SnackBar(
+          content: Text(context.tr('Please select a vehicle first')),
           duration: Duration(seconds: 2),
         ),
       );
@@ -177,7 +178,7 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
             ),
           ),
           Text(
-            'Expense',
+            context.tr('Expense'),
             style: TextStyle(
               color: context.appTextColor,
               fontSize: 20,
@@ -729,7 +730,7 @@ class _VehicleDialogButton extends StatelessWidget {
           height: 44,
           child: Center(
             child: Text(
-              label,
+              context.tr(label),
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 15,
@@ -765,7 +766,7 @@ class _FilterChip extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 9),
           child: Text(
-            label,
+            context.tr(label),
             textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,

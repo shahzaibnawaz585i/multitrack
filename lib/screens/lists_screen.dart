@@ -2,9 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../constants/app_images.dart';
 import '../data/notification_data.dart';
 import '../data/vehicle_data.dart';
 import '../models/vehicle_model.dart';
+import '../l10n/app_l10n.dart';
+import '../services/vehicle_service.dart';
 import '../theme/app_theme_tokens.dart';
 import '../widgets/status_card.dart';
 import '../widgets/vehicle_card.dart';
@@ -22,6 +25,8 @@ class ListScreen extends StatefulWidget {
 class _ListScreenState extends State<ListScreen> {
   late String selectedFilter;
   bool _isSearchVisible = false;
+  bool _isLoading = true;
+  List<VehicleModel> _vehicles = VehicleData.vehicles;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
@@ -40,6 +45,54 @@ class _ListScreenState extends State<ListScreen> {
   void initState() {
     super.initState();
     selectedFilter = _normalizeFilter(widget.initialFilter);
+    _isLoading = _vehicles.isEmpty;
+    _fetchVehicles();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _precacheVehicleImages();
+    });
+  }
+
+  Future<void> _fetchVehicles({bool isRefresh = false}) async {
+    if (!isRefresh && _vehicles.isEmpty) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
+
+    try {
+      final List<VehicleModel> data =
+          await VehicleService.getDevices(forceRefresh: isRefresh);
+      if (!mounted) return;
+      setState(() {
+        _vehicles = data;
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _vehicles = VehicleData.vehicles;
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _precacheVehicleImages() {
+    const List<String> assets = <String>[
+      AppImages.runningCar,
+      AppImages.stopCar,
+      AppImages.idleCar,
+      AppImages.inactiveCar,
+      AppImages.runningLock,
+      AppImages.stopLock,
+      AppImages.idleLock,
+      AppImages.inactiveLock,
+    ];
+    for (final String asset in assets) {
+      precacheImage(AssetImage(asset), context);
+    }
   }
 
   @override
@@ -108,7 +161,7 @@ class _ListScreenState extends State<ListScreen> {
   List<VehicleModel> get _filteredVehicles {
     final String query = _searchQuery.trim().toLowerCase();
 
-    return VehicleData.vehicles.where((VehicleModel vehicle) {
+    return _vehicles.where((VehicleModel vehicle) {
       if (!_matchesFilter(vehicle)) {
         return false;
       }
@@ -149,7 +202,7 @@ class _ListScreenState extends State<ListScreen> {
     int expired = 0;
     int inactive = 0;
 
-    for (final VehicleModel vehicle in VehicleData.vehicles) {
+    for (final VehicleModel vehicle in _vehicles) {
       final String value = vehicle.status.trim().toLowerCase();
       if (value == 'running') {
         running++;
@@ -165,7 +218,7 @@ class _ListScreenState extends State<ListScreen> {
     }
 
     return <String, int>{
-      'all': VehicleData.vehicles.length,
+      'all': _vehicles.length,
       'running': running,
       'idle': idle,
       'stopped': stopped,
@@ -176,7 +229,7 @@ class _ListScreenState extends State<ListScreen> {
 
   void _onSearchChanged(String value) {
     _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+    _searchDebounce = Timer(const Duration(milliseconds: 120), () {
       if (!mounted) {
         return;
       }
@@ -204,9 +257,16 @@ class _ListScreenState extends State<ListScreen> {
               color: context.containerColor,
             ),
             Expanded(
-              child: vehicles.isEmpty
-                  ? _buildEmptyState()
-                  : _buildVehicleList(vehicles),
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: () => _fetchVehicles(isRefresh: true),
+                      child: vehicles.isEmpty
+                          ? _buildEmptyState()
+                          : _buildVehicleList(vehicles),
+                    ),
             ),
           ],
         ),
@@ -223,7 +283,7 @@ class _ListScreenState extends State<ListScreen> {
         children: [
           Expanded(
             child: Text(
-              'Vehicle List',
+              context.tr('Vehicle List'),
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
@@ -263,15 +323,15 @@ class _ListScreenState extends State<ListScreen> {
                   alignment: Alignment.center,
                   padding: const EdgeInsets.all(3),
                   decoration: const BoxDecoration(
-                    color: Colors.white,
+                    color: Color(0xFFFF2F68),
                     shape: BoxShape.circle,
                   ),
                   child: Text(
                     '${NotificationData.totalBadgeCount}',
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 9,
                       fontWeight: FontWeight.bold,
-                      color: context.textColor,
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -300,14 +360,14 @@ class _ListScreenState extends State<ListScreen> {
     return Container(
       height: 60,
       width: double.infinity,
-      color: isHacking ? context.containerColor : Colors.white,
+      color: context.containerColor,
       alignment: Alignment.center,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       child: Container(
         height: 40,
         width: double.infinity,
         decoration: BoxDecoration(
-          color: isHacking ? Colors.transparent : Colors.white,
+          color: context.containerColor,
           borderRadius: BorderRadius.circular(4),
           border: Border.all(
             color: pinkBorder,
@@ -334,7 +394,7 @@ class _ListScreenState extends State<ListScreen> {
               horizontal: 10,
               vertical: 10,
             ),
-            hintText: 'Search Vehicle',
+            hintText: context.tr('Search Vehicle'),
             hintStyle: TextStyle(
               color: mutedColor,
               fontSize: 14,
@@ -426,44 +486,67 @@ class _ListScreenState extends State<ListScreen> {
 
   Widget _buildVehicleList(List<VehicleModel> vehicles) {
     return ListView.builder(
-      physics: const BouncingScrollPhysics(),
+      physics: const AlwaysScrollableScrollPhysics(
+        parent: ClampingScrollPhysics(),
+      ),
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+      cacheExtent: 280,
+      addAutomaticKeepAlives: false,
       itemCount: vehicles.length,
       itemBuilder: (BuildContext context, int index) {
         final VehicleModel vehicle = vehicles[index];
 
-        return VehicleCard(
-          key: ValueKey<String>(vehicle.name),
-          vehicle: vehicle,
+        return RepaintBoundary(
+          child: VehicleCard(
+            key: ValueKey<String>('${vehicle.name}_$index'),
+            vehicle: vehicle,
+          ),
         );
       },
     );
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.directions_car_outlined,
-              size: 55,
-              color: context.mutedTextColor,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'No Vehicle Found',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: context.textColor,
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(24),
+      children: [
+        SizedBox(height: MediaQuery.of(context).size.height * 0.15),
+        Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.directions_car_outlined,
+                size: 55,
+                color: context.mutedTextColor,
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              Text(
+                context.tr('No Vehicle Found'),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: context.textColor,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () => _fetchVehicles(isRefresh: true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                icon: const Icon(Icons.refresh, size: 18),
+                label: Text(context.tr('Retry')),
+              ),
+            ],
+          ),
         ),
-      ),
+      ],
     );
   }
 

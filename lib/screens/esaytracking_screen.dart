@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_l10n.dart';
 import 'vehicle_screen.dart';
 
 class EsaytrackingScreen extends StatefulWidget {
@@ -26,14 +27,14 @@ class _EsaytrackingScreenState extends State<EsaytrackingScreen> {
               alignment: Alignment.centerRight,
               child: TextButton(
                 onPressed: () {},
-                child: Text('Skip', style: TextStyle(color: textColor)),
+                child: Text(context.tr('Skip'), style: TextStyle(color: textColor)),
               ),
             ),
             const SizedBox(height: 60),
-            Image.asset('assets/icon.jpeg'),
+            Image.asset('assets/easytrackingscreen.png'),
             const SizedBox(height: 60),
             Text(
-              'Save Your Time',
+              context.tr('Save Your Time'),
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 20,
@@ -42,7 +43,7 @@ class _EsaytrackingScreenState extends State<EsaytrackingScreen> {
             ),
             const SizedBox(height: 20),
             Text(
-              'save your time by optimization of your operations',
+              context.tr('save your time by optimization of your operations'),
               style: TextStyle(fontSize: 13, color: textColor),
             ),
             const SizedBox(height: 60),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_l10n.dart';
 import 'esaytracking_screen.dart';
 import 'login_screen.dart';
 
@@ -35,16 +36,16 @@ class _TimeScreenState extends State<TimeScreen> {
                   );
                 },
                 child: Text(
-                  'Skip',
+                  context.tr('Skip'),
                   style: TextStyle(color: textColor),
                 ),
               ),
             ),
             const SizedBox(height: 60),
-            Image.asset('assets/esaytracking.jpeg'),
+            Image.asset('assets/time_screen.png'),
             const SizedBox(height: 60),
             Text(
-              'Esay Tracking',
+              context.tr('Esay Tracking'),
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 20,
@@ -53,7 +54,7 @@ class _TimeScreenState extends State<TimeScreen> {
             ),
             const SizedBox(height: 20),
             Text(
-              'Tracking any device with user friendly software',
+              context.tr('Tracking any device with user friendly software'),
               style: TextStyle(fontSize: 13, color: textColor),
             ),
             const SizedBox(height: 60),

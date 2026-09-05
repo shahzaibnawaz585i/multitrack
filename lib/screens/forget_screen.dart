@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_l10n.dart';
 import 'login_screen.dart';
 
 class ForgetScreen extends StatelessWidget {
@@ -18,7 +19,7 @@ class ForgetScreen extends StatelessWidget {
           SizedBox(
             height: 400,
             width: double.infinity,
-            child: Image.asset('assets/forgeticon.jpeg'),
+            child: Image.asset('assets/forget_screen.png'),
           ),
           const SizedBox(height: 65),
           SizedBox(
@@ -44,8 +45,8 @@ class ForgetScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              child: const Text(
-                'Go Back',
+              child: Text(
+                context.tr('Go Back'),
                 style: TextStyle(fontFamily: 'normalbold.ttf'),
               ),
             ),

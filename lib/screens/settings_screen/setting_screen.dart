@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_setting_sreen.dart';
 import 'live_support_screen.dart';
+import '../../l10n/app_l10n.dart';
 import '../../theme/app_theme_tokens.dart';
 
 class SettingScreen extends StatefulWidget {
@@ -25,19 +26,31 @@ class _SettingScreenState extends State<SettingScreen> {
 
   File? _selectedImage;
 
-  bool _isProfileImageLoading = true;
+  bool _isProfileImageLoading = false;
+  String _userId = AuthService.demoUserId;
+  String _userName = AuthService.demoUserId;
 
   @override
   void initState() {
     super.initState();
     _loadProfileImageWithLoader();
+    _loadUserId();
+  }
+
+  Future<void> _loadUserId() async {
+    final String savedUserId = await AuthService.userId();
+    final String savedUserName = await AuthService.userName();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _userId = savedUserId;
+      _userName = savedUserName;
+    });
   }
 
   Future<void> _loadProfileImageWithLoader() async {
-    await Future.wait<void>([
-      _loadSavedProfileImage(),
-      Future<void>.delayed(const Duration(seconds: 3)),
-    ]);
+    await _loadSavedProfileImage();
 
     if (!mounted) {
       return;
@@ -204,12 +217,12 @@ class _SettingScreenState extends State<SettingScreen> {
             padding: const EdgeInsets.only(left: 38, right: 25, top: 85),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                AccountInfo(label: 'Name', value: 'mtdemo1'),
-                SizedBox(height: 35),
-                AccountInfo(label: 'User ID', value: 'mtdemo1'),
-                SizedBox(height: 35),
-                AccountInfo(label: 'Mobile Number', value: ''),
+              children: [
+                AccountInfo(label: 'Name', value: _userName),
+                const SizedBox(height: 35),
+                AccountInfo(label: 'User ID', value: _userId),
+                const SizedBox(height: 35),
+                const AccountInfo(label: 'Mobile Number', value: ''),
               ],
             ),
           ),
@@ -218,7 +231,7 @@ class _SettingScreenState extends State<SettingScreen> {
           top: 4,
           left: 120,
           child: Text(
-            'Account',
+            context.tr('Account'),
             style: TextStyle(
               color: context.textColor,
               fontSize: 20,
@@ -248,7 +261,7 @@ class _SettingScreenState extends State<SettingScreen> {
           padding: const EdgeInsets.all(2),
 
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: context.containerColor,
             shape: BoxShape.circle,
 
             boxShadow: [
@@ -267,7 +280,7 @@ class _SettingScreenState extends State<SettingScreen> {
               children: [
                 if (_isProfileImageLoading)
                   Container(
-                    color: const Color(0xFFF5F5F5),
+                    color: context.fieldFillColor,
                     alignment: Alignment.center,
                     child: SizedBox(
                       width: 28,
@@ -337,11 +350,11 @@ class _SettingScreenState extends State<SettingScreen> {
 
       errorBuilder: (context, error, stackTrace) {
         return Container(
-          color: const Color(0xFFF5F5F5),
+          color: context.fieldFillColor,
 
           alignment: Alignment.center,
 
-          child: const Icon(Icons.person, size: 65, color: Colors.grey),
+          child: Icon(Icons.person, size: 65, color: Colors.grey),
         );
       },
     );
@@ -378,7 +391,7 @@ class _SettingScreenState extends State<SettingScreen> {
                     fit: BoxFit.contain,
 
                     errorBuilder: (context, error, stackTrace) {
-                      return const Icon(
+                      return Icon(
                         Icons.settings,
                         color: Color(0xFF4D91C5),
                         size: 50,
@@ -389,8 +402,8 @@ class _SettingScreenState extends State<SettingScreen> {
 
                 const SizedBox(width: 22),
 
-                const Text(
-                  'Settings',
+                Text(
+                  context.tr('Settings'),
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
                 ),
               ],
@@ -475,7 +488,7 @@ class AccountInfo extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          label,
+          context.tr(label),
           style: TextStyle(
             color: context.labelTextColor,
             fontSize: 12,
@@ -544,7 +557,7 @@ class SettingItem extends StatelessWidget {
               const SizedBox(width: 18),
               Expanded(
                 child: Text(
-                  title,
+                  context.tr(title),
                   style: TextStyle(
                     color: textColor,
                     fontSize: 14,

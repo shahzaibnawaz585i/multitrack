@@ -13,6 +13,8 @@ class AppThemes {
         return light;
       case AppThemeMode.dark:
         return dark;
+      case AppThemeMode.aurora:
+        return aurora;
       case AppThemeMode.hacking:
         return hacking;
     }
@@ -23,6 +25,11 @@ class AppThemes {
   static const Color pinkAccent = Color(0xFFFF2F68);
   static const Color darkBackground = Color(0xFF000000);
   static const Color darkSurface = Color(0xFF23252E);
+  static const Color auroraBackground = Color(0xFF07091A);
+  static const Color auroraSurface = Color(0xFF171C32);
+  static const Color auroraText = Color(0xFFF0F4FF);
+  static const Color auroraGlowCyan = Color(0xFF5CE1FF);
+  static const Color auroraGlowViolet = Color(0xFF9B7DFF);
   static const Color hackBackground = Color(0xFF000000);
   static const Color hackSurface = Color(0xFF050805);
   static const Color hackText = Color(0xFF00E676);
@@ -87,11 +94,15 @@ class AppThemes {
           scrolledUnderElevation: 0,
         ),
         cardColor: Colors.white,
+        dialogTheme: const DialogThemeData(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.white,
+        ),
         dividerColor: Color(0x14000000),
         textTheme: _textTheme(lightText),
         iconTheme: const IconThemeData(color: lightText),
-        datePickerTheme: _datePickerTheme,
-        timePickerTheme: _timePickerTheme,
+        datePickerTheme: _datePickerThemeDark,
+        timePickerTheme: _timePickerThemeDark,
         extensions: const <ThemeExtension<dynamic>>[
           AppThemeTokens.light,
         ],
@@ -115,13 +126,150 @@ class AppThemes {
           scrolledUnderElevation: 0,
         ),
         cardColor: darkSurface,
+        dialogTheme: const DialogThemeData(
+          backgroundColor: darkSurface,
+          surfaceTintColor: darkSurface,
+        ),
         dividerColor: Color(0x24FFFFFF),
         textTheme: _textTheme(Colors.white),
         iconTheme: const IconThemeData(color: Colors.white),
-        datePickerTheme: _datePickerTheme,
-        timePickerTheme: _timePickerTheme,
+        datePickerTheme: _datePickerThemeDark,
+        timePickerTheme: _timePickerThemeDark,
         extensions: const <ThemeExtension<dynamic>>[
           AppThemeTokens.dark,
+        ],
+      );
+
+  static ThemeData get aurora => ThemeData(
+        useMaterial3: true,
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: Colors.transparent,
+        fontFamily: AppFonts.regular,
+        splashFactory: InkSparkle.splashFactory,
+        colorScheme: const ColorScheme.dark(
+          primary: pinkAccent,
+          secondary: Color(0xFF00F5D4),
+          tertiary: Color(0xFFA78BFA),
+          surface: auroraSurface,
+          onSurface: auroraText,
+          onPrimary: Colors.white,
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.transparent,
+          foregroundColor: auroraText,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+        ),
+        cardTheme: CardThemeData(
+          color: const Color(0xFF13182E).withValues(alpha: 0.82),
+          elevation: 6,
+          shadowColor: const Color(0xFF00F5D4).withValues(alpha: 0.15),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(
+              color: const Color(0xFF00F5D4).withValues(alpha: 0.22),
+              width: 1,
+            ),
+          ),
+        ),
+        cardColor: const Color(0xFF13182E),
+        dialogTheme: DialogThemeData(
+          backgroundColor: const Color(0xFF101529).withValues(alpha: 0.95),
+          surfaceTintColor: Colors.transparent,
+          elevation: 12,
+          shadowColor: const Color(0xFFA78BFA).withValues(alpha: 0.35),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+            side: BorderSide(
+              color: const Color(0xFF00F5D4).withValues(alpha: 0.38),
+              width: 1.2,
+            ),
+          ),
+        ),
+        bottomSheetTheme: BottomSheetThemeData(
+          backgroundColor: const Color(0xFF101529).withValues(alpha: 0.96),
+          surfaceTintColor: Colors.transparent,
+          elevation: 16,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            side: BorderSide(
+              color: Color(0xFF00F5D4),
+              width: 0.8,
+            ),
+          ),
+        ),
+        dividerColor: const Color(0x44A78BFA),
+        textTheme: _textTheme(auroraText),
+        iconTheme: const IconThemeData(color: auroraText),
+        floatingActionButtonTheme: FloatingActionButtonThemeData(
+          backgroundColor: pinkAccent,
+          foregroundColor: Colors.white,
+          elevation: 10,
+          splashColor: const Color(0xFF00F5D4).withValues(alpha: 0.4),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: pinkAccent,
+            foregroundColor: Colors.white,
+            shadowColor: pinkAccent.withValues(alpha: 0.55),
+            elevation: 6,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: const Color(0xFF1A213D),
+          labelStyle: TextStyle(color: auroraText.withValues(alpha: 0.88)),
+          hintStyle: TextStyle(color: auroraText.withValues(alpha: 0.48)),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(
+              color: const Color(0xFF00F5D4).withValues(alpha: 0.30),
+            ),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(
+              color: const Color(0xFF00F5D4).withValues(alpha: 0.30),
+            ),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: Color(0xFF00F5D4), width: 2),
+          ),
+        ),
+        switchTheme: SwitchThemeData(
+          thumbColor: WidgetStateProperty.resolveWith((Set<WidgetState> s) {
+            return s.contains(WidgetState.selected)
+                ? const Color(0xFF00F5D4)
+                : auroraText.withValues(alpha: 0.65);
+          }),
+          trackColor: WidgetStateProperty.resolveWith((Set<WidgetState> s) {
+            return s.contains(WidgetState.selected)
+                ? const Color(0xFF00F5D4).withValues(alpha: 0.35)
+                : const Color(0xFF1A213D);
+          }),
+        ),
+        sliderTheme: const SliderThemeData(
+          activeTrackColor: Color(0xFF00F5D4),
+          thumbColor: Color(0xFF00F5D4),
+          overlayColor: Color(0x3300F5D4),
+        ),
+        snackBarTheme: const SnackBarThemeData(
+          backgroundColor: Color(0xFF101529),
+          contentTextStyle: TextStyle(color: auroraText),
+        ),
+        datePickerTheme: _datePickerThemeAurora,
+        timePickerTheme: _timePickerThemeAurora,
+        extensions: <ThemeExtension<dynamic>>[
+          AppThemeTokens.aurora,
         ],
       );
 
@@ -166,8 +314,8 @@ class AppThemes {
           unselectedLabelColor: hackText,
           indicatorColor: hackAccent,
         ),
-        datePickerTheme: _datePickerTheme,
-        timePickerTheme: _timePickerTheme,
+        datePickerTheme: _datePickerThemeDark,
+        timePickerTheme: _timePickerThemeDark,
         extensions: <ThemeExtension<dynamic>>[
           AppThemeTokens.hacking,
         ],
@@ -222,6 +370,98 @@ class AppThemes {
     confirmButtonStyle: TextButton.styleFrom(foregroundColor: _pickerHeader),
   );
 
+  static final DatePickerThemeData _datePickerThemeDark = DatePickerThemeData(
+    backgroundColor: darkSurface,
+    surfaceTintColor: Colors.transparent,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+    headerBackgroundColor: darkSurface,
+    headerForegroundColor: Colors.white,
+    dayForegroundColor: WidgetStateProperty.resolveWith((Set<WidgetState> s) {
+      if (s.contains(WidgetState.selected)) {
+        return Colors.white;
+      }
+      if (s.contains(WidgetState.disabled)) {
+        return Colors.white38;
+      }
+      return Colors.white;
+    }),
+    dayBackgroundColor: WidgetStateProperty.resolveWith((Set<WidgetState> s) {
+      if (s.contains(WidgetState.selected)) {
+        return pinkAccent;
+      }
+      return Colors.transparent;
+    }),
+    todayForegroundColor: WidgetStateProperty.all(pinkAccent),
+    cancelButtonStyle: TextButton.styleFrom(foregroundColor: Colors.white),
+    confirmButtonStyle: TextButton.styleFrom(foregroundColor: pinkAccent),
+  );
+
+  static final TimePickerThemeData _timePickerThemeDark = TimePickerThemeData(
+    backgroundColor: darkSurface,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+    hourMinuteColor: WidgetStateColor.resolveWith((Set<WidgetState> s) {
+      if (s.contains(WidgetState.selected)) {
+        return pinkAccent;
+      }
+      return const Color(0xFF2C2E38);
+    }),
+    hourMinuteTextColor: WidgetStateColor.resolveWith((Set<WidgetState> s) {
+      if (s.contains(WidgetState.selected)) {
+        return Colors.white;
+      }
+      return Colors.white;
+    }),
+    dialHandColor: pinkAccent,
+    entryModeIconColor: Colors.white,
+    cancelButtonStyle: TextButton.styleFrom(foregroundColor: Colors.white),
+    confirmButtonStyle: TextButton.styleFrom(foregroundColor: pinkAccent),
+  );
+
+  static final DatePickerThemeData _datePickerThemeAurora = DatePickerThemeData(
+    backgroundColor: auroraSurface,
+    surfaceTintColor: Colors.transparent,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+    headerBackgroundColor: auroraSurface,
+    headerForegroundColor: auroraText,
+    dayForegroundColor: WidgetStateProperty.resolveWith((Set<WidgetState> s) {
+      if (s.contains(WidgetState.selected)) {
+        return Colors.white;
+      }
+      if (s.contains(WidgetState.disabled)) {
+        return auroraText.withValues(alpha: 0.35);
+      }
+      return auroraText;
+    }),
+    dayBackgroundColor: WidgetStateProperty.resolveWith((Set<WidgetState> s) {
+      if (s.contains(WidgetState.selected)) {
+        return pinkAccent;
+      }
+      return Colors.transparent;
+    }),
+    todayForegroundColor: WidgetStateProperty.all(auroraGlowCyan),
+    cancelButtonStyle: TextButton.styleFrom(foregroundColor: auroraText),
+    confirmButtonStyle: TextButton.styleFrom(foregroundColor: pinkAccent),
+  );
+
+  static final TimePickerThemeData _timePickerThemeAurora = TimePickerThemeData(
+    backgroundColor: auroraSurface,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+    hourMinuteColor: WidgetStateColor.resolveWith((Set<WidgetState> s) {
+      if (s.contains(WidgetState.selected)) {
+        return pinkAccent;
+      }
+      return const Color(0xFF232A48);
+    }),
+    hourMinuteTextColor: WidgetStateColor.resolveWith((Set<WidgetState> s) {
+      return Colors.white;
+    }),
+    dialHandColor: pinkAccent,
+    dialBackgroundColor: const Color(0xFF232A48),
+    entryModeIconColor: auroraGlowCyan,
+    cancelButtonStyle: TextButton.styleFrom(foregroundColor: auroraText),
+    confirmButtonStyle: TextButton.styleFrom(foregroundColor: pinkAccent),
+  );
+
   static ThemeData hackingOverlayTheme(ThemeData base) {
     return base.copyWith(
       textTheme: _textTheme(hackText),
@@ -232,8 +472,8 @@ class AppThemes {
         iconColor: hackText,
       ),
       // Keep calendar/time pickers on the shared light charcoal look.
-      datePickerTheme: _datePickerTheme,
-      timePickerTheme: _timePickerTheme,
+      datePickerTheme: _datePickerThemeDark,
+      timePickerTheme: _timePickerThemeDark,
       dialogTheme: DialogThemeData(
         backgroundColor: hackSurface.withValues(alpha: 0.92),
         titleTextStyle: const TextStyle(

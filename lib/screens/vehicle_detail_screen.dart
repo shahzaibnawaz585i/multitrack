@@ -3,12 +3,17 @@ import 'dart:math' as math;
 import 'dart:async';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../l10n/app_l10n.dart';
+import '../models/vehicle_model.dart';
+import '../services/history_service.dart';
+import '../services/tracking_api_service.dart';
+import '../services/vehicle_service.dart';
 import '../theme/app_theme_tokens.dart';
-import '../theme/hacking_map_style.dart';
 import 'notifications_screen.dart'; 
 import 'notification_filter_screen.dart';
 
 class VehicleDetailScreen extends StatefulWidget {
+  final int? deviceId;
   final String name;
   final String status;
   final Color color;
@@ -18,9 +23,12 @@ class VehicleDetailScreen extends StatefulWidget {
   final String livetime;
   final String location;
   final String date;
+  final double? latitude;
+  final double? longitude;
 
   const VehicleDetailScreen({
     super.key,
+    this.deviceId,
     required this.name,
     required this.status,
     required this.color,
@@ -30,6 +38,8 @@ class VehicleDetailScreen extends StatefulWidget {
     required this.livetime,
     required this.location,
     required this.date,
+    this.latitude,
+    this.longitude,
   });
 
   @override
@@ -37,45 +47,291 @@ class VehicleDetailScreen extends StatefulWidget {
 }
 
 class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
-  int _currentBottomIndex = 0; 
-  double _sheetProgress = 0.0;
+  int _currentBottomIndex = 0;
   double _historySliderValue = 0.0;
   bool _isHistoryPlaying = false;
   String _selectedStatFilter = "Today";
-  
-  double? _historyPanelTop;
+
+  final ValueNotifier<double> _sheetProgress = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> _historyPanelTop = ValueNotifier<double>(0.0);
+  late final ValueNotifier<Set<Marker>> _trackMarkers;
+  final ValueNotifier<Set<Polyline>> _trackPolylines =
+      ValueNotifier<Set<Polyline>>(<Polyline>{});
+
+  bool _historyPanelReady = false;
+  bool _historyLoading = false;
+  HistoryRoute _historyRoute = const HistoryRoute(points: <HistoryPoint>[]);
+  DateTime _historyFrom = DateTime.now().subtract(const Duration(hours: 1));
+  DateTime _historyTo = DateTime.now();
 
   GoogleMapController? _mapController;
-  LatLng _carLocation = const LatLng(31.5204, 74.3587);
+  late LatLng _carLocation;
   double _carRotation = 90.0;
+  final List<LatLng> _trailPoints = <LatLng>[];
   Timer? _timer;
+
+  bool get _isRunning =>
+      widget.status.trim().toLowerCase() == 'running' ||
+      (double.tryParse(widget.speed) ?? 0.0) > 0;
+
+  double get _markerHue {
+    switch (widget.status.trim().toLowerCase()) {
+      case 'running':
+        return BitmapDescriptor.hueGreen;
+      case 'stopped':
+        return BitmapDescriptor.hueRed;
+      case 'idle':
+        return BitmapDescriptor.hueOrange;
+      case 'expired':
+        return BitmapDescriptor.hueRose;
+      case 'not reporting':
+      case 'inactive':
+      default:
+        return BitmapDescriptor.hueAzure;
+    }
+  }
+
+  static LatLng _resolveInitialPosition(
+    double? lat,
+    double? lng,
+    String locationText,
+  ) {
+    if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
+      return LatLng(lat, lng);
+    }
+    final RegExp regex = RegExp(r'(-?\d+\.\d+)');
+    final List<RegExpMatch> matches = regex.allMatches(locationText).toList();
+    if (matches.length >= 2) {
+      final double? pLat = double.tryParse(matches[0].group(1) ?? '');
+      final double? pLng = double.tryParse(matches[1].group(1) ?? '');
+      if (pLat != null && pLng != null && (pLat != 0.0 || pLng != 0.0)) {
+        return LatLng(pLat, pLng);
+      }
+    }
+    return const LatLng(31.5204, 74.3587);
+  }
 
   @override
   void initState() {
     super.initState();
-    _startFakeTracking();
+    _carLocation = _resolveInitialPosition(
+      widget.latitude,
+      widget.longitude,
+      widget.location,
+    );
+    _trailPoints.add(_carLocation);
+
+    _trackMarkers = ValueNotifier<Set<Marker>>(<Marker>{
+      Marker(
+        markerId: const MarkerId('car'),
+        position: _carLocation,
+        rotation: _carRotation,
+        flat: true,
+        anchor: const Offset(0.5, 0.5),
+        icon: BitmapDescriptor.defaultMarkerWithHue(_markerHue),
+      ),
+    });
+
+    _syncTrackMarkers();
+    _startLiveTracking();
   }
 
-  void _startFakeTracking() {
-    _timer = Timer.periodic(const Duration(seconds: 2), (timer) {
-      if (mounted) {
-        setState(() {
-          _carLocation = LatLng(
-            _carLocation.latitude + 0.0001,
-            _carLocation.longitude + 0.0001,
-          );
-          _carRotation += 1.5;
-        });
-        if (_currentBottomIndex == 0) {
-          _mapController?.animateCamera(CameraUpdate.newLatLng(_carLocation));
-        }
+  void _startLiveTracking() {
+    _timer?.cancel();
+    if (widget.deviceId == null) {
+      if (!_isRunning) {
+        return;
+      }
+      _startSimulatedTracking();
+      return;
+    }
+
+    _refreshLivePosition();
+    _timer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _refreshLivePosition();
+    });
+  }
+
+  Future<void> _refreshLivePosition() async {
+    if (widget.deviceId == null || !mounted) {
+      return;
+    }
+
+    final List<VehicleModel> devices =
+        await VehicleService.getDevices(forceRefresh: true);
+    VehicleModel? match;
+    for (final VehicleModel device in devices) {
+      if (device.id == widget.deviceId) {
+        match = device;
+        break;
+      }
+    }
+
+    if (match == null ||
+        match.latitude == null ||
+        match.longitude == null ||
+        !mounted) {
+      return;
+    }
+
+    final LatLng next = LatLng(match.latitude!, match.longitude!);
+    setState(() {
+      _carLocation = next;
+      _trailPoints.add(next);
+      if (_trailPoints.length > 120) {
+        _trailPoints.removeAt(0);
       }
     });
+    _syncTrackMarkers();
+
+    if (_currentBottomIndex == 0) {
+      _mapController?.animateCamera(
+        CameraUpdate.newLatLngZoom(_carLocation, 16.5),
+      );
+    }
+  }
+
+  void _startSimulatedTracking() {
+    _timer = Timer.periodic(const Duration(milliseconds: 1500), (Timer timer) {
+      if (!mounted) {
+        return;
+      }
+
+      final double currentSpeed = double.tryParse(widget.speed) ?? 25.0;
+      final double speedFactor = (currentSpeed / 40.0).clamp(0.4, 2.5);
+      const double baseStep = 0.00010;
+      final double step = baseStep * speedFactor;
+
+      final double rad = (_carRotation * math.pi) / 180.0;
+      final double nextLat = _carLocation.latitude + (step * math.cos(rad));
+      final double nextLng = _carLocation.longitude + (step * math.sin(rad));
+
+      if (timer.tick % 8 == 0) {
+        _carRotation = (_carRotation + 12.0) % 360.0;
+      }
+
+      _carLocation = LatLng(nextLat, nextLng);
+      _trailPoints.add(_carLocation);
+      if (_trailPoints.length > 60) {
+        _trailPoints.removeAt(0);
+      }
+
+      _syncTrackMarkers();
+
+      if (_currentBottomIndex == 0) {
+        _mapController?.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: _carLocation,
+              zoom: 16.5,
+              bearing: _carRotation,
+            ),
+          ),
+        );
+      }
+    });
+  }
+
+  void _selectTab(int index) {
+    if (_currentBottomIndex == index) {
+      return;
+    }
+    setState(() {
+      _currentBottomIndex = index;
+    });
+    if (index == 1) {
+      _loadHistory();
+    }
+    if (index == 0) {
+      _startLiveTracking();
+    } else {
+      _timer?.cancel();
+    }
+  }
+
+  Future<void> _loadHistory() async {
+    if (widget.deviceId == null) {
+      return;
+    }
+
+    setState(() => _historyLoading = true);
+    final HistoryRoute route = await HistoryService.getRoute(
+      deviceId: widget.deviceId!,
+      from: _historyFrom,
+      to: _historyTo,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _historyLoading = false;
+      _historyRoute = route;
+      if (route.points.isNotEmpty) {
+        _historySliderValue = 0;
+      }
+    });
+  }
+
+  Future<void> _shareLocation() async {
+    if (widget.deviceId == null) {
+      return;
+    }
+
+    final Map<String, dynamic>? response = await TrackingApiService.sharing(
+      <String, dynamic>{
+        'device_id': widget.deviceId.toString(),
+        'lat': widget.latitude?.toString() ?? _carLocation.latitude.toString(),
+        'lng': widget.longitude?.toString() ?? _carLocation.longitude.toString(),
+      },
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    final String message = response?['url']?.toString() ??
+        response?['message']?.toString() ??
+        context.tr('Location shared');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  void _syncTrackMarkers() {
+    _trackMarkers.value = <Marker>{
+      Marker(
+        markerId: const MarkerId('car'),
+        position: _carLocation,
+        rotation: _carRotation,
+        flat: true,
+        anchor: const Offset(0.5, 0.5),
+        icon: BitmapDescriptor.defaultMarkerWithHue(_markerHue),
+      ),
+    };
+
+    if (_trailPoints.length >= 2) {
+      _trackPolylines.value = <Polyline>{
+        Polyline(
+          polylineId: const PolylineId('vehicle_trail'),
+          points: List<LatLng>.from(_trailPoints),
+          color: _isRunning ? Colors.green : Theme.of(context).colorScheme.primary,
+          width: 5,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+        ),
+      };
+    }
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _sheetProgress.dispose();
+    _historyPanelTop.dispose();
+    _trackMarkers.dispose();
+    _trackPolylines.dispose();
     super.dispose();
   }
 
@@ -87,17 +343,17 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
 
     final double maxTopLimit = 120.0;
     final double bottomLimit = screenHeight * 0.8;
-    _historyPanelTop ??= screenHeight * 0.65;
+    if (!_historyPanelReady) {
+      _historyPanelTop.value = screenHeight * 0.65;
+      _historyPanelReady = true;
+    }
 
     return Scaffold(
-      body: IndexedStack(
-        index: _currentBottomIndex,
-        children: [
-          _buildTrackView(), 
-          _buildHistoryView(maxTopLimit, bottomLimit, screenHeight, accentColor), 
-          const NotificationsScreen(showAlertsOnly: true),
-          _buildStatisticsView(accentColor), 
-        ],
+      body: _buildSelectedTab(
+        maxTopLimit,
+        bottomLimit,
+        screenHeight,
+        accentColor,
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
@@ -106,77 +362,96 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         child: BottomNavigationBar(
           backgroundColor: context.containerColor,
           currentIndex: _currentBottomIndex,
-          onTap: (index) => setState(() => _currentBottomIndex = index),
+          onTap: _selectTab,
           selectedItemColor: accentColor,
           unselectedItemColor: mutedColor,
           type: BottomNavigationBarType.fixed,
           selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
           unselectedLabelStyle: const TextStyle(fontSize: 11),
-          items: const [
-            BottomNavigationBarItem(icon: Icon(Icons.location_on), label: "Track"),
-            BottomNavigationBarItem(icon: Icon(Icons.history), label: "History"),
-            BottomNavigationBarItem(icon: Icon(Icons.notifications), label: "Alerts"),
-            BottomNavigationBarItem(icon: Icon(Icons.analytics), label: "Statistics"),
+          items: [
+            BottomNavigationBarItem(icon: const Icon(Icons.location_on), label: context.tr('Track')),
+            BottomNavigationBarItem(icon: const Icon(Icons.history), label: context.tr('History')),
+            BottomNavigationBarItem(icon: const Icon(Icons.notifications), label: context.tr('Alerts')),
+            BottomNavigationBarItem(icon: const Icon(Icons.analytics), label: context.tr('Statistics')),
           ],
         ),
       ),
     );
   }
 
+  Widget _buildSelectedTab(
+    double maxTopLimit,
+    double bottomLimit,
+    double screenHeight,
+    Color accentColor,
+  ) {
+    switch (_currentBottomIndex) {
+      case 1:
+        return _buildHistoryView(
+          maxTopLimit,
+          bottomLimit,
+          screenHeight,
+          accentColor,
+        );
+      case 2:
+        return NotificationsScreen(
+          showAlertsOnly: true,
+          vehicleName: widget.name,
+          deviceId: widget.deviceId,
+        );
+      case 3:
+        return _buildStatisticsView(accentColor);
+      default:
+        return _buildTrackView();
+    }
+  }
+
   /// --- STATISTICS VIEW ---
   Widget _buildStatisticsView(Color accentColor) {
     final Color textColor = context.textColor;
     return Scaffold(
-      backgroundColor: context.isHackingTheme ? Colors.black : const Color(0xFFF9F9F9),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: context.containerColor,
         elevation: 0,
         scrolledUnderElevation: 0,
         leading: IconButton(
           icon: Icon(Icons.arrow_back_ios, color: accentColor, size: 20),
-          onPressed: () => setState(() => _currentBottomIndex = 0),
+          onPressed: () => _selectTab(0),
         ),
         title: Text(
-          "${widget.name} Statistics",
+          '${widget.name} ${context.tr('Statistics')}',
           style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 18),
         ),
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            const SizedBox(height: 12),
-            _buildStatFiltersGrid(accentColor),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: GridView.count(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
+      body: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
+        slivers: [
+          const SliverToBoxAdapter(child: SizedBox(height: 12)),
+          SliverToBoxAdapter(child: _buildStatFiltersGrid(accentColor)),
+          const SliverToBoxAdapter(child: SizedBox(height: 12)),
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            sliver: SliverGrid(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
                 mainAxisSpacing: 12,
                 crossAxisSpacing: 12,
-                childAspectRatio: 1.6, 
-                children: [
-                  _buildStatCard("Route length", "0.0 km", "assets/route_length.png"),
-                  _buildStatCard("Move duration", "00:00:00", "assets/move_duration.png"),
-                  _buildStatCard("Stop duration", "00:00:00", "assets/stop_duration.png"),
-                  _buildStatCard("Idle duration", "00:00:00", "assets/engine_work.png"),
-                  _buildStatCard("Top speed", "0.00 kmph", "assets/top-speed.png"),
-                  _buildStatCard("Average speed", "0.00 kmph", "assets/top-speed.png"),
-                  _buildStatCard("Overspeed count", "0", "assets/over_speed.png"),
-                  _buildStatCard("Stop count", "0", "assets/stop_count.png"),
-                  _buildStatCard("Avg.fuel cons.", "0.00 km/Ltr", "assets/fuel_consum.png"),
-                  _buildStatCard("Fuel cost", "INR 0.00", "assets/fuel_cost.png"),
-                  _buildStatCard("Engine work", "INR 0.00", "assets/engine_work.png"),
-                  _buildStatCard("Fuel consumption", "0.0 Liter", "assets/fuel_consum.png"),
-                  _buildStatCard("Odometer", "28152.79 km", "assets/odometer.png"),
-                  _buildStatCard("Engine hours", "00:00:00", "assets/engine_work.png"),
-                ],
+                childAspectRatio: 1.6,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (BuildContext context, int index) {
+                  final _StatItem item = _statItems[index];
+                  return _buildStatCard(item.title, item.value, item.imagePath);
+                },
+                childCount: _statItems.length,
+                addAutomaticKeepAlives: false,
+                addRepaintBoundaries: true,
               ),
             ),
-            const SizedBox(height: 20),
-          ],
-        ),
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: 20)),
+        ],
       ),
     );
   }
@@ -209,7 +484,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 border: Border.all(color: accentColor, width: 1.2),
               ),
               child: Text(
-                filter,
+                context.tr(filter),
                 textAlign: TextAlign.center,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -243,7 +518,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             children: [
               Expanded(
                 child: Text(
-                  title,
+                  context.tr(title),
                   style: TextStyle(
                     color: context.mutedTextColor, 
                     fontSize: 15.0, 
@@ -252,7 +527,19 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              Image.asset(imagePath, height: 26, width: 26, errorBuilder: (c, e, s) => Icon(Icons.bar_chart, color: Theme.of(context).colorScheme.primary, size: 24)),
+              Image.asset(
+                imagePath,
+                height: 26,
+                width: 26,
+                cacheWidth: 52,
+                cacheHeight: 52,
+                filterQuality: FilterQuality.low,
+                errorBuilder: (BuildContext c, Object e, StackTrace? s) => Icon(
+                  Icons.bar_chart,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 24,
+                ),
+              ),
             ],
           ),
           const Spacer(),
@@ -280,28 +567,34 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     return Stack(
       children: [
         Positioned.fill(
-          child: GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: _carLocation,
-              zoom: 16.0,
+          child: RepaintBoundary(
+            child: ValueListenableBuilder<Set<Marker>>(
+              valueListenable: _trackMarkers,
+              builder: (BuildContext context, Set<Marker> markers, _) {
+                return ValueListenableBuilder<Set<Polyline>>(
+                  valueListenable: _trackPolylines,
+                  builder: (BuildContext context, Set<Polyline> polylines, _) {
+                    return GoogleMap(
+                      key: const ValueKey<String>('vehicle_track_map'),
+                      initialCameraPosition: CameraPosition(
+                        target: _carLocation,
+                        zoom: 16.5,
+                        bearing: _carRotation,
+                      ),
+                      style: context.themedMapStyle,
+                      onMapCreated: (GoogleMapController controller) =>
+                          _mapController = controller,
+                      myLocationEnabled: false,
+                      zoomControlsEnabled: false,
+                      mapToolbarEnabled: false,
+                      compassEnabled: false,
+                      markers: markers,
+                      polylines: polylines,
+                    );
+                  },
+                );
+              },
             ),
-            style: context.isHackingTheme ? hackingMapStyle : null,
-            onMapCreated: (controller) => _mapController = controller,
-            myLocationEnabled: false,
-            zoomControlsEnabled: false,
-            mapToolbarEnabled: false,
-            markers: {
-              Marker(
-                markerId: const MarkerId("car"),
-                position: _carLocation,
-                rotation: _carRotation,
-                flat: true,
-                anchor: const Offset(0.5, 0.5),
-                icon: BitmapDescriptor.defaultMarkerWithHue(
-                  BitmapDescriptor.hueAzure,
-                ),
-              ),
-            },
           ),
         ),
 
@@ -319,7 +612,21 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           right: 16,
           child: Column(
             children: [
-              _floatingMapButton(Icons.map_outlined, textColor, () {}),
+              _floatingMapButton(
+                Icons.my_location,
+                accentColor,
+                () {
+                  _mapController?.animateCamera(
+                    CameraUpdate.newCameraPosition(
+                      CameraPosition(
+                        target: _carLocation,
+                        zoom: 17.0,
+                        bearing: _carRotation,
+                      ),
+                    ),
+                  );
+                },
+              ),
               const SizedBox(height: 12),
               _floatingMapButton(Icons.lock, Colors.green, () {}),
               const SizedBox(height: 12),
@@ -333,21 +640,30 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           child: _floatingMapButton(
             Icons.route_outlined,
             Colors.redAccent,
-            () {},
+            () {
+              _mapController?.animateCamera(
+                CameraUpdate.newCameraPosition(
+                  CameraPosition(
+                    target: _carLocation,
+                    zoom: 17.0,
+                    bearing: _carRotation,
+                  ),
+                ),
+              );
+            },
           ),
         ),
 
         NotificationListener<DraggableScrollableNotification>(
-          onNotification: (notification) {
-            final double delta = notification.maxExtent - notification.minExtent;
-            if (mounted) {
-              setState(() {
-                if (delta > 0) {
-                  _sheetProgress = ((notification.extent - notification.minExtent) / delta).clamp(0.0, 1.0);
-                } else {
-                  _sheetProgress = 0.0;
-                }
-              });
+          onNotification: (DraggableScrollableNotification notification) {
+            final double delta =
+                notification.maxExtent - notification.minExtent;
+            final double next = delta > 0
+                ? ((notification.extent - notification.minExtent) / delta)
+                    .clamp(0.0, 1.0)
+                : 0.0;
+            if ((next - _sheetProgress.value).abs() >= 0.02) {
+              _sheetProgress.value = next;
             }
             return true;
           },
@@ -390,41 +706,39 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                         ),
                         const SizedBox(height: 40),
                         Expanded(
-                          child: ListView(
+                            child: ListView(
                             controller: scrollController,
                             physics: const BouncingScrollPhysics(),
+                            cacheExtent: 250,
+                            addAutomaticKeepAlives: false,
                             padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
                             children: [
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Row(
-                                    children: [
-                                      Icon(Icons.directions_car, color: widget.color, size: 22),
-                                      const SizedBox(width: 3),
-                                      Text(
-                                        widget.name,
-                                        style: TextStyle(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.bold,
-                                          color: textColor,
-                                        ),
+                                  Icon(Icons.directions_car, color: widget.color, size: 22),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      widget.name,
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                        color: textColor,
                                       ),
-                                    ],
+                                      overflow: TextOverflow.ellipsis,
+                                      maxLines: 1,
+                                    ),
                                   ),
-                                  Row(
-                                    children: [
-                                      Icon(Icons.speed, color: accentColor, size: 18),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        widget.distance,
-                                        style: TextStyle(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.bold,
-                                          color: textColor,
-                                        ),
-                                      ),
-                                    ],
+                                  const SizedBox(width: 8),
+                                  Icon(Icons.speed, color: accentColor, size: 18),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    widget.distance,
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                      color: textColor,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -509,8 +823,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                     top: -70,
                     left: 0,
                     right: 0,
-                    child: Opacity(
-                      opacity: (1.0 - (_sheetProgress * 2.5)).clamp(0.0, 1.0),
+                    child: ValueListenableBuilder<double>(
+                      valueListenable: _sheetProgress,
+                      builder: (BuildContext context, double progress, Widget? child) {
+                        return Opacity(
+                          opacity: (1.0 - (progress * 2.5)).clamp(0.0, 1.0),
+                          child: child,
+                        );
+                      },
                       child: Center(
                         child: Stack(
                           alignment: Alignment.center,
@@ -526,7 +846,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                     : Border.all(color: context.appTokens.containerBorderColor!),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.black.withOpacity(0.08),
+                                    color: Colors.black.withValues(alpha: 0.08),
                                     blurRadius: 14,
                                     spreadRadius: 2,
                                   ),
@@ -536,10 +856,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             SizedBox(
                               height: 130,
                               width: 130,
-                              child: CustomPaint(
-                                painter: FullCircularSpeedoPainter(
-                                  speedValue: currentSpeed,
-                                  scaleTextColor: textColor,
+                              child: RepaintBoundary(
+                                child: CustomPaint(
+                                  painter: FullCircularSpeedoPainter(
+                                    speedValue: currentSpeed,
+                                    scaleTextColor: textColor,
+                                  ),
                                 ),
                               ),
                             ),
@@ -553,7 +875,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                                     style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: textColor, height: 1.0),
                                   ),
                                   Text(
-                                    "kmph",
+                                    context.tr("kmph"),
                                     style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: mutedColor),
                                   ),
                                 ],
@@ -585,7 +907,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         scrolledUnderElevation: 0,
         leading: IconButton(
           icon: Icon(Icons.arrow_back_ios, color: accentColor, size: 22),
-          onPressed: () => setState(() => _currentBottomIndex = 0),
+          onPressed: () => _selectTab(0),
         ),
         titleSpacing: 0,
         title: Text(
@@ -604,18 +926,18 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               decoration: BoxDecoration(color: context.containerColor, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))]),
               child: Row(
                 children: [
-                  Text("Today", style: TextStyle(color: Colors.grey.shade700, fontSize: 13, fontWeight: FontWeight.w600)),
+                  Text(context.tr("Today"), style: TextStyle(color: Colors.grey.shade700, fontSize: 13, fontWeight: FontWeight.w600)),
                   const SizedBox(width: 4),
                   Icon(Icons.keyboard_arrow_down, color: accentColor, size: 20),
                 ],
               ),
             ),
             itemBuilder: (context) => [
-              const PopupMenuItem(value: "1h", height: 60, child: Center(child: Text("1 Hour", style: TextStyle(fontSize: 12)))),
-              const PopupMenuItem(value: "today", height: 60, child: Center(child: Text("Today", style: TextStyle(fontSize: 12)))),
-              const PopupMenuItem(value: "yesterday", height: 60, child: Center(child: Text("Yesterday", style: TextStyle(fontSize: 12)))),
-              const PopupMenuItem(value: "week", height: 60, child: Center(child: Text("Week", style: TextStyle(fontSize: 12)))),
-              const PopupMenuItem(value: "custom", height: 60, child: Center(child: Text("Custom", style: TextStyle(fontSize: 12)))),
+              PopupMenuItem(value: "1h", height: 60, child: Center(child: Text(context.tr("1 Hour"), style: const TextStyle(fontSize: 12)))),
+              PopupMenuItem(value: "today", height: 60, child: Center(child: Text(context.tr("Today"), style: const TextStyle(fontSize: 12)))),
+              PopupMenuItem(value: "yesterday", height: 60, child: Center(child: Text(context.tr("Yesterday"), style: const TextStyle(fontSize: 12)))),
+              PopupMenuItem(value: "week", height: 60, child: Center(child: Text(context.tr("Week"), style: const TextStyle(fontSize: 12)))),
+              PopupMenuItem(value: "custom", height: 60, child: Center(child: Text(context.tr("Custom"), style: const TextStyle(fontSize: 12)))),
             ],
           ),
           const SizedBox(width: 12),
@@ -630,7 +952,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       ),
       body: Stack(
         children: [
-          Positioned.fill(child: GoogleMap(initialCameraPosition: const CameraPosition(target: LatLng(31.5204, 74.3587), zoom: 14.0), style: context.isHackingTheme ? hackingMapStyle : null, zoomControlsEnabled: false, myLocationEnabled: false)),
+          Positioned.fill(
+            child: RepaintBoundary(
+              child: _HistoryMap(route: _historyRoute),
+            ),
+          ),
           Positioned(top: 130, left: 16, child: Column(children: [_floatingMapButton(Icons.map_outlined, context.textColor, () {}), const SizedBox(height: 12), _floatingMapButton(Icons.settings_outlined, context.textColor, () {})])),
           Positioned(
             top: 320, right: 16,
@@ -647,10 +973,22 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               ],
             ),
           ),
-          Positioned(
-            top: _historyPanelTop, left: 0, right: 0,
+          ValueListenableBuilder<double>(
+            valueListenable: _historyPanelTop,
+            builder: (BuildContext context, double top, Widget? child) {
+              return Positioned(
+                top: top,
+                left: 0,
+                right: 0,
+                child: child!,
+              );
+            },
             child: GestureDetector(
-              onVerticalDragUpdate: (details) => setState(() => _historyPanelTop = (_historyPanelTop! + details.delta.dy).clamp(maxTop, bottomLimit)),
+              onVerticalDragUpdate: (DragUpdateDetails details) {
+                _historyPanelTop.value =
+                    (_historyPanelTop.value + details.delta.dy)
+                        .clamp(maxTop, bottomLimit);
+              },
               child: Container(
                 width: double.infinity,
                 decoration: BoxDecoration(color: Colors.black.withOpacity(0.12), borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16))),
@@ -661,9 +999,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [_historyDateLabel("From :", widget.date.isNotEmpty ? widget.date : "29 Jul 2026", accentColor), Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: accentColor, borderRadius: BorderRadius.circular(15)), child: Text(widget.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11))), _historyDateLabel("To :", widget.date.isNotEmpty ? widget.date : "29 Jul 2026", accentColor)]),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [_historyDateLabel(context.tr("From :"), widget.date.isNotEmpty ? widget.date : "29 Jul 2026", accentColor, alignStart: true), Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: accentColor, borderRadius: BorderRadius.circular(15)), child: Text(widget.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11))), _historyDateLabel(context.tr("To :"), widget.date.isNotEmpty ? widget.date : "29 Jul 2026", accentColor, alignStart: false)]),
                       const SizedBox(height: 14), Divider(height: 1, thickness: 0.8, color: context.mutedTextColor.withOpacity(0.3)), const SizedBox(height: 14),
-                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [_historyStatItem(Icons.speed, "${widget.speed} kmph", accentColor), _historyStatItem(Icons.access_time_filled_outlined, "01:20 Hrs", accentColor), _historyStatItem(Icons.route_outlined, "${widget.distance} km", accentColor)]),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [_historyStatItem(Icons.speed, "${_historyRoute.avgSpeed?.toStringAsFixed(0) ?? widget.speed} ${context.tr('kmph')}", accentColor), _historyStatItem(Icons.access_time_filled_outlined, _historyRoute.durationLabel ?? "00:00 Hrs", accentColor), _historyStatItem(Icons.route_outlined, "${_historyRoute.distanceKm?.toStringAsFixed(1) ?? widget.distance} km", accentColor)]),
                       const SizedBox(height: 16),
                       Stack(
                         children: [
@@ -704,9 +1042,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   }
 
   /// --- HELPER WIDGETS ---
-  Widget _historyDateLabel(String label, String date, Color color) {
+  Widget _historyDateLabel(String label, String date, Color color, {required bool alignStart}) {
     return Column(
-      crossAxisAlignment: label == "From :" ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+      crossAxisAlignment: alignStart ? CrossAxisAlignment.start : CrossAxisAlignment.end,
       children: [
         Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
         Text(date, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color)),
@@ -773,7 +1111,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           ),
           const SizedBox(height: 2),
           Text(
-            label,
+            context.tr(label),
             style: TextStyle(
               fontSize: 10,
               color: context.mutedTextColor,
@@ -809,7 +1147,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  "Device Time",
+                  context.tr("Device Time"),
                   style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: mutedColor),
                 ),
               ],
@@ -825,7 +1163,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  "Server Time",
+                  context.tr("Server Time"),
                   style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: mutedColor),
                 ),
               ],
@@ -841,7 +1179,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       children: [
         Container(height: 18, width: 18, decoration: BoxDecoration(color: color.withOpacity(0.12), shape: BoxShape.circle, border: Border.all(color: color, width: 2)), padding: const EdgeInsets.all(3), child: Container(decoration: BoxDecoration(color: color, shape: BoxShape.circle))),
         const SizedBox(width: 12),
-        SizedBox(width: 70, child: Text(stateLabel, style: TextStyle(fontSize: 12, fontWeight: FontWeight.normal, color: context.mutedTextColor))),
+        SizedBox(width: 70, child: Text(context.tr(stateLabel), style: TextStyle(fontSize: 12, fontWeight: FontWeight.normal, color: context.mutedTextColor))),
         Text(durationValue, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: context.mutedTextColor)),
       ],
     );
@@ -880,7 +1218,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
       children: [
         Icon(icon, color: iconColor, size: 18),
         const SizedBox(width: 8),
-        SizedBox(width: 95, child: Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.normal, color: context.mutedTextColor))),
+        SizedBox(width: 95, child: Text(context.tr(label), style: TextStyle(fontSize: 11, fontWeight: FontWeight.normal, color: context.mutedTextColor))),
         Text(value, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: context.textColor)),
       ],
     );
@@ -947,7 +1285,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Text(
-                  label,
+                  context.tr(label),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -1014,7 +1352,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               children: [
                 _buildActionButton(Icons.local_gas_station, Colors.teal, "Fuel Cost\nPer Liter"),
                 _buildActionButton(Icons.av_timer, Colors.brown, "Mileage\nPer Liter"),
-                _buildActionButton(Icons.location_on, Colors.redAccent, "Share\nLocation"),
+                _buildActionButton(Icons.location_on, Colors.redAccent, "Share\nLocation", onTap: _shareLocation),
                 _buildActionButton(Icons.map, Colors.orange.shade700, "Add\nGeofence"),
                 _buildActionButton(Icons.notifications_active, Colors.amber, "Add\nReminder"),
                 _buildActionButton(Icons.build_circle, Colors.deepOrange, "Engine\ncost"),
@@ -1027,10 +1365,19 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
     );
   }
 
-  Widget _buildActionButton(IconData icon, Color color, String label, {bool hasBg = false}) {
+  Widget _buildActionButton(
+    IconData icon,
+    Color color,
+    String label, {
+    bool hasBg = false,
+    VoidCallback? onTap,
+  }) {
     return SizedBox(
       width: 80,
-      child: Column(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
@@ -1047,7 +1394,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            label,
+            context.tr(label),
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 11,
@@ -1059,7 +1406,83 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
             overflow: TextOverflow.ellipsis,
           ),
         ],
+        ),
       ),
+    );
+  }
+}
+
+class _StatItem {
+  final String title;
+  final String value;
+  final String imagePath;
+
+  const _StatItem(this.title, this.value, this.imagePath);
+}
+
+const List<_StatItem> _statItems = <_StatItem>[
+  _StatItem('Route length', '0.0 km', 'assets/route_length.png'),
+  _StatItem('Move duration', '00:00:00', 'assets/move_duration.png'),
+  _StatItem('Stop duration', '00:00:00', 'assets/stop_duration.png'),
+  _StatItem('Idle duration', '00:00:00', 'assets/engine_work.png'),
+  _StatItem('Top speed', '0.00 kmph', 'assets/top-speed.png'),
+  _StatItem('Average speed', '0.00 kmph', 'assets/top-speed.png'),
+  _StatItem('Overspeed count', '0', 'assets/over_speed.png'),
+  _StatItem('Stop count', '0', 'assets/stop_count.png'),
+  _StatItem('Avg.fuel cons.', '0.00 km/Ltr', 'assets/fuel_consum.png'),
+  _StatItem('Fuel cost', 'INR 0.00', 'assets/fuel_cost.png'),
+  _StatItem('Engine work', 'INR 0.00', 'assets/engine_work.png'),
+  _StatItem('Fuel consumption', '0.0 Liter', 'assets/fuel_consum.png'),
+  _StatItem('Odometer', '28152.79 km', 'assets/odometer.png'),
+  _StatItem('Engine hours', '00:00:00', 'assets/engine_work.png'),
+];
+
+class _HistoryMap extends StatelessWidget {
+  const _HistoryMap({required this.route});
+
+  final HistoryRoute route;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<LatLng> points =
+        route.points.map((HistoryPoint p) => p.position).toList();
+    final LatLng target = points.isNotEmpty
+        ? points.first
+        : const LatLng(31.5204, 74.3587);
+
+    return GoogleMap(
+      initialCameraPosition: CameraPosition(
+        target: target,
+        zoom: 14.0,
+      ),
+      style: context.themedMapStyle,
+      zoomControlsEnabled: false,
+      myLocationEnabled: false,
+      compassEnabled: false,
+      mapToolbarEnabled: false,
+      polylines: points.length >= 2
+          ? <Polyline>{
+              Polyline(
+                polylineId: const PolylineId('history_route'),
+                points: points,
+                color: const Color(0xFFF53D6B),
+                width: 4,
+              ),
+            }
+          : const <Polyline>{},
+      markers: points.isNotEmpty
+          ? <Marker>{
+              Marker(
+                markerId: const MarkerId('history_start'),
+                position: points.first,
+              ),
+              if (points.length > 1)
+                Marker(
+                  markerId: const MarkerId('history_end'),
+                  position: points.last,
+                ),
+            }
+          : const <Marker>{},
     );
   }
 }

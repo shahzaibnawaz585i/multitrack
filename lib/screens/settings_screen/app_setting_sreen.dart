@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_l10n.dart';
 import 'configure_alerts_screen.dart';
 import 'drivers_screen.dart';
 import 'expense_screen.dart';
@@ -11,11 +12,6 @@ import '../../theme/app_theme_tokens.dart';
 
 class AppSettingScreen extends StatelessWidget {
   const AppSettingScreen({super.key});
-
-  static const Color _backgroundColor = Color(0xFFF7F7F7);
-  static const Color _textColor = Color(0xFF292B32);
-  static const Color _pinkColor = Color(0xFFFF2F68);
-  static const Color _fieldFill = Color(0xFFF2F2F2);
 
   static const List<_AppSettingItemData> _settings = <_AppSettingItemData>[
     _AppSettingItemData(
@@ -98,7 +94,7 @@ class AppSettingScreen extends StatelessWidget {
           ),
         ),
         title: Text(
-          'App Settings',
+          context.tr('App Settings'),
           style: TextStyle(
             color: textColor,
             fontSize: 20,
@@ -200,7 +196,7 @@ class AppSettingScreen extends StatelessWidget {
         return;
       default:
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$title coming soon')),
+          SnackBar(content: Text(context.trp('{title} coming soon', {'title': title}))),
         );
     }
   }
@@ -274,7 +270,7 @@ class AppSettingMenuItem extends StatelessWidget {
               const SizedBox(width: 16),
               Expanded(
                 child: Text(
-                  title,
+                  context.tr(title),
                   style: TextStyle(
                     color: textColor,
                     fontSize: 14,
@@ -376,7 +372,7 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Change Password',
+              context.tr('Change Password'),
               style: TextStyle(
                 color: textColor,
                 fontSize: 18,
@@ -390,7 +386,7 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
               style: TextStyle(color: textColor),
               decoration: _fieldDecoration(
                 context,
-                label: 'Old Password*',
+                label: context.tr('Old Password*'),
                 obscure: _hideOldPassword,
                 onToggleVisibility: () {
                   setState(() => _hideOldPassword = !_hideOldPassword);
@@ -404,7 +400,7 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
               style: TextStyle(color: textColor),
               decoration: _fieldDecoration(
                 context,
-                label: 'Password',
+                label: context.tr('Password'),
                 obscure: _hidePassword,
                 onToggleVisibility: () {
                   setState(() => _hidePassword = !_hidePassword);
@@ -418,7 +414,7 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
               style: TextStyle(color: textColor),
               decoration: _fieldDecoration(
                 context,
-                label: 'Confirm Password*',
+                label: context.tr('Confirm Password*'),
                 obscure: _hideConfirmPassword,
                 onToggleVisibility: () {
                   setState(() => _hideConfirmPassword = !_hideConfirmPassword);
@@ -435,9 +431,9 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
                 child: InkWell(
                   onTap: () => Navigator.pop(context),
                   borderRadius: BorderRadius.circular(8),
-                  child: const Center(
+                  child: Center(
                     child: Text(
-                      'Apply',
+                      context.tr('Apply'),
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 16,

@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../l10n/app_l10n.dart';
+import '../../theme/app_theme_tokens.dart';
+
 import '../../data/vehicle_data.dart';
 import '../../models/vehicle_model.dart';
+import '../../services/tracking_api_service.dart';
+import '../../services/vehicle_service.dart';
 import '../../utils/report_date_picker.dart';
+import '../../utils/report_response_parser.dart';
 import '../../widgets/report_export_dialog.dart';
 import '../../widgets/select_vehicle_dialog.dart';
 
@@ -17,8 +23,13 @@ class ReportScreenScaffold extends StatefulWidget {
   final String? foundLabel;
   final bool showResultsHeader;
   final bool showGenerateButton;
-  final Widget Function(BuildContext context, VehicleModel vehicle)
-      buildGeneratedContent;
+  final int reportId;
+  final Map<String, dynamic>? reportExtra;
+  final Widget Function(
+    BuildContext context,
+    VehicleModel vehicle,
+    Map<String, dynamic>? reportData,
+  ) buildGeneratedContent;
 
   const ReportScreenScaffold({
     super.key,
@@ -31,6 +42,8 @@ class ReportScreenScaffold extends StatefulWidget {
     this.foundLabel,
     this.showResultsHeader = true,
     this.showGenerateButton = false,
+    required this.reportId,
+    this.reportExtra,
     required this.buildGeneratedContent,
   });
 
@@ -41,14 +54,16 @@ class ReportScreenScaffold extends StatefulWidget {
 class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
   static const Color _pinkColor = Color(0xfff53d6b);
   static const Color _lightPinkColor = Color(0xffff7a9c);
-  static const Color _topSectionColor = Colors.white;
-  static const Color _bottomSectionColor = Color(0xFFF0F0F0);
-
+    
   int selectedIndex = 0;
   DateTime fromDate = DateTime.now();
   DateTime endDate = DateTime.now();
   VehicleModel? selectedVehicle;
   bool reportGenerated = false;
+  bool isGenerating = false;
+  Map<String, dynamic>? reportData;
+  String? reportError;
+  List<VehicleModel> vehicles = VehicleData.vehicles;
 
   final List<String> filters = const [
     'Today',
@@ -61,6 +76,87 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
   void initState() {
     super.initState();
     _setFilterDates(0);
+    _loadVehicles();
+  }
+
+  Future<void> _loadVehicles() async {
+    final List<VehicleModel> fetched =
+        await VehicleService.getDevices(forceRefresh: true);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      vehicles = fetched.isNotEmpty ? fetched : VehicleData.vehicles;
+    });
+  }
+
+  Future<void> _generateReport() async {
+    if (selectedVehicle == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context.tr('Please search and select a vehicle first!'),
+          ),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    if (selectedVehicle!.id == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(context.tr('Selected vehicle has no device ID')),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      isGenerating = true;
+      reportError = null;
+    });
+
+    final Map<String, dynamic>? response = await TrackingApiService.generateReport(
+      reportId: widget.reportId,
+      deviceId: selectedVehicle!.id!,
+      from: _formatApiDate(fromDate),
+      to: _formatApiDate(endDate),
+      extra: widget.reportExtra,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    if (response == null || response.isEmpty) {
+      setState(() {
+        isGenerating = false;
+        reportGenerated = false;
+        reportError = context.tr('Could not generate report');
+      });
+      return;
+    }
+
+    setState(() {
+      isGenerating = false;
+      reportGenerated = true;
+      reportData = response;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '${widget.generatedSnackMessage} ${selectedVehicle!.name}',
+        ),
+        backgroundColor: _pinkColor,
+      ),
+    );
+  }
+
+  String _formatApiDate(DateTime date) {
+    return DateFormat('yyyy-MM-dd HH:mm:ss').format(date);
   }
 
   Future<void> _pickFromDate() async {
@@ -141,7 +237,12 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Exporting ${widget.title} to $label...'),
+        content: Text(
+          context.trp('Exporting {title} to {label}...', {
+            'title': context.tr(widget.title),
+            'label': label,
+          }),
+        ),
         backgroundColor: _pinkColor,
       ),
     );
@@ -178,7 +279,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                     ],
                   ),
                   child: Text(
-                    filters[index],
+                    context.tr(filters[index]),
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12,
@@ -204,7 +305,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
       builder: (BuildContext context) {
         return SelectVehicleDialog(
           initialSelected: selectedVehicle,
-          vehicles: VehicleData.vehicles,
+          vehicles: vehicles,
         );
       },
     );
@@ -233,7 +334,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
               const SizedBox(height: 15),
             ],
             Text(
-              widget.emptyTitle,
+              context.tr(widget.emptyTitle),
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.grey.shade600,
@@ -244,7 +345,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
             if (widget.emptySubtitle.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(
-                widget.emptySubtitle,
+                context.tr(widget.emptySubtitle),
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.grey.shade600,
@@ -272,15 +373,15 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  widget.detailsTitle!,
-                  style: const TextStyle(
+                  context.tr(widget.detailsTitle!),
+                  style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF292B32),
+                    color: context.textColor,
                   ),
                 ),
                 Text(
-                  widget.foundLabel!,
+                  '${ReportResponseParser.itemCount(reportData)} ${context.tr(widget.foundLabel!)}',
                   style: TextStyle(
                     fontSize: 13,
                     color: Colors.grey.shade600,
@@ -291,7 +392,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
             ),
             const SizedBox(height: 15),
           ],
-          widget.buildGeneratedContent(context, selectedVehicle!),
+          widget.buildGeneratedContent(context, selectedVehicle!, reportData),
         ],
       ),
     );
@@ -300,28 +401,28 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _bottomSectionColor,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: _topSectionColor,
+        backgroundColor: Theme.of(context).cardColor,
         surfaceTintColor: Colors.transparent,
         leading: IconButton(
-          icon: const Icon(
+          icon: Icon(
             Icons.arrow_back_ios_new,
             color: _pinkColor,
           ),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
-          widget.title,
-          style: const TextStyle(
+          context.tr(widget.title),
+          style: TextStyle(
             fontWeight: FontWeight.w800,
             fontSize: 18,
           ),
         ),
         actions: [
           IconButton(
-            icon: const Icon(
+            icon: Icon(
               Icons.more_vert,
               color: _pinkColor,
             ),
@@ -332,7 +433,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
       body: Column(
         children: [
           Material(
-            color: Colors.white,
+            color: context.containerColor,
             elevation: 0,
             child: Column(
               children: [
@@ -345,13 +446,13 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                       height: 30,
                       padding: const EdgeInsets.symmetric(horizontal: 10),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: context.containerColor,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.black, width: 1),
+                        border: Border.all(color: context.textColor, width: 1),
                       ),
                       child: Row(
                         children: [
-                          const Icon(
+                          Icon(
                             Icons.search_rounded,
                             color: _pinkColor,
                             size: 18,
@@ -359,9 +460,9 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              selectedVehicle?.name ?? 'Search Vehicle',
-                              style: const TextStyle(
-                                color: Colors.black54,
+                              selectedVehicle?.name ?? context.tr('Search Vehicle'),
+                              style: TextStyle(
+                                color: context.mutedTextColor,
                                 fontSize: 12,
                                 fontWeight: FontWeight.normal,
                               ),
@@ -375,7 +476,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                                   reportGenerated = false;
                                 });
                               },
-                              child: const Icon(
+                              child: Icon(
                                 Icons.clear,
                                 color: Colors.grey,
                                 size: 16,
@@ -402,7 +503,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                     children: [
                       Expanded(
                         child: _DatePickerCard(
-                          label: 'From Date',
+                          label: context.tr('From Date'),
                           labelFontSize: 12,
                           value: formatDate(fromDate),
                           valueColor: Colors.green,
@@ -412,7 +513,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: _DatePickerCard(
-                          label: 'End Date',
+                          label: context.tr('End Date'),
                           labelFontSize: 12,
                           value: formatDate(endDate),
                           valueColor: Colors.red,
@@ -447,7 +548,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
           ),
           Expanded(
             child: ColoredBox(
-              color: _bottomSectionColor,
+              color: Theme.of(context).scaffoldBackgroundColor,
               child: widget.showGenerateButton
                   ? Column(
                       children: [
@@ -457,43 +558,33 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                             width: double.infinity,
                             height: 55,
                             child: ElevatedButton.icon(
-                              onPressed: () {
-                                if (selectedVehicle == null) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Please search and select a vehicle first!',
-                                      ),
-                                      backgroundColor: Colors.redAccent,
-                                    ),
-                                  );
-                                  return;
-                                }
-
-                                setState(() => reportGenerated = true);
-
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      '${widget.generatedSnackMessage} ${selectedVehicle!.name}',
-                                    ),
-                                    backgroundColor: _pinkColor,
-                                  ),
-                                );
-                              },
+                              onPressed: isGenerating ? null : _generateReport,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: _pinkColor,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(14),
                                 ),
                               ),
-                              icon: const Icon(
-                                Icons.description,
-                                color: Colors.white,
-                              ),
-                              label: const Text(
-                                'Generate Report',
-                                style: TextStyle(
+                              icon: isGenerating
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.description,
+                                      color: Colors.white,
+                                    ),
+                              label: Text(
+                                context.tr(
+                                  isGenerating
+                                      ? 'Generating...'
+                                      : 'Generate Report',
+                                ),
+                                style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
@@ -503,9 +594,16 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                           ),
                         ),
                         Expanded(
-                          child: reportGenerated && selectedVehicle != null
-                              ? _buildGeneratedResults()
-                              : _buildEmptyContent(),
+                          child: reportError != null
+                              ? Center(
+                                  child: Text(
+                                    reportError!,
+                                    style: TextStyle(color: Colors.red.shade700),
+                                  ),
+                                )
+                              : (reportGenerated && selectedVehicle != null
+                                  ? _buildGeneratedResults()
+                                  : _buildEmptyContent()),
                         ),
                       ],
                     )
@@ -530,7 +628,7 @@ class _SelectedVehicleCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _ReportScreenScaffoldState._topSectionColor,
+        color: context.containerColor,
         borderRadius: BorderRadius.circular(15),
         border: Border.all(color: const Color(0xffffd8df), width: 1),
         boxShadow: [
@@ -557,10 +655,10 @@ class _SelectedVehicleCard extends StatelessWidget {
                   const SizedBox(width: 8),
                   Text(
                     vehicle.name,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF292B32),
+                      color: context.textColor,
                     ),
                   ),
                 ],
@@ -585,18 +683,18 @@ class _SelectedVehicleCard extends StatelessWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              const Icon(Icons.speed, size: 16, color: Colors.grey),
+              Icon(Icons.speed, size: 16, color: Colors.grey),
               const SizedBox(width: 4),
               Text(
-                'Speed: ${vehicle.speed} km/h',
-                style: const TextStyle(color: Colors.grey, fontSize: 13),
+                '${context.tr('Speed')}: ${vehicle.speed} km/h',
+                style: TextStyle(color: Colors.grey, fontSize: 13),
               ),
               const SizedBox(width: 16),
-              const Icon(Icons.route, size: 16, color: Colors.grey),
+              Icon(Icons.route, size: 16, color: Colors.grey),
               const SizedBox(width: 4),
               Text(
-                'Today: ${vehicle.distance}',
-                style: const TextStyle(color: Colors.grey, fontSize: 13),
+                '${context.tr('Today')}: ${vehicle.distance}',
+                style: TextStyle(color: Colors.grey, fontSize: 13),
               ),
             ],
           ),
@@ -604,12 +702,12 @@ class _SelectedVehicleCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.location_on, size: 16, color: Colors.grey),
+              Icon(Icons.location_on, size: 16, color: Colors.grey),
               const SizedBox(width: 4),
               Expanded(
                 child: Text(
                   vehicle.location,
-                  style: const TextStyle(color: Colors.grey, fontSize: 13),
+                  style: TextStyle(color: Colors.grey, fontSize: 13),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),

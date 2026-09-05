@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../data/vehicle_data.dart';
+import '../../l10n/app_l10n.dart';
 import '../../theme/app_theme_tokens.dart';
 import '../../utils/report_date_picker.dart';
 
@@ -68,15 +70,11 @@ class _NotificationFilterScreenState extends State<NotificationFilterScreen> {
     'Device Document Expired',
   ];
 
-  static const List<String> _vehicleIds = <String>[
-    'BR09GB6140',
-    'KL45Q8460',
-    'PB11DD9661',
-    'MH12RK8741',
-    'TN37BR5099',
-    '5612',
-    '68080',
-  ];
+  List<String> get _vehicleIds => VehicleData.vehicles
+      .map((v) => v.name)
+      .where((name) => name.isNotEmpty)
+      .toSet()
+      .toList();
 
   static const List<String> _datePresets = <String>[
     'Today',
@@ -390,7 +388,7 @@ class _NotificationFilterScreenState extends State<NotificationFilterScreen> {
       padding: const EdgeInsets.only(bottom: 4),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: context.containerColor,
           borderRadius: BorderRadius.circular(10),
           boxShadow: <BoxShadow>[
             BoxShadow(
@@ -517,17 +515,17 @@ class _NotificationFilterScreenState extends State<NotificationFilterScreen> {
           padding: const EdgeInsets.fromLTRB(10, 10, 10, 4),
           child: TextField(
             onChanged: (value) => setState(() => _vehicleQuery = value),
-            style: const TextStyle(fontSize: 12, color: Color(0xFF333333)),
+            style: TextStyle(fontSize: 12, color: context.textColor),
             decoration: InputDecoration(
               isDense: true,
               hintText: 'Search Vehi...',
-              hintStyle: const TextStyle(
-                color: Color(0xFFB0B0B0),
+              hintStyle: TextStyle(
+                color: context.labelTextColor,
                 fontSize: 12,
               ),
               filled: true,
-              fillColor: Colors.white,
-              prefixIcon: const Icon(Icons.search, color: _accent, size: 18),
+              fillColor: context.fieldFillColor,
+              prefixIcon: Icon(Icons.search, color: _accent, size: 18),
               prefixIconConstraints: const BoxConstraints(
                 minWidth: 36,
                 minHeight: 32,
@@ -639,8 +637,8 @@ class _NotificationFilterScreenState extends State<NotificationFilterScreen> {
           height: 40,
           child: Center(
             child: Text(
-              label,
-              style: const TextStyle(
+              context.tr(label),
+              style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
                 fontSize: 17,

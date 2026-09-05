@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_l10n.dart';
+
 enum ReportExportType { excel, pdf }
 
 class ReportExportDialog extends StatefulWidget {
@@ -27,7 +29,7 @@ class _ReportExportDialogState extends State<ReportExportDialog> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
       ),
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).cardColor,
       insetPadding: const EdgeInsets.symmetric(horizontal: 28),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
@@ -35,8 +37,8 @@ class _ReportExportDialogState extends State<ReportExportDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Select Export option',
+            Text(
+              context.tr('Select Export option'),
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
@@ -142,7 +144,7 @@ class _ExportOptionTile extends StatelessWidget {
             ),
             const SizedBox(width: 12),
             Text(
-              label,
+              context.tr(label),
               style: const TextStyle(
                 fontSize: 15,
                 color: Color(0xFF292B32),

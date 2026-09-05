@@ -1,13 +1,23 @@
 import 'package:flutter/material.dart';
 
 import '../data/notification_data.dart';
+import '../l10n/app_l10n.dart';
 import '../models/notification_model.dart';
+import '../services/alert_service.dart';
 import '../theme/app_theme_tokens.dart';
 import 'notification_filter_screen.dart';
 
 class NotificationsScreen extends StatefulWidget {
   final bool showAlertsOnly;
-  const NotificationsScreen({super.key, this.showAlertsOnly = false});
+  final String? vehicleName;
+  final int? deviceId;
+
+  const NotificationsScreen({
+    super.key,
+    this.showAlertsOnly = false,
+    this.vehicleName,
+    this.deviceId,
+  });
 
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
@@ -16,29 +26,54 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
-  bool _isLoading = true;
+  bool _isLoading = false;
+  List<AppNotification> _alerts = <AppNotification>[];
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(_onTabChanged);
-    _loadNotifications();
-  }
-
-  Future<void> _loadNotifications() async {
-    await Future<void>.delayed(const Duration(seconds: 2));
-    if (mounted) {
-      setState(() => _isLoading = false);
-    }
+    _alerts = _getFilteredAlerts(NotificationData.alerts);
+    _loadEvents();
   }
 
   void _onTabChanged() {
     if (_tabController.indexIsChanging) {
       return;
     }
-
     setState(() {});
+  }
+
+  Future<void> _loadEvents({bool isRefresh = false}) async {
+    if (!isRefresh && _alerts.isEmpty) {
+      setState(() => _isLoading = true);
+    }
+
+    final List<AppNotification> fetched = await AlertService.getEvents(
+      deviceId: widget.deviceId,
+      forceRefresh: isRefresh,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = false;
+      _alerts = _getFilteredAlerts(fetched);
+    });
+  }
+
+  List<AppNotification> _getFilteredAlerts(List<AppNotification> raw) {
+    if (widget.vehicleName != null && widget.vehicleName!.isNotEmpty) {
+      final String filter = widget.vehicleName!.toLowerCase().trim();
+      final List<AppNotification> filtered = raw.where((AppNotification n) {
+        return n.vehicleId.toLowerCase().contains(filter);
+      }).toList();
+      return filtered.isNotEmpty ? filtered : raw;
+    }
+    return raw;
   }
 
   @override
@@ -95,14 +130,14 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
-        leading: widget.showAlertsOnly 
-            ? null 
+        leading: widget.showAlertsOnly
+            ? null
             : IconButton(
                 icon: Icon(Icons.arrow_back_ios_new, color: accent, size: 20),
                 onPressed: () => Navigator.pop(context),
               ),
         title: Text(
-          widget.showAlertsOnly ? 'Alerts' : 'Notifications',
+          widget.showAlertsOnly ? context.tr('Alerts') : context.tr('Notifications'),
           style: TextStyle(
             color: textColor,
             fontWeight: FontWeight.bold,
@@ -111,12 +146,16 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         ),
         actions: [
           IconButton(
+            icon: Icon(Icons.refresh, color: accent),
+            onPressed: () => _loadEvents(isRefresh: true),
+          ),
+          IconButton(
             icon: Icon(Icons.filter_alt_outlined, color: accent),
             onPressed: _openFilter,
           ),
         ],
-        bottom: widget.showAlertsOnly 
-            ? null 
+        bottom: widget.showAlertsOnly
+            ? null
             : PreferredSize(
                 preferredSize: const Size.fromHeight(34),
                 child: ColoredBox(
@@ -146,19 +185,13 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                     dividerHeight: 1,
                     tabs: [
                       Tab(
-                        text: _isLoading
-                            ? 'Alerts(0)'
-                            : 'Alerts(${NotificationData.alertCount})',
+                        text: '${context.tr('Alerts')}(${_isLoading ? 0 : _alerts.length})',
                       ),
                       Tab(
-                        text: _isLoading
-                            ? 'Announcements(0)'
-                            : 'Announcements(${NotificationData.announcementCount})',
+                        text: '${context.tr('Announcements')}(${_isLoading ? 0 : NotificationData.announcementCount})',
                       ),
                       Tab(
-                        text: _isLoading
-                            ? 'Reminders(0)'
-                            : 'Reminders(${NotificationData.reminderCount})',
+                        text: '${context.tr('Reminders')}(${_isLoading ? 0 : NotificationData.reminderCount})',
                       ),
                     ],
                   ),
@@ -168,13 +201,22 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       body: _isLoading
           ? const _ThreeDotLoader()
           : widget.showAlertsOnly
-              ? _buildNotificationList(NotificationData.alerts)
+              ? RefreshIndicator(
+                  onRefresh: () => _loadEvents(isRefresh: true),
+                  child: _buildNotificationList(_alerts),
+                )
               : TabBarView(
                   controller: _tabController,
                   children: [
-                    _buildNotificationList(NotificationData.alerts),
-                    _buildEmptyState('No announcements'),
-                    _buildNotificationList(NotificationData.reminders),
+                    RefreshIndicator(
+                      onRefresh: () => _loadEvents(isRefresh: true),
+                      child: _buildNotificationList(_alerts),
+                    ),
+                    _buildEmptyState(context.tr('No announcements')),
+                    RefreshIndicator(
+                      onRefresh: () => _loadEvents(isRefresh: true),
+                      child: _buildNotificationList(NotificationData.reminders),
+                    ),
                   ],
                 ),
     );
@@ -182,10 +224,27 @@ class _NotificationsScreenState extends State<NotificationsScreen>
 
   Widget _buildNotificationList(List<AppNotification> items) {
     if (items.isEmpty) {
-      return _buildEmptyState('No notifications');
+      return Center(
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: SizedBox(
+            height: 300,
+            child: Center(
+              child: Text(
+                context.tr('No notifications'),
+                style: TextStyle(
+                  fontSize: 15,
+                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
     }
 
     return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
       itemCount: items.length,
       itemBuilder: (BuildContext context, int index) {

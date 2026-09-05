@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../../theme/app_theme_tokens.dart';
+
 class GeofenceLocationResult {
   final LatLng position;
   final double radiusMeters;
@@ -83,7 +85,7 @@ class _SelectGeofenceLocationScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).cardColor,
       body: SafeArea(
         child: Column(
           children: [
@@ -146,7 +148,7 @@ class _SelectGeofenceLocationScreenState
                       height: 48,
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: context.containerColor,
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: _pinkColor, width: 1.4),
                         boxShadow: [
@@ -157,7 +159,7 @@ class _SelectGeofenceLocationScreenState
                           ),
                         ],
                       ),
-                      child: const Row(
+                      child: Row(
                         children: [
                           Icon(Icons.search, color: _pinkColor, size: 22),
                           SizedBox(width: 10),
@@ -165,7 +167,7 @@ class _SelectGeofenceLocationScreenState
                             child: Text(
                               'Search Location',
                               style: TextStyle(
-                                color: Colors.black54,
+                                color: context.mutedTextColor,
                                 fontSize: 15,
                                 fontWeight: FontWeight.w500,
                               ),
@@ -197,7 +199,7 @@ class _SelectGeofenceLocationScreenState
             ),
             Container(
               width: double.infinity,
-              color: Colors.white,
+              color: context.containerColor,
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -206,7 +208,7 @@ class _SelectGeofenceLocationScreenState
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.location_on,
                           color: _pinkColor,
                           size: 22,
@@ -215,7 +217,7 @@ class _SelectGeofenceLocationScreenState
                         Expanded(
                           child: Text(
                             _address,
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: Color(0xFF444444),
                               fontSize: 14,
                               fontWeight: FontWeight.w500,
@@ -228,11 +230,11 @@ class _SelectGeofenceLocationScreenState
                     const SizedBox(height: 16),
                     Row(
                       children: [
-                        const Expanded(
+                        Expanded(
                           child: Text(
                             'Select Radius Meter',
                             style: TextStyle(
-                              color: Colors.black,
+                              color: context.textColor,
                               fontSize: 15,
                               fontWeight: FontWeight.w700,
                             ),
@@ -240,8 +242,8 @@ class _SelectGeofenceLocationScreenState
                         ),
                         Text(
                           _radius.toStringAsFixed(1),
-                          style: const TextStyle(
-                            color: Colors.black,
+                          style: TextStyle(
+                            color: context.textColor,
                             fontSize: 15,
                             fontWeight: FontWeight.w700,
                           ),
@@ -286,15 +288,15 @@ class _SelectGeofenceLocationScreenState
                         ),
                       ],
                     ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 4),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
                             '100m',
                             style: TextStyle(
-                              color: Colors.black54,
+                              color: context.mutedTextColor,
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                             ),
@@ -302,7 +304,7 @@ class _SelectGeofenceLocationScreenState
                           Text(
                             '5000m',
                             style: TextStyle(
-                              color: Colors.black54,
+                              color: context.mutedTextColor,
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                             ),
@@ -312,12 +314,12 @@ class _SelectGeofenceLocationScreenState
                     ),
                     const SizedBox(height: 16),
                   ] else ...[
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 14),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
                       child: Text(
                         'Note: Click on the map to draw a polygon',
                         style: TextStyle(
-                          color: Colors.black87,
+                          color: context.textColor,
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                         ),
@@ -336,7 +338,7 @@ class _SelectGeofenceLocationScreenState
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: const Text(
+                      child: Text(
                         'Confirm Location',
                         style: TextStyle(
                           color: Colors.white,
@@ -368,7 +370,7 @@ class _ZoomButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.white,
+      color: context.containerColor,
       borderRadius: BorderRadius.circular(6),
       elevation: 3,
       shadowColor: Colors.black26,
@@ -378,7 +380,7 @@ class _ZoomButton extends StatelessWidget {
         child: SizedBox(
           width: 40,
           height: 40,
-          child: Icon(icon, color: Colors.black87, size: 22),
+          child: Icon(icon, color: context.textColor, size: 22),
         ),
       ),
     );

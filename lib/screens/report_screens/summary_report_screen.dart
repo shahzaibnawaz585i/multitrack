@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'report_content_widgets.dart';
+import '../../constants/report_ids.dart';
+import '../../utils/report_response_parser.dart';
 import 'report_screen_scaffold.dart';
 
 class SummaryReportScreen extends StatelessWidget {
@@ -13,8 +14,10 @@ class SummaryReportScreen extends StatelessWidget {
       emptyTitle: 'Summary Report is not available',
       generatedSnackMessage: 'Generated Summary Report for',
       showResultsHeader: false,
-      buildGeneratedContent: (context, vehicle) {
-        return SummaryReportCard(vehicle: vehicle);
+      showGenerateButton: true,
+      reportId: ReportIds.summary,
+      buildGeneratedContent: (context, vehicle, reportData) {
+        return ReportResponseParser.buildSummaryCard(reportData, vehicle);
       },
     );
   }

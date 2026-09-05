@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_l10n.dart';
 import '../models/vehicle_model.dart';
+import '../theme/app_theme_tokens.dart';
 
 class SelectVehicleDialog extends StatefulWidget {
   final VehicleModel? initialSelected;
@@ -64,21 +66,21 @@ class _SelectVehicleDialogState extends State<SelectVehicleDialog> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Select Vehicle',
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF292B32),
+                  color: context.textColor,
                 ),
               ),
               const SizedBox(height: 16),
               Container(
                 height: 48,
                 decoration: BoxDecoration(
-                  color: const Color(0xfff5f5f5),
+                  color: context.fieldFillColor,
                   borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.black12),
+                  border: Border.all(color: Theme.of(context).dividerColor),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
@@ -86,20 +88,23 @@ class _SelectVehicleDialogState extends State<SelectVehicleDialog> {
                     Expanded(
                       child: TextField(
                         controller: dialogSearchController,
-                        style: const TextStyle(fontSize: 16),
-                        decoration: const InputDecoration(
-                          hintText: 'Search vehicle...',
-                          hintStyle: TextStyle(color: Colors.black38),
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: context.textColor,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: context.tr('Search vehicle...'),
+                          hintStyle: TextStyle(color: context.labelTextColor),
                           border: InputBorder.none,
                           isDense: true,
-                          contentPadding: EdgeInsets.symmetric(vertical: 10),
+                          contentPadding: const EdgeInsets.symmetric(vertical: 10),
                         ),
                       ),
                     ),
                     if (dialogSearchController.text.isNotEmpty)
                       GestureDetector(
                         onTap: dialogSearchController.clear,
-                        child: const Icon(
+                        child: Icon(
                           Icons.clear,
                           color: Colors.grey,
                           size: 20,
@@ -143,14 +148,14 @@ class _SelectVehicleDialogState extends State<SelectVehicleDialog> {
                                       border: Border.all(
                                         color: isSelected
                                             ? _pinkColor
-                                            : Colors.black45,
+                                            : context.labelTextColor,
                                         width: 2,
                                       ),
                                     ),
                                     padding: const EdgeInsets.all(3),
                                     child: isSelected
                                         ? Container(
-                                            decoration: const BoxDecoration(
+                                            decoration: BoxDecoration(
                                               shape: BoxShape.circle,
                                               color: _pinkColor,
                                             ),
@@ -160,10 +165,10 @@ class _SelectVehicleDialogState extends State<SelectVehicleDialog> {
                                   const SizedBox(width: 20),
                                   Text(
                                     vehicle.name,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w600,
-                                      color: Color(0xFF292B32),
+                                      color: context.textColor,
                                     ),
                                   ),
                                 ],
@@ -188,8 +193,8 @@ class _SelectVehicleDialogState extends State<SelectVehicleDialog> {
                           ),
                           elevation: 0,
                         ),
-                        child: const Text(
-                          'CANCEL',
+                        child: Text(
+                          context.tr('CANCEL'),
                           style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
@@ -212,8 +217,8 @@ class _SelectVehicleDialogState extends State<SelectVehicleDialog> {
                           ),
                           elevation: 0,
                         ),
-                        child: const Text(
-                          'Apply',
+                        child: Text(
+                          context.tr('Apply'),
                           style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,

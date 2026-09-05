@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_l10n.dart';
+import '../../models/driver_model.dart';
+import '../../services/driver_service.dart';
+import '../../theme/app_theme_tokens.dart';
+
 class DriversScreen extends StatefulWidget {
   const DriversScreen({super.key});
 
@@ -12,30 +17,35 @@ class _DriversScreenState extends State<DriversScreen> {
   static const Color _greenColor = Color(0xFF4CAF50);
   static const Color _greenHalo = Color(0xFFB9E4BA);
 
-  bool _isLoading = true;
+  bool _isLoading = false;
   final TextEditingController _searchController = TextEditingController();
-  final List<_DriverItem> _drivers = <_DriverItem>[
-    const _DriverItem(name: 'vishal', phone: '0000000000', uniqueId: '0000000000'),
-    const _DriverItem(name: 'ramesh', phone: '988776', uniqueId: '988776'),
-    const _DriverItem(name: 'garuav', phone: '988776', uniqueId: '988776'),
-    const _DriverItem(name: 'halku', phone: '9887766554', uniqueId: '9887766554'),
-    const _DriverItem(name: 'vishal', phone: '0000000000', uniqueId: '0000000000'),
-    const _DriverItem(name: 'ramesh', phone: '988776', uniqueId: '988776'),
-    const _DriverItem(name: 'garuav', phone: '988776', uniqueId: '988776'),
-    const _DriverItem(name: 'halku', phone: '9887766554', uniqueId: '9887766554'),
-  ];
+  final List<_DriverItem> _drivers = <_DriverItem>[];
 
   @override
   void initState() {
     super.initState();
-    Future<void>.delayed(const Duration(milliseconds: 900), () {
+    _loadDrivers();
+  }
+
+  Future<void> _loadDrivers() async {
+    setState(() => _isLoading = true);
+    try {
+      final List<DriverModel> remote = await DriverService.getDrivers();
       if (!mounted) {
         return;
       }
-      setState(() {
-        _isLoading = false;
-      });
-    });
+      if (remote.isNotEmpty) {
+        setState(() {
+          _drivers
+            ..clear()
+            ..addAll(remote.map(_DriverItem.fromModel));
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   @override
@@ -71,10 +81,25 @@ class _DriversScreenState extends State<DriversScreen> {
       return;
     }
 
-    setState(() {
-      _isLoading = false;
-      _drivers.insert(0, created);
-    });
+    setState(() => _isLoading = true);
+    final bool saved = await DriverService.addDriver(
+      name: created.name,
+      phone: created.phone,
+      uniqueId: created.uniqueId,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    if (saved) {
+      await _loadDrivers();
+    } else {
+      setState(() {
+        _isLoading = false;
+        _drivers.insert(0, created);
+      });
+    }
   }
 
   Future<void> _openEditDriver(_DriverItem item) async {
@@ -101,7 +126,7 @@ class _DriversScreenState extends State<DriversScreen> {
       barrierColor: Colors.black45,
       builder: (BuildContext dialogContext) {
         return Dialog(
-          backgroundColor: Colors.white,
+          backgroundColor: Theme.of(context).cardColor,
           insetPadding: const EdgeInsets.symmetric(horizontal: 36),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
@@ -111,11 +136,11 @@ class _DriversScreenState extends State<DriversScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
+                Text(
                   'You want to delete this driver?',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: Colors.black,
+                    color: context.textColor,
                     fontSize: 17,
                     fontWeight: FontWeight.w700,
                   ),
@@ -136,7 +161,7 @@ class _DriversScreenState extends State<DriversScreen> {
                               borderRadius: BorderRadius.circular(10),
                             ),
                           ),
-                          child: const Text(
+                          child: Text(
                             'CANCEL',
                             style: TextStyle(
                               color: Colors.white,
@@ -160,7 +185,7 @@ class _DriversScreenState extends State<DriversScreen> {
                               borderRadius: BorderRadius.circular(10),
                             ),
                           ),
-                          child: const Text(
+                          child: Text(
                             'OK',
                             style: TextStyle(
                               color: Colors.white,
@@ -191,15 +216,15 @@ class _DriversScreenState extends State<DriversScreen> {
     final List<_DriverItem> visible = _filteredDrivers;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).cardColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: Theme.of(context).cardColor,
+        surfaceTintColor: Theme.of(context).cardColor,
         elevation: 0,
         centerTitle: false,
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
-          icon: const Icon(
+          icon: Icon(
             Icons.arrow_back_ios_new,
             color: _pinkColor,
             size: 20,
@@ -208,10 +233,10 @@ class _DriversScreenState extends State<DriversScreen> {
         titleSpacing: 0,
         title: Row(
           children: [
-            const Text(
-              'Drivers',
+            Text(
+              context.tr('Drivers'),
               style: TextStyle(
-                color: Colors.black,
+                color: context.textColor,
                 fontSize: 22,
                 fontWeight: FontWeight.w800,
               ),
@@ -223,14 +248,14 @@ class _DriversScreenState extends State<DriversScreen> {
                 child: TextField(
                   controller: _searchController,
                   onChanged: (_) => setState(() {}),
-                  style: const TextStyle(
-                    color: Colors.black87,
+                  style: TextStyle(
+                    color: context.textColor,
                     fontSize: 14,
                   ),
                   decoration: InputDecoration(
-                    hintText: 'Search User',
-                    hintStyle: const TextStyle(
-                      color: Colors.black45,
+                    hintText: context.tr('Search User'),
+                    hintStyle: TextStyle(
+                      color: context.labelTextColor,
                       fontSize: 14,
                     ),
                     isDense: true,
@@ -238,7 +263,7 @@ class _DriversScreenState extends State<DriversScreen> {
                       horizontal: 10,
                       vertical: 8,
                     ),
-                    suffixIcon: const Icon(
+                    suffixIcon: Icon(
                       Icons.search,
                       color: _pinkColor,
                       size: 20,
@@ -248,7 +273,7 @@ class _DriversScreenState extends State<DriversScreen> {
                       minHeight: 36,
                     ),
                     filled: true,
-                    fillColor: Colors.white,
+                    fillColor: context.fieldFillColor,
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(6),
                       borderSide: const BorderSide(
@@ -275,7 +300,7 @@ class _DriversScreenState extends State<DriversScreen> {
         onPressed: _openAddDriver,
         backgroundColor: _pinkColor,
         elevation: 4,
-        child: const Icon(Icons.add, color: Colors.white, size: 28),
+        child: Icon(Icons.add, color: Colors.white, size: 28),
       ),
       body: _isLoading
           ? const Center(child: _LoadingDots())
@@ -298,15 +323,26 @@ class _DriversScreenState extends State<DriversScreen> {
 }
 
 class _DriverItem {
+  final int? id;
   final String name;
   final String phone;
   final String uniqueId;
 
   const _DriverItem({
+    this.id,
     required this.name,
     required this.phone,
     required this.uniqueId,
   });
+
+  factory _DriverItem.fromModel(DriverModel model) {
+    return _DriverItem(
+      id: model.id,
+      name: model.name,
+      phone: model.phone,
+      uniqueId: model.uniqueId,
+    );
+  }
 }
 
 class _DriverRow extends StatelessWidget {
@@ -334,7 +370,7 @@ class _DriverRow extends StatelessWidget {
         Container(
           width: 54,
           height: 54,
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: _greenHalo,
           ),
@@ -342,11 +378,11 @@ class _DriverRow extends StatelessWidget {
           child: Container(
             width: 40,
             height: 40,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: _greenColor,
             ),
-            child: const Icon(
+            child: Icon(
               Icons.person,
               color: Colors.white,
               size: 24,
@@ -360,8 +396,8 @@ class _DriverRow extends StatelessWidget {
             children: [
               Text(
                 item.name,
-                style: const TextStyle(
-                  color: Colors.black,
+                style: TextStyle(
+                  color: context.textColor,
                   fontSize: 17,
                   fontWeight: FontWeight.w800,
                 ),
@@ -369,8 +405,8 @@ class _DriverRow extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 'Phone : ${item.phone}',
-                style: const TextStyle(
-                  color: Colors.black87,
+                style: TextStyle(
+                  color: context.textColor,
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                 ),
@@ -395,7 +431,7 @@ class _DriverRow extends StatelessWidget {
                     borderRadius: BorderRadius.circular(6),
                   ),
                 ),
-                child: const Text(
+                child: Text(
                   'Add Driver',
                   style: TextStyle(
                     color: Colors.white,
@@ -416,7 +452,7 @@ class _DriverRow extends StatelessWidget {
                     minWidth: 34,
                     minHeight: 34,
                   ),
-                  icon: const Icon(
+                  icon: Icon(
                     Icons.edit_square,
                     color: _greenColor,
                     size: 22,
@@ -429,7 +465,7 @@ class _DriverRow extends StatelessWidget {
                     minWidth: 34,
                     minHeight: 34,
                   ),
-                  icon: const Icon(
+                  icon: Icon(
                     Icons.delete_outline,
                     color: _pinkColor,
                     size: 24,
@@ -467,13 +503,13 @@ class _AddDriverScreenState extends State<_AddDriverScreen> {
   InputDecoration _fieldDecoration({required String hint}) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: const TextStyle(
+      hintStyle: TextStyle(
         color: Color(0xFF666666),
         fontSize: 15,
         fontWeight: FontWeight.w400,
       ),
       filled: true,
-      fillColor: const Color(0xFFF5F5F5),
+      fillColor: context.fieldFillColor,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
@@ -492,7 +528,7 @@ class _AddDriverScreenState extends State<_AddDriverScreen> {
 
     if (name.isEmpty || uniqueId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter name and unique id')),
+        SnackBar(content: Text(context.tr('Please enter name and unique id'))),
       );
       return;
     }
@@ -506,25 +542,25 @@ class _AddDriverScreenState extends State<_AddDriverScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).cardColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: Theme.of(context).cardColor,
+        surfaceTintColor: Theme.of(context).cardColor,
         elevation: 0,
         centerTitle: false,
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
-          icon: const Icon(
+          icon: Icon(
             Icons.arrow_back_ios_new,
             color: _pinkColor,
             size: 20,
           ),
         ),
         titleSpacing: 0,
-        title: const Text(
-          'Add new driver',
+        title: Text(
+          context.tr('Add new driver'),
           style: TextStyle(
-            color: Colors.black87,
+            color: context.textColor,
             fontSize: 20,
             fontWeight: FontWeight.w800,
           ),
@@ -538,13 +574,13 @@ class _AddDriverScreenState extends State<_AddDriverScreen> {
               children: [
                 TextField(
                   controller: _nameController,
-                  style: const TextStyle(color: Colors.black87, fontSize: 15),
+                  style: TextStyle(color: context.textColor, fontSize: 15),
                   decoration: _fieldDecoration(hint: 'Name'),
                 ),
                 const SizedBox(height: 14),
                 TextField(
                   controller: _uniqueIdController,
-                  style: const TextStyle(color: Colors.black87, fontSize: 15),
+                  style: TextStyle(color: context.textColor, fontSize: 15),
                   decoration: _fieldDecoration(hint: 'Unique Id'),
                 ),
               ],
@@ -567,7 +603,7 @@ class _AddDriverScreenState extends State<_AddDriverScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text(
+                  child: Text(
                     'Add new driver',
                     style: TextStyle(
                       color: Colors.white,
@@ -617,7 +653,7 @@ class _EditDriverScreenState extends State<_EditDriverScreen> {
   InputDecoration _fieldDecoration() {
     return InputDecoration(
       filled: true,
-      fillColor: const Color(0xFFF5F5F5),
+      fillColor: context.fieldFillColor,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
@@ -636,7 +672,7 @@ class _EditDriverScreenState extends State<_EditDriverScreen> {
 
     if (name.isEmpty || uniqueId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter name and unique id')),
+        SnackBar(content: Text(context.tr('Please enter name and unique id'))),
       );
       return;
     }
@@ -650,15 +686,15 @@ class _EditDriverScreenState extends State<_EditDriverScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).cardColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: Theme.of(context).cardColor,
+        surfaceTintColor: Theme.of(context).cardColor,
         elevation: 0,
         centerTitle: false,
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
-          icon: const Icon(
+          icon: Icon(
             Icons.arrow_back_ios_new,
             color: _pinkColor,
             size: 20,
@@ -667,8 +703,8 @@ class _EditDriverScreenState extends State<_EditDriverScreen> {
         titleSpacing: 0,
         title: Text(
           widget.driver.name,
-          style: const TextStyle(
-            color: Colors.black87,
+          style: TextStyle(
+            color: context.textColor,
             fontSize: 20,
             fontWeight: FontWeight.w800,
           ),
@@ -681,10 +717,10 @@ class _EditDriverScreenState extends State<_EditDriverScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Name',
                   style: TextStyle(
-                    color: Colors.black87,
+                    color: context.textColor,
                     fontSize: 15,
                     fontWeight: FontWeight.w500,
                   ),
@@ -692,14 +728,14 @@ class _EditDriverScreenState extends State<_EditDriverScreen> {
                 const SizedBox(height: 6),
                 TextField(
                   controller: _nameController,
-                  style: const TextStyle(color: Colors.black87, fontSize: 15),
+                  style: TextStyle(color: context.textColor, fontSize: 15),
                   decoration: _fieldDecoration(),
                 ),
                 const SizedBox(height: 14),
-                const Text(
+                Text(
                   'Unique Id',
                   style: TextStyle(
-                    color: Colors.black87,
+                    color: context.textColor,
                     fontSize: 15,
                     fontWeight: FontWeight.w500,
                   ),
@@ -707,7 +743,7 @@ class _EditDriverScreenState extends State<_EditDriverScreen> {
                 const SizedBox(height: 6),
                 TextField(
                   controller: _uniqueIdController,
-                  style: const TextStyle(color: Colors.black87, fontSize: 15),
+                  style: TextStyle(color: context.textColor, fontSize: 15),
                   decoration: _fieldDecoration(),
                 ),
               ],
@@ -730,7 +766,7 @@ class _EditDriverScreenState extends State<_EditDriverScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text(
+                  child: Text(
                     'UPDATE USER',
                     style: TextStyle(
                       color: Colors.white,

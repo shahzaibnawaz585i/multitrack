@@ -103,8 +103,8 @@ class VehicleCard extends StatelessWidget {
             Container(
               width: 56,
               height: 56,
-              decoration: const BoxDecoration(
-                color: Colors.white,
+              decoration: BoxDecoration(
+                color: context.fieldFillColor,
                 shape: BoxShape.circle,
               ),
               alignment: Alignment.center,
@@ -113,6 +113,7 @@ class VehicleCard extends StatelessWidget {
                 width: 40,
                 height: 30,
                 fit: BoxFit.contain,
+                filterQuality: FilterQuality.low,
                 cacheWidth: (40 * MediaQuery.devicePixelRatioOf(context)).round(),
                 cacheHeight: (30 * MediaQuery.devicePixelRatioOf(context)).round(),
               ),
@@ -125,7 +126,7 @@ class VehicleCard extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.directions_car_filled,
                         size: 16,
                         color: Colors.orange,
@@ -187,6 +188,7 @@ class VehicleCard extends StatelessWidget {
       context,
       MaterialPageRoute<void>(
         builder: (_) => VehicleDetailScreen(
+          deviceId: vehicle.id,
           name: vehicle.name,
           status: vehicle.status,
           color: vehicle.color,
@@ -196,6 +198,8 @@ class VehicleCard extends StatelessWidget {
           livetime: vehicle.liveTime,
           location: vehicle.location,
           date: vehicle.date,
+          latitude: vehicle.latitude,
+          longitude: vehicle.longitude,
         ),
       ),
     );
@@ -205,7 +209,7 @@ class VehicleCard extends StatelessWidget {
     return GestureDetector(
       onTap: () => _openDetail(context),
       child: Container(
-        height: 180,
+        constraints: const BoxConstraints(minHeight: 175),
         width: double.infinity,
         margin: const EdgeInsets.only(bottom: 10),
         decoration: BoxDecoration(
@@ -226,126 +230,95 @@ class VehicleCard extends StatelessWidget {
           clipBehavior: Clip.none,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(26, 8, 12, 2),
+              padding: const EdgeInsets.fromLTRB(26, 8, 12, 6),
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(
-                          width: 70,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              const SizedBox(height: 30),
-                              Image.asset(
-                                _carImage,
-                                width: 54,
-                                height: 38,
-                                fit: BoxFit.contain,
-                                cacheWidth:
-                                    (54 * MediaQuery.devicePixelRatioOf(context))
-                                        .round(),
-                                cacheHeight:
-                                    (38 * MediaQuery.devicePixelRatioOf(context))
-                                        .round(),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 70,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            const SizedBox(height: 18),
+                            Image.asset(
+                              _carImage,
+                              width: 54,
+                              height: 38,
+                              fit: BoxFit.contain,
+                              filterQuality: FilterQuality.low,
+                              cacheWidth:
+                                  (54 * MediaQuery.devicePixelRatioOf(context))
+                                      .round(),
+                              cacheHeight:
+                                  (38 * MediaQuery.devicePixelRatioOf(context))
+                                      .round(),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              vehicle.speed,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: context.textColor,
+                                fontFamily: AppFonts.number,
+                                height: 1,
                               ),
-                              const SizedBox(height: 6),
-                              Text(
-                                vehicle.speed,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: context.textColor,
-                                  fontFamily: AppFonts.number,
-                                  height: 1,
-                                ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'kmph',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w400,
+                                color: context.mutedTextColor,
+                                fontFamily: AppFonts.regular,
+                                height: 1,
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'kmph',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w400,
-                                  color: context.mutedTextColor,
-                                  fontFamily: AppFonts.regular,
-                                  height: 1,
-                                ),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: ClipRect(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                              Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.directions_car_filled,
-                                          size: 16,
-                                          color: vehicle.status.toLowerCase() ==
-                                                  'running'
-                                              ? Colors.green
-                                              : vehicle.status.toLowerCase() ==
-                                                      'stopped'
-                                                  ? Colors.red
-                                                  : Colors.grey.shade700,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Expanded(
-                                          child: Text(
-                                            vehicle.name,
-                                            style: TextStyle(
-                                              fontSize: 15,
-                                              fontWeight: FontWeight.w700,
-                                              fontFamily: AppFonts.regular,
-                                              color: context.textColor,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const Padding(
-                                      padding: EdgeInsets.only(left: 6),
-                                      child: _DashedLine(),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Column(
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Row(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.center,
                                     children: [
-                                      SizedBox(
-                                        width: 15,
-                                        child: Center(
-                                          child: _TimelineStatusDot(
-                                            color: vehicle.color,
-                                            status: vehicle.status,
-                                          ),
-                                        ),
+                                      Icon(
+                                        Icons.directions_car_filled,
+                                        size: 16,
+                                        color: vehicle.status.toLowerCase() ==
+                                                'running'
+                                            ? Colors.green
+                                            : vehicle.status.toLowerCase() ==
+                                                    'stopped'
+                                                ? Colors.red
+                                                : Colors.grey.shade700,
                                       ),
-                                      const SizedBox(width: 8),
+                                      const SizedBox(width: 4),
                                       Expanded(
-                                        child: _TimelineText(
-                                          text: _statusLine,
-                                          fontWeight: FontWeight.w600,
+                                        child: Text(
+                                          vehicle.name,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w700,
+                                            fontFamily: AppFonts.regular,
+                                            color: context.textColor,
+                                          ),
                                         ),
                                       ),
                                     ],
@@ -354,121 +327,150 @@ class VehicleCard extends StatelessWidget {
                                     padding: EdgeInsets.only(left: 6),
                                     child: _DashedLine(),
                                   ),
-                                  Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.center,
-                                    children: [
-                                      SizedBox(
-                                        width: 15,
+                                ],
+                              ),
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.center,
+                                  children: [
+                                    SizedBox(
+                                      width: 15,
+                                      child: Center(
+                                        child: _TimelineStatusDot(
+                                          color: vehicle.color,
+                                          status: vehicle.status,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: _TimelineText(
+                                        text: _statusLine,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const Padding(
+                                  padding: EdgeInsets.only(left: 6),
+                                  child: _DashedLine(),
+                                ),
+                                Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.center,
+                                  children: [
+                                    SizedBox(
+                                      width: 15,
+                                      child: Center(
+                                        child: _TimelinePlainIcon(
+                                          icon: Icons.access_time,
+                                          color: _timelineIconColor,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: _TimelineText(
+                                        text:
+                                            '${vehicle.date} ${vehicle.liveTime}',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const Padding(
+                                  padding: EdgeInsets.only(left: 6),
+                                  child: _DashedLine(),
+                                ),
+                                Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    SizedBox(
+                                      width: 15,
+                                      child: Padding(
+                                        padding:
+                                            const EdgeInsets.only(top: 1),
                                         child: Center(
                                           child: _TimelinePlainIcon(
-                                            icon: Icons.access_time,
+                                            icon: Icons.location_on_outlined,
                                             color: _timelineIconColor,
                                           ),
                                         ),
                                       ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: _TimelineText(
-                                          text:
-                                              '${vehicle.date} ${vehicle.liveTime}',
-                                        ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: _TimelineText(
+                                        text: vehicle.location,
+                                        maxLines: 2,
                                       ),
-                                    ],
-                                  ),
-                                  const Padding(
-                                    padding: EdgeInsets.only(left: 6),
-                                    child: _DashedLine(),
-                                  ),
-                                  Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      SizedBox(
-                                        width: 15,
-                                        child: Padding(
-                                          padding:
-                                              const EdgeInsets.only(top: 1),
-                                          child: Center(
-                                            child: _TimelinePlainIcon(
-                                              icon: Icons.location_on_outlined,
-                                              color: _timelineIconColor,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: ClipRect(
-                                          child: _TimelineText(
-                                            text: vehicle.location,
-                                            maxLines: 2,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        _StatusIcon(
-                        icon: Icons.ac_unit,
-                        color: Colors.pinkAccent,
-                        isActive: true,
-                      ),
-                      const SizedBox(width: 4),
-                      _StatusIcon(
-                        icon: Icons.satellite_alt,
-                        color: Colors.green,
-                        isActive:
-                            vehicle.status.toLowerCase() != 'not reporting',
-                      ),
-                      const SizedBox(width: 4),
-                      _StatusIcon(
-                        icon: Icons.power_settings_new,
-                        color: Colors.green,
-                        isActive:
-                            vehicle.status.toLowerCase() == 'running',
-                      ),
-                      const SizedBox(width: 4),
-                      _StatusIcon(
-                        icon: Icons.vpn_key_outlined,
-                        color: Colors.pinkAccent,
-                        isActive: !_isLocked,
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            Flexible(
-                              child: _InfoPill(
-                                icon: Icons.local_gas_station_outlined,
-                                label: vehicle.distance,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Flexible(
-                              child: _InfoPill(
-                                icon: Icons.calendar_month_outlined,
-                                label: vehicle.validityLabel,
-                              ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ],
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 6),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        _StatusIcon(
+                          icon: Icons.ac_unit,
+                          color: Colors.pinkAccent,
+                          isActive: true,
+                        ),
+                        const SizedBox(width: 4),
+                        _StatusIcon(
+                          icon: Icons.satellite_alt,
+                          color: Colors.green,
+                          isActive:
+                              vehicle.status.toLowerCase() != 'not reporting',
+                        ),
+                        const SizedBox(width: 4),
+                        _StatusIcon(
+                          icon: Icons.power_settings_new,
+                          color: Colors.green,
+                          isActive:
+                              vehicle.status.toLowerCase() == 'running',
+                        ),
+                        const SizedBox(width: 4),
+                        _StatusIcon(
+                          icon: Icons.vpn_key_outlined,
+                          color: Colors.pinkAccent,
+                          isActive: !_isLocked,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Flexible(
+                                child: _InfoPill(
+                                  icon: Icons.local_gas_station_outlined,
+                                  label: vehicle.distance,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: _InfoPill(
+                                  icon: Icons.calendar_month_outlined,
+                                  label: vehicle.validityLabel,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -482,8 +484,11 @@ class VehicleCard extends StatelessWidget {
                 width: 28,
                 height: 28,
                 fit: BoxFit.contain,
-                cacheWidth: (28 * MediaQuery.devicePixelRatioOf(context)).round(),
-                cacheHeight: (28 * MediaQuery.devicePixelRatioOf(context)).round(),
+                filterQuality: FilterQuality.low,
+                cacheWidth:
+                    (28 * MediaQuery.devicePixelRatioOf(context)).round(),
+                cacheHeight:
+                    (28 * MediaQuery.devicePixelRatioOf(context)).round(),
               ),
             ),
           ],
@@ -605,8 +610,8 @@ class _TimelineText extends StatelessWidget {
     const double textHeight = 1.25;
     final Color textColor = context.mutedTextColor;
 
-    final text = Text(
-      this.text,
+    return Text(
+      text,
       maxLines: maxLines,
       overflow: TextOverflow.ellipsis,
       softWrap: true,
@@ -616,18 +621,6 @@ class _TimelineText extends StatelessWidget {
         fontWeight: fontWeight,
         color: textColor,
         fontFamily: AppFonts.regular,
-      ),
-    );
-
-    if (maxLines <= 1) {
-      return text;
-    }
-
-    return SizedBox(
-      height: fontSize * textHeight * maxLines,
-      child: Align(
-        alignment: Alignment.topLeft,
-        child: text,
       ),
     );
   }

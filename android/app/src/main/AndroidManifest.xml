@@ -18,7 +18,8 @@
     <application
         android:label="multitrack"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
 
         <!-- Google Maps API Key -->
         <meta-data
@@ -45,6 +46,10 @@
             </intent-filter>
 
         </activity>
+
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="true"/>
 
         <!-- Flutter -->
         <meta-data

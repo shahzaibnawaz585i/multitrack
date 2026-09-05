@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_l10n.dart';
 import '../../models/vehicle_model.dart';
 
 class ReportTimelineEvent extends StatelessWidget {
@@ -258,7 +259,7 @@ class _TripStat extends StatelessWidget {
             Icon(icon, size: 14, color: Colors.grey),
             const SizedBox(width: 4),
             Text(
-              label,
+              context.tr(label),
               style: const TextStyle(color: Colors.grey, fontSize: 11),
             ),
           ],
@@ -506,7 +507,7 @@ class SummaryReportCard extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: const [
-                  _MetricCol(label: 'Engine Ho...', value: '08:22:37'),
+                  _MetricCol(label: 'Engine hours', value: '08:22:37'),
                   _MetricCol(label: 'Running', value: '03:00:20'),
                   _MetricCol(label: 'Stop', value: '143:20:47'),
                   _MetricCol(label: 'Idle', value: '05:22:17'),
@@ -626,7 +627,7 @@ class _MetricCol extends StatelessWidget {
     return Column(
       children: [
         Text(
-          label,
+          context.tr(label),
           style: const TextStyle(
             color: Colors.grey,
             fontSize: 11,

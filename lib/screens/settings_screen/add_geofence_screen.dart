@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+
+import '../../l10n/app_l10n.dart';
+import '../../theme/app_theme_tokens.dart';
 
 import 'select_geofence_location_screen.dart';
 
@@ -12,8 +14,7 @@ class AddGeofenceScreen extends StatefulWidget {
 
 class _AddGeofenceScreenState extends State<AddGeofenceScreen> {
   static const Color _pinkColor = Color(0xFFFF2F68);
-  static const Color _bgColor = Color(0xFFF5F5F5);
-
+  
   final TextEditingController _nameController = TextEditingController();
   bool _isCircular = true;
   GeofenceLocationResult? _selectedLocation;
@@ -51,7 +52,7 @@ class _AddGeofenceScreenState extends State<AddGeofenceScreen> {
     final String name = _nameController.text.trim();
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter fence name')),
+        SnackBar(content: Text(context.tr('Please enter fence name'))),
       );
       return;
     }
@@ -76,25 +77,25 @@ class _AddGeofenceScreenState extends State<AddGeofenceScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _bgColor,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: _bgColor,
-        surfaceTintColor: _bgColor,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        surfaceTintColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: false,
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
-          icon: const Icon(
+          icon: Icon(
             Icons.arrow_back_ios_new,
             color: _pinkColor,
             size: 20,
           ),
         ),
         titleSpacing: 0,
-        title: const Text(
-          'Add Geofence',
+        title: Text(
+          context.tr('Add Geofence'),
           style: TextStyle(
-            color: Colors.black,
+            color: context.textColor,
             fontSize: 22,
             fontWeight: FontWeight.w800,
           ),
@@ -109,16 +110,16 @@ class _AddGeofenceScreenState extends State<AddGeofenceScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.fromLTRB(16, 18, 16, 20),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: context.containerColor,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Enter Fence Name',
                       style: TextStyle(
-                        color: Colors.black,
+                        color: context.textColor,
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
                       ),
@@ -126,13 +127,13 @@ class _AddGeofenceScreenState extends State<AddGeofenceScreen> {
                     const SizedBox(height: 10),
                     TextField(
                       controller: _nameController,
-                      style: const TextStyle(
-                        color: Colors.black,
+                      style: TextStyle(
+                        color: context.textColor,
                         fontSize: 15,
                       ),
                       decoration: InputDecoration(
                         filled: true,
-                        fillColor: Colors.white,
+                        fillColor: context.fieldFillColor,
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 14,
                           vertical: 14,
@@ -170,10 +171,10 @@ class _AddGeofenceScreenState extends State<AddGeofenceScreen> {
                       ],
                     ),
                     const SizedBox(height: 22),
-                    const Text(
+                    Text(
                       'Add Location',
                       style: TextStyle(
-                        color: Colors.black,
+                        color: context.textColor,
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
                       ),
@@ -188,18 +189,18 @@ class _AddGeofenceScreenState extends State<AddGeofenceScreen> {
                           vertical: 13,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: context.containerColor,
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: Colors.black87,
+                            color: context.textColor,
                             width: 1,
                           ),
                         ),
                         child: Row(
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.search,
-                              color: Colors.black87,
+                              color: context.textColor,
                               size: 22,
                             ),
                             const SizedBox(width: 10),
@@ -210,8 +211,8 @@ class _AddGeofenceScreenState extends State<AddGeofenceScreen> {
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   color: _selectedLocation == null
-                                      ? Colors.black45
-                                      : Colors.black87,
+                                      ? context.labelTextColor
+                                      : context.textColor,
                                   fontSize: 15,
                                   fontWeight: FontWeight.w500,
                                 ),
@@ -244,7 +245,7 @@ class _AddGeofenceScreenState extends State<AddGeofenceScreen> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        child: const Text(
+                        child: Text(
                           'CANCEL',
                           style: TextStyle(
                             color: Colors.white,
@@ -268,7 +269,7 @@ class _AddGeofenceScreenState extends State<AddGeofenceScreen> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        child: const Text(
+                        child: Text(
                           'Apply',
                           style: TextStyle(
                             color: Colors.white,
@@ -333,7 +334,7 @@ class _FenceTypeRadio extends StatelessWidget {
             padding: const EdgeInsets.all(3),
             child: selected
                 ? Container(
-                    decoration: const BoxDecoration(
+                    decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: Color(0xFFFF2F68),
                     ),
@@ -342,9 +343,9 @@ class _FenceTypeRadio extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Text(
-            label,
-            style: const TextStyle(
-              color: Colors.black,
+            context.tr(label),
+            style: TextStyle(
+              color: context.textColor,
               fontSize: 15,
               fontWeight: FontWeight.w600,
             ),

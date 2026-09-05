@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../constants/app_theme.dart';
+import '../../l10n/app_l10n.dart';
 import '../../utils/report_date_picker.dart';
 import 'raise_ticket_screen.dart';
 
@@ -110,7 +111,7 @@ class _LiveSupportScreenState extends State<LiveSupportScreen> {
       );
       if (!launched && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not open phone app')),
+          SnackBar(content: Text(context.tr('Could not open phone app'))),
         );
       }
     } on PlatformException catch (error) {
@@ -127,7 +128,7 @@ class _LiveSupportScreenState extends State<LiveSupportScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open phone app')),
+        SnackBar(content: Text(context.tr('Could not open phone app'))),
       );
     }
   }
@@ -149,7 +150,7 @@ class _LiveSupportScreenState extends State<LiveSupportScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Support & Helps',
+                  context.tr('Support & Helps'),
                   style: TextStyle(
                     color: context.appTextColor,
                     fontSize: 18,
@@ -169,7 +170,7 @@ class _LiveSupportScreenState extends State<LiveSupportScreen> {
                           Navigator.pop(dialogContext);
                           _openPhoneDialer();
                         },
-                        child: const Icon(
+                        child: Icon(
                           Icons.phone,
                           color: _pinkColor,
                           size: 22,
@@ -205,10 +206,8 @@ class _LiveSupportScreenState extends State<LiveSupportScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const Color greyBg = Color(0xFFF0F0F0);
-
-    return Scaffold(
-      backgroundColor: greyBg,
+        return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
         child: Stack(
           children: [
@@ -217,8 +216,8 @@ class _LiveSupportScreenState extends State<LiveSupportScreen> {
               children: [
                 Container(
                   width: double.infinity,
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.only(
                       bottomLeft: Radius.circular(14),
                       bottomRight: Radius.circular(14),
@@ -277,7 +276,7 @@ class _LiveSupportScreenState extends State<LiveSupportScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Material(
-                    color: Colors.white,
+                    color: Theme.of(context).cardColor,
                     elevation: 4,
                     shape: const CircleBorder(),
                     child: InkWell(
@@ -345,7 +344,7 @@ class _LiveSupportScreenState extends State<LiveSupportScreen> {
         children: [
           IconButton(
             onPressed: () => Navigator.pop(context),
-            icon: const Icon(
+            icon: Icon(
               Icons.arrow_back_ios_new,
               color: _pinkColor,
               size: 20,
@@ -368,7 +367,7 @@ class _LiveSupportScreenState extends State<LiveSupportScreen> {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(8),
         boxShadow: [
           BoxShadow(
@@ -441,7 +440,7 @@ class _DateField extends StatelessWidget {
             ),
             child: Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.calendar_today_outlined,
                   color: AppThemeContext.pinkColor,
                   size: 16,
@@ -534,7 +533,7 @@ class _SupportHelpRow extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                label,
+                context.tr(label),
                 style: TextStyle(
                   color: context.appTextColor,
                   fontSize: 16,

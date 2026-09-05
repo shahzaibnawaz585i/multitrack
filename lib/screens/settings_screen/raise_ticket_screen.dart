@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../constants/app_theme.dart';
+import '../../l10n/app_l10n.dart';
 import '../../widgets/vehicle_search_dialog.dart';
 
 class RaiseTicketScreen extends StatefulWidget {
@@ -166,27 +167,27 @@ class _RaiseTicketScreenState extends State<RaiseTicketScreen> {
   void _submitTicket() {
     if (_vehicleController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a vehicle')),
+        SnackBar(content: Text(context.tr('Please select a vehicle'))),
       );
       return;
     }
 
     if (_selectedTicketType == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select ticket type')),
+        SnackBar(content: Text(context.tr('Please select ticket type'))),
       );
       return;
     }
 
     if (_messageController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter message')),
+        SnackBar(content: Text(context.tr('Please enter message'))),
       );
       return;
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Ticket raised successfully')),
+      SnackBar(content: Text(context.tr('Ticket raised successfully'))),
     );
     Navigator.pop(context);
   }

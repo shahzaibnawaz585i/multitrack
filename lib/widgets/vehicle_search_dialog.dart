@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../constants/app_theme.dart';
 import '../data/vehicle_data.dart';
+import '../l10n/app_l10n.dart';
 
 Future<String?> showVehicleSearchDialog(
   BuildContext context, {
@@ -76,7 +77,7 @@ Future<String?> showVehicleSearchDialog(
                         });
                       },
                       decoration: InputDecoration(
-                        hintText: 'Search',
+                        hintText: context.tr('Search'),
                         hintStyle: TextStyle(
                           color: context.appSecondaryText,
                           fontSize: 13,
@@ -217,7 +218,7 @@ class _VehicleDialogButton extends StatelessWidget {
           height: 44,
           child: Center(
             child: Text(
-              label,
+              context.tr(label),
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 15,

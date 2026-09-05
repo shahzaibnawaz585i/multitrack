@@ -166,6 +166,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
 
   cupertino_icons: ^1.0.8
 
@@ -191,6 +193,9 @@ dependencies:
 
   # External links / dialer
   url_launcher: ^6.3.1
+
+  # API
+  http: ^1.4.0
 
 dev_dependencies:
   flutter_test:

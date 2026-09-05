@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_l10n.dart';
 import 'login_screen.dart';
 
 class VehicleScreen extends StatefulWidget {
@@ -36,17 +37,18 @@ class _VehicleScreenState extends State<VehicleScreen> {
                 alignment: Alignment.centerRight,
                 child: TextButton(
                   onPressed: _goToLogin,
-                  child: Text('Skip', style: TextStyle(color: textColor)),
+                  child: Text(context.tr('Skip'), style: TextStyle(color: textColor)),
                 ),
               ),
               const SizedBox(height: 60),
               Image.asset(
-                'assets/icons.jpeg',
+                'assets/vehiclescreen.png',
                 errorBuilder: (
                   BuildContext context,
                   Object error,
                   StackTrace? stackTrace,
-                ) {
+                )
+                {
                   return Icon(
                     Icons.directions_car,
                     size: 120,
@@ -56,7 +58,7 @@ class _VehicleScreenState extends State<VehicleScreen> {
               ),
               const SizedBox(height: 60),
               Text(
-                'Vehicle Maintenance',
+                context.tr('Vehicle Maintenance'),
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 20,
@@ -65,12 +67,12 @@ class _VehicleScreenState extends State<VehicleScreen> {
               ),
               const SizedBox(height: 20),
               Text(
-                'Get your daily mileage and other reports on your finger',
+                context.tr('Get your daily mileage and other reports on your '),
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 13, color: textColor),
               ),
               Text(
-                'tips',
+                context.tr('finger tips'),
                 style: TextStyle(fontSize: 13, color: textColor),
               ),
               const SizedBox(height: 60),

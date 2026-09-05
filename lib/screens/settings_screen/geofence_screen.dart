@@ -4,6 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../../l10n/app_l10n.dart';
+import '../../models/geofence_model.dart';
+import '../../services/geofence_service.dart';
+import '../../theme/app_theme_tokens.dart';
+
 import '../../services/location_service.dart';
 import 'add_geofence_screen.dart';
 import 'edit_geofence_screen.dart';
@@ -17,51 +22,45 @@ class GeofenceScreen extends StatefulWidget {
 
 class _GeofenceScreenState extends State<GeofenceScreen> {
   static const Color _pinkColor = Color(0xFFFF2F68);
-  static const Color _backgroundColor = Color(0xFFF5F5F5);
-  static const Color _radiusChipColor = Color(0xFF3A3A3A);
+    static const Color _radiusChipColor = Color(0xFF3A3A3A);
   static const LatLng _defaultCenter = LatLng(24.4825, 87.8550);
 
   GoogleMapController? _mapController;
-  bool _isLoading = true;
+  bool _isLoading = false;
   bool _isCircularSelected = true;
   LatLng _mapCenter = _defaultCenter;
 
-  final List<_GeofenceItem> _geofences = <_GeofenceItem>[
-    const _GeofenceItem(
-      title: 'zone1',
-      radiusLabel: 'Radius : 1242.08',
-      address:
-          'Dhulian - Pakur Road, Dhuliyan Municipality, Murshidabad, West Bengal, 742202, India',
-      position: LatLng(24.4825, 87.8550),
-      radiusMeters: 1242.08,
-      isCircular: true,
-    ),
-    const _GeofenceItem(
-      title: '1',
-      radiusLabel: 'Radius : 1242.08',
-      address:
-          'Dhulian - Pakur Road, Dhuliyan Municipality, Murshidabad, West Bengal, 742202, India',
-      position: LatLng(24.4850, 87.8580),
-      radiusMeters: 1242.08,
-      isCircular: true,
-    ),
-    const _GeofenceItem(
-      title: 'round',
-      radiusLabel: 'Radius : 0',
-      address: 'Indore region polygon area',
-      position: LatLng(22.7196, 75.8577),
-      radiusMeters: 0,
-      isCircular: false,
-    ),
-    const _GeofenceItem(
-      title: 'halku kabeela',
-      radiusLabel: 'Radius : 0',
-      address: 'Ujjain region polygon area',
-      position: LatLng(23.1765, 75.7885),
-      radiusMeters: 0,
-      isCircular: false,
-    ),
-  ];
+  final List<_GeofenceItem> _geofences = <_GeofenceItem>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadGeofences();
+  }
+
+  Future<void> _loadGeofences() async {
+    setState(() => _isLoading = true);
+    try {
+      final List<GeofenceModel> remote = await GeofenceService.getGeofences();
+      if (!mounted) {
+        return;
+      }
+      if (remote.isNotEmpty) {
+        setState(() {
+          _geofences
+            ..clear()
+            ..addAll(remote.map(_GeofenceItem.fromModel));
+          if (_geofences.isNotEmpty) {
+            _mapCenter = _geofences.first.position;
+          }
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
 
   List<_GeofenceItem> get _visibleGeofences {
     return _geofences
@@ -69,19 +68,6 @@ class _GeofenceScreenState extends State<GeofenceScreen> {
           (_GeofenceItem item) => item.isCircularFence == _isCircularSelected,
         )
         .toList();
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    Future<void>.delayed(const Duration(milliseconds: 900), () {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _isLoading = false;
-      });
-    });
   }
 
   @override
@@ -129,7 +115,7 @@ class _GeofenceScreenState extends State<GeofenceScreen> {
           return;
         }
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enable location services')),
+          SnackBar(content: Text(context.tr('Please enable location services'))),
         );
         return;
       }
@@ -153,7 +139,7 @@ class _GeofenceScreenState extends State<GeofenceScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not get current location')),
+        SnackBar(content: Text(context.tr('Could not get current location'))),
       );
     }
   }
@@ -170,27 +156,34 @@ class _GeofenceScreenState extends State<GeofenceScreen> {
       return;
     }
 
-    setState(() {
-      _isCircularSelected = result.isCircular;
-      _geofences.insert(
-        0,
-        _GeofenceItem(
-          title: result.name,
-          radiusLabel:
-              'Radius : ${result.location.radiusMeters.toStringAsFixed(2)}',
-          address: result.location.address,
-          position: result.location.position,
-          radiusMeters: result.location.radiusMeters,
-          isCircular: result.isCircular,
-        ),
-      );
-      _mapCenter = result.location.position;
-      _isLoading = false;
-    });
-
-    await _mapController?.animateCamera(
-      CameraUpdate.newLatLngZoom(result.location.position, 14.5),
+    setState(() => _isLoading = true);
+    final bool saved = await GeofenceService.addGeofence(
+      name: result.name,
+      position: result.location.position,
+      radiusMeters: result.location.radiusMeters,
+      isCircular: result.isCircular,
+      address: result.location.address,
     );
+
+    if (!mounted) {
+      return;
+    }
+
+    if (saved) {
+      await _loadGeofences();
+      setState(() {
+        _isCircularSelected = result.isCircular;
+        _mapCenter = result.location.position;
+      });
+      await _mapController?.animateCamera(
+        CameraUpdate.newLatLngZoom(result.location.position, 14.5),
+      );
+    } else {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.tr('Could not save geofence'))),
+      );
+    }
   }
 
   Future<void> _showItemMenu(_GeofenceItem item) async {
@@ -199,7 +192,7 @@ class _GeofenceScreenState extends State<GeofenceScreen> {
       barrierColor: Colors.black38,
       builder: (BuildContext dialogContext) {
         return Dialog(
-          backgroundColor: Colors.white,
+          backgroundColor: Theme.of(context).cardColor,
           insetPadding: const EdgeInsets.symmetric(horizontal: 70),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
@@ -210,9 +203,9 @@ class _GeofenceScreenState extends State<GeofenceScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 ListTile(
-                  leading: const Icon(Icons.edit, color: _pinkColor),
-                  title: const Text(
-                    'Edit',
+                  leading: Icon(Icons.edit, color: _pinkColor),
+                  title: Text(
+                    context.tr('Edit'),
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -221,9 +214,9 @@ class _GeofenceScreenState extends State<GeofenceScreen> {
                   onTap: () => Navigator.pop(dialogContext, 'edit'),
                 ),
                 ListTile(
-                  leading: const Icon(Icons.delete, color: _pinkColor),
-                  title: const Text(
-                    'Delete',
+                  leading: Icon(Icons.delete, color: _pinkColor),
+                  title: Text(
+                    context.tr('Delete'),
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -243,9 +236,28 @@ class _GeofenceScreenState extends State<GeofenceScreen> {
     }
 
     if (action == 'delete') {
-      setState(() {
-        _geofences.remove(item);
-      });
+      if (item.id != null) {
+        setState(() => _isLoading = true);
+        final bool deleted = await GeofenceService.destroyGeofence(item.id!);
+        if (!mounted) {
+          return;
+        }
+        if (deleted) {
+          setState(() {
+            _geofences.remove(item);
+            _isLoading = false;
+          });
+        } else {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(context.tr('Could not delete geofence'))),
+          );
+        }
+      } else {
+        setState(() {
+          _geofences.remove(item);
+        });
+      }
       return;
     }
 
@@ -268,17 +280,44 @@ class _GeofenceScreenState extends State<GeofenceScreen> {
       return;
     }
 
-    setState(() {
-      _geofences[index] = _GeofenceItem(
-        title: edited.name,
-        radiusLabel: 'Radius : ${edited.radiusMeters.toStringAsFixed(2)}',
-        address: edited.address,
+    setState(() => _isLoading = true);
+    bool saved = true;
+    if (item.id != null) {
+      saved = await GeofenceService.editGeofence(
+        id: item.id!,
+        name: edited.name,
         position: edited.position,
         radiusMeters: edited.radiusMeters,
         isCircular: item.isCircularFence,
+        address: edited.address,
       );
-      _mapCenter = edited.position;
-    });
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    if (saved) {
+      setState(() {
+        _geofences[index] = _GeofenceItem(
+          id: item.id,
+          title: edited.name,
+          radiusLabel: 'Radius : ${edited.radiusMeters.toStringAsFixed(2)}',
+          address: edited.address,
+          position: edited.position,
+          radiusMeters: edited.radiusMeters,
+          isCircular: item.isCircularFence,
+        );
+        _mapCenter = edited.position;
+        _isLoading = false;
+      });
+    } else {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.tr('Could not update geofence'))),
+      );
+      return;
+    }
 
     await _mapController?.animateCamera(
       CameraUpdate.newLatLngZoom(edited.position, 14.5),
@@ -288,25 +327,25 @@ class _GeofenceScreenState extends State<GeofenceScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).cardColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: Theme.of(context).cardColor,
+        surfaceTintColor: Theme.of(context).cardColor,
         elevation: 0,
         centerTitle: false,
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
-          icon: const Icon(
+          icon: Icon(
             Icons.arrow_back_ios_new,
             color: _pinkColor,
             size: 20,
           ),
         ),
         titleSpacing: 0,
-        title: const Text(
-          'Geofence',
+        title: Text(
+          context.tr('Geofence'),
           style: TextStyle(
-            color: Colors.black,
+            color: context.textColor,
             fontSize: 22,
             fontWeight: FontWeight.w800,
           ),
@@ -352,7 +391,7 @@ class _GeofenceScreenState extends State<GeofenceScreen> {
     final List<_GeofenceItem> visible = _visibleGeofences;
 
     return ColoredBox(
-      color: _backgroundColor,
+      color: Theme.of(context).scaffoldBackgroundColor,
       child: Column(
         children: [
           SizedBox(
@@ -426,10 +465,10 @@ class _GeofenceScreenState extends State<GeofenceScreen> {
                 const SizedBox(height: 14),
                 Expanded(
                   child: visible.isEmpty
-                      ? const Center(
+                      ? Center(
                           child: Text(
                             'No geofences found',
-                            style: TextStyle(color: Colors.black54),
+                            style: TextStyle(color: context.mutedTextColor),
                           ),
                         )
                       : ListView.separated(
@@ -457,6 +496,7 @@ class _GeofenceScreenState extends State<GeofenceScreen> {
 }
 
 class _GeofenceItem {
+  final int? id;
   final String title;
   final String radiusLabel;
   final String address;
@@ -465,6 +505,7 @@ class _GeofenceItem {
   final bool? isCircular;
 
   const _GeofenceItem({
+    this.id,
     required this.title,
     required this.radiusLabel,
     required this.address,
@@ -472,6 +513,18 @@ class _GeofenceItem {
     required this.radiusMeters,
     this.isCircular = true,
   });
+
+  factory _GeofenceItem.fromModel(GeofenceModel model) {
+    return _GeofenceItem(
+      id: model.id,
+      title: model.name,
+      radiusLabel: model.radiusLabel,
+      address: model.address,
+      position: model.position,
+      radiusMeters: model.radiusMeters,
+      isCircular: model.isCircular,
+    );
+  }
 
   bool get isCircularFence => isCircular ?? true;
 }
@@ -541,19 +594,19 @@ class _MyLocationButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.white,
+      color: context.containerColor,
       shape: const CircleBorder(),
       elevation: 3,
       shadowColor: Colors.black26,
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: onTap,
-        child: const SizedBox(
+        child: SizedBox(
           width: 44,
           height: 44,
           child: Icon(
             Icons.gps_fixed,
-            color: Colors.black87,
+            color: context.textColor,
             size: 22,
           ),
         ),
@@ -577,7 +630,7 @@ class _TypeToggle extends StatelessWidget {
       height: 48,
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.containerColor,
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
@@ -630,7 +683,7 @@ class _ToggleChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         child: Center(
           child: Text(
-            label,
+            context.tr(label),
             style: TextStyle(
               color: isSelected ? Colors.white : const Color(0xFFFF2F68),
               fontSize: 15,
@@ -661,7 +714,7 @@ class _GeofenceCard extends StatelessWidget {
     return Container(
       padding: EdgeInsets.fromLTRB(14, compact ? 6 : 12, 4, compact ? 6 : 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.containerColor,
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
@@ -677,8 +730,8 @@ class _GeofenceCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     item.title,
-                    style: const TextStyle(
-                      color: Colors.black,
+                    style: TextStyle(
+                      color: context.textColor,
                       fontSize: 15,
                       fontWeight: FontWeight.w500,
                     ),
@@ -686,7 +739,7 @@ class _GeofenceCard extends StatelessWidget {
                 ),
                 IconButton(
                   onPressed: onMenuTap,
-                  icon: const Icon(
+                  icon: Icon(
                     Icons.more_vert,
                     color: Color(0xFFFF2F68),
                   ),
@@ -701,8 +754,8 @@ class _GeofenceCard extends StatelessWidget {
                     Expanded(
                       child: Text(
                         item.title,
-                        style: const TextStyle(
-                          color: Colors.black,
+                        style: TextStyle(
+                          color: context.textColor,
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
                         ),
@@ -719,7 +772,7 @@ class _GeofenceCard extends StatelessWidget {
                       ),
                       child: Text(
                         item.radiusLabel,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: Colors.white,
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -744,7 +797,7 @@ class _GeofenceCard extends StatelessWidget {
                     Expanded(
                       child: Text(
                         item.address,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: Color(0xFF333333),
                           fontSize: 13,
                           height: 1.35,
@@ -754,7 +807,7 @@ class _GeofenceCard extends StatelessWidget {
                     ),
                     IconButton(
                       onPressed: onMenuTap,
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.more_vert,
                         color: Color(0xFFFF2F68),
                       ),

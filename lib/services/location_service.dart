@@ -57,28 +57,45 @@ class LocationService {
         permission == LocationPermission.whileInUse;
   }
 
+  static Future<bool> requestForegroundPermission() async {
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      return false;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    return permission == LocationPermission.always ||
+        permission == LocationPermission.whileInUse;
+  }
+
   static Future<Position?> getCurrentPosition() async {
-    final bool ready = await requestAllPermissions();
+    final bool ready = await requestForegroundPermission();
     if (!ready) {
       return null;
     }
 
+    final Position? lastKnown = await Geolocator.getLastKnownPosition();
+
     try {
       return await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 2),
         ),
       );
     } catch (_) {
-      return null;
+      return lastKnown;
     }
   }
 
   static Stream<Position> positionStream() {
     return Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 8,
+        accuracy: LocationAccuracy.medium,
+        distanceFilter: 20,
       ),
     );
   }

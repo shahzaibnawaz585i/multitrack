@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../data/vehicle_data.dart';
+import '../../l10n/app_l10n.dart';
+import '../../services/alert_service.dart';
+import '../../theme/app_theme_tokens.dart';
+
 class ConfigureAlertsScreen extends StatefulWidget {
   const ConfigureAlertsScreen({super.key});
 
@@ -10,17 +15,7 @@ class ConfigureAlertsScreen extends StatefulWidget {
 class _ConfigureAlertsScreenState extends State<ConfigureAlertsScreen> {
   static const Color _pinkColor = Color(0xFFFF2F68);
 
-  static const List<String> _vehicles = <String>[
-    'BR09GB6140',
-    'KL45Q8460',
-    'PB11DD9661',
-    'MH12RK8741',
-    'TN37BR5099',
-    '5612',
-    '68080',
-  ];
-
-  static const List<String> _alertTypes = <String>[
+  static const List<String> _defaultAlertTypes = <String>[
     'Ignition On',
     'Ignition Off',
     'OverSpeed',
@@ -32,21 +27,53 @@ class _ConfigureAlertsScreenState extends State<ConfigureAlertsScreen> {
     'Maintenance',
   ];
 
-  bool _isLoading = true;
-  String _selectedVehicle = 'BR09GB6140';
+  List<String> _alertTypes = _defaultAlertTypes;
+
+  bool _isLoading = false;
+  late List<String> _vehicles;
+  late String _selectedVehicle;
   final Set<String> _enabledAlerts = <String>{};
 
   @override
   void initState() {
     super.initState();
-    Future<void>.delayed(const Duration(milliseconds: 900), () {
-      if (!mounted) {
-        return;
+    _vehicles = VehicleData.vehicles
+        .map((v) => v.name)
+        .where((name) => name.isNotEmpty)
+        .toSet()
+        .toList();
+    _selectedVehicle = _vehicles.isNotEmpty ? _vehicles.first : '';
+    _loadConfiguredAlerts();
+    _loadAlertTypes();
+  }
+
+  Future<void> _loadAlertTypes() async {
+    final List<String> types = await AlertService.getAlertTypes();
+    if (types.isNotEmpty && mounted) {
+      setState(() => _alertTypes = types);
+    }
+  }
+
+  Future<void> _loadConfiguredAlerts() async {
+    setState(() => _isLoading = true);
+    try {
+      final List<Map<String, dynamic>> alerts = await AlertService.getAlerts();
+      if (alerts.isNotEmpty && mounted) {
+        setState(() {
+          for (final Map<String, dynamic> a in alerts) {
+            final String name = (a['name'] ?? a['type'] ?? '').toString();
+            if (name.isNotEmpty) {
+              _enabledAlerts.add(name);
+            }
+          }
+        });
       }
-      setState(() {
-        _isLoading = false;
-      });
-    });
+    } catch (_) {
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   Future<void> _openSelectVehicle() async {
@@ -81,25 +108,25 @@ class _ConfigureAlertsScreenState extends State<ConfigureAlertsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).cardColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: Theme.of(context).cardColor,
+        surfaceTintColor: Theme.of(context).cardColor,
         elevation: 0,
         centerTitle: false,
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
-          icon: const Icon(
+          icon: Icon(
             Icons.arrow_back_ios_new,
             color: _pinkColor,
             size: 20,
           ),
         ),
         titleSpacing: 0,
-        title: const Text(
-          'Configure Alerts',
+        title: Text(
+          context.tr('Configure Alerts'),
           style: TextStyle(
-            color: Colors.black,
+            color: context.textColor,
             fontSize: 20,
             fontWeight: FontWeight.w800,
           ),
@@ -118,7 +145,7 @@ class _ConfigureAlertsScreenState extends State<ConfigureAlertsScreen> {
                       height: 48,
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: context.containerColor,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                           color: const Color(0xFF555555),
@@ -127,7 +154,7 @@ class _ConfigureAlertsScreenState extends State<ConfigureAlertsScreen> {
                       ),
                       child: Row(
                         children: [
-                          const Icon(
+                          Icon(
                             Icons.search,
                             color: _pinkColor,
                             size: 22,
@@ -136,16 +163,16 @@ class _ConfigureAlertsScreenState extends State<ConfigureAlertsScreen> {
                           Expanded(
                             child: Text(
                               _selectedVehicle,
-                              style: const TextStyle(
-                                color: Colors.black87,
+                              style: TextStyle(
+                                color: context.textColor,
                                 fontSize: 15,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
                           ),
-                          const Icon(
+                          Icon(
                             Icons.arrow_drop_down,
-                            color: Colors.black54,
+                            color: context.mutedTextColor,
                             size: 26,
                           ),
                         ],
@@ -157,7 +184,7 @@ class _ConfigureAlertsScreenState extends State<ConfigureAlertsScreen> {
                   child: ListView.separated(
                     padding: const EdgeInsets.only(top: 4),
                     itemCount: _alertTypes.length,
-                    separatorBuilder: (_, __) => const Divider(
+                    separatorBuilder: (BuildContext context, int index) => const Divider(
                       height: 1,
                       thickness: 1,
                       color: Color(0xFFE8E8E8),
@@ -178,8 +205,8 @@ class _ConfigureAlertsScreenState extends State<ConfigureAlertsScreen> {
                               Expanded(
                                 child: Text(
                                   alert,
-                                  style: const TextStyle(
-                                    color: Colors.black87,
+                                  style: TextStyle(
+                                    color: context.textColor,
                                     fontSize: 15,
                                     fontWeight: FontWeight.w500,
                                   ),
@@ -193,14 +220,14 @@ class _ConfigureAlertsScreenState extends State<ConfigureAlertsScreen> {
                                   border: Border.all(
                                     color: isEnabled
                                         ? _pinkColor
-                                        : Colors.black45,
+                                        : context.labelTextColor,
                                     width: 1.6,
                                   ),
                                 ),
                                 padding: const EdgeInsets.all(4),
                                 child: isEnabled
                                     ? Container(
-                                        decoration: const BoxDecoration(
+                                        decoration: BoxDecoration(
                                           shape: BoxShape.circle,
                                           color: _pinkColor,
                                         ),
@@ -272,7 +299,7 @@ class _SelectVehicleAlertsDialogState
     final Size size = MediaQuery.sizeOf(context);
 
     return Dialog(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).cardColor,
       insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 48),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
@@ -286,14 +313,14 @@ class _SelectVehicleAlertsDialogState
             children: [
               TextField(
                 controller: _searchController,
-                style: const TextStyle(
-                  color: Colors.black87,
+                style: TextStyle(
+                  color: context.textColor,
                   fontSize: 15,
                 ),
                 decoration: InputDecoration(
                   hintText: 'Search Vehicle',
-                  hintStyle: const TextStyle(
-                    color: Colors.black38,
+                  hintStyle: TextStyle(
+                    color: context.labelTextColor,
                     fontSize: 15,
                   ),
                   isDense: true,
@@ -320,10 +347,10 @@ class _SelectVehicleAlertsDialogState
               const SizedBox(height: 10),
               Expanded(
                 child: _filtered.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Text(
                           'No vehicles found',
-                          style: TextStyle(color: Colors.black45),
+                          style: TextStyle(color: context.labelTextColor),
                         ),
                       )
                     : ListView.builder(
@@ -339,7 +366,7 @@ class _SelectVehicleAlertsDialogState
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(
+                                  Icon(
                                     Icons.directions_car,
                                     color: _pinkColor,
                                     size: 22,
@@ -347,8 +374,8 @@ class _SelectVehicleAlertsDialogState
                                   const SizedBox(width: 12),
                                   Text(
                                     vehicle,
-                                    style: const TextStyle(
-                                      color: Colors.black87,
+                                    style: TextStyle(
+                                      color: context.textColor,
                                       fontSize: 15,
                                       fontWeight: FontWeight.w500,
                                     ),

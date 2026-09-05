@@ -1,0 +1,210 @@
+import 'package:flutter/material.dart';
+
+import '../models/vehicle_model.dart';
+import '../screens/report_screens/report_content_widgets.dart';
+
+class ReportResponseParser {
+  ReportResponseParser._();
+
+  static List<Map<String, dynamic>> extractItems(Map<String, dynamic>? response) {
+    if (response == null || response.isEmpty) {
+      return <Map<String, dynamic>>[];
+    }
+
+    final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
+    _collectMaps(response, items);
+    return items;
+  }
+
+  static int itemCount(Map<String, dynamic>? response) => extractItems(response).length;
+
+  static String summaryValue(
+    Map<String, dynamic>? response,
+    List<String> keys, {
+    String fallback = '-',
+  }) {
+    if (response == null) {
+      return fallback;
+    }
+    for (final String key in keys) {
+      final dynamic value = _deepFind(response, key);
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString();
+      }
+    }
+    return fallback;
+  }
+
+  static Widget buildTimeline(
+    Map<String, dynamic>? response,
+    VehicleModel vehicle, {
+    Color defaultColor = Colors.green,
+  }) {
+    final List<Map<String, dynamic>> items = extractItems(response);
+    if (items.isEmpty) {
+      return ReportTimelineEvent(
+        time: '-',
+        duration: '',
+        status: 'No data',
+        statusColor: Colors.grey,
+        location: vehicle.location,
+        isLast: true,
+      );
+    }
+
+    return Column(
+      children: List<Widget>.generate(items.length, (int index) {
+        final Map<String, dynamic> item = items[index];
+        final String status = (item['status'] ??
+                item['type'] ??
+                item['event'] ??
+                item['title'] ??
+                item['name'] ??
+                'Event')
+            .toString();
+        final String time = (item['time'] ??
+                item['start_time'] ??
+                item['timestamp'] ??
+                item['date'] ??
+                '-')
+            .toString();
+        final String duration = (item['duration'] ??
+                item['stop_duration'] ??
+                item['drive_duration'] ??
+                '')
+            .toString();
+        final String location = (item['address'] ??
+                item['location'] ??
+                item['place'] ??
+                vehicle.location)
+            .toString();
+        final Color color = _statusColor(status, defaultColor);
+
+        return ReportTimelineEvent(
+          time: time,
+          duration: duration.isNotEmpty ? 'Duration: $duration' : '',
+          status: status,
+          statusColor: color,
+          location: location,
+          isLast: index == items.length - 1,
+        );
+      }),
+    );
+  }
+
+  static Widget buildSummaryCard(
+    Map<String, dynamic>? response,
+    VehicleModel vehicle,
+  ) {
+    final String distance = summaryValue(
+      response,
+      <String>['distance', 'total_distance'],
+      fallback: vehicle.distance,
+    );
+    final String engineHours = summaryValue(
+      response,
+      <String>['engine_hours', 'drive_duration', 'duration'],
+    );
+    final String running = summaryValue(response, <String>['running', 'run_time']);
+    final String stops = summaryValue(response, <String>['stops', 'stop_count', 'stop_time']);
+    final String idle = summaryValue(response, <String>['idle', 'idle_time']);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SummaryReportCard(vehicle: vehicle),
+        const SizedBox(height: 12),
+        _metricRow('Distance', distance),
+        _metricRow('Engine hours', engineHours),
+        _metricRow('Running', running),
+        _metricRow('Stops', stops),
+        _metricRow('Idle', idle),
+      ],
+    );
+  }
+
+  static Widget _metricRow(String label, String value) {
+    if (value == '-') {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text(value),
+        ],
+      ),
+    );
+  }
+
+  static void _collectMaps(dynamic node, List<Map<String, dynamic>> target) {
+    if (node is List) {
+      for (final dynamic item in node) {
+        _collectMaps(item, target);
+      }
+      return;
+    }
+
+    if (node is! Map) {
+      return;
+    }
+
+    final Map<String, dynamic> map = node.map(
+      (Object? k, Object? v) => MapEntry(k.toString(), v),
+    );
+
+    if (_looksLikeReportRow(map)) {
+      target.add(map);
+      return;
+    }
+
+    for (final String key in <String>['items', 'data', 'rows', 'events', 'reports']) {
+      if (map.containsKey(key)) {
+        _collectMaps(map[key], target);
+      }
+    }
+  }
+
+  static bool _looksLikeReportRow(Map<String, dynamic> map) {
+    return map.containsKey('time') ||
+        map.containsKey('timestamp') ||
+        map.containsKey('status') ||
+        map.containsKey('type') ||
+        map.containsKey('event') ||
+        (map.containsKey('lat') && map.containsKey('lng'));
+  }
+
+  static dynamic _deepFind(Map<String, dynamic> map, String key) {
+    if (map.containsKey(key)) {
+      return map[key];
+    }
+    for (final dynamic value in map.values) {
+      if (value is Map) {
+        final Map<String, dynamic> nested = value.map(
+          (Object? k, Object? v) => MapEntry(k.toString(), v),
+        );
+        final dynamic found = _deepFind(nested, key);
+        if (found != null) {
+          return found;
+        }
+      }
+    }
+    return null;
+  }
+
+  static Color _statusColor(String status, Color fallback) {
+    final String lower = status.toLowerCase();
+    if (lower.contains('off') || lower.contains('stop') || lower.contains('exit')) {
+      return Colors.redAccent;
+    }
+    if (lower.contains('on') || lower.contains('start') || lower.contains('enter') || lower.contains('running')) {
+      return Colors.green;
+    }
+    if (lower.contains('speed') || lower.contains('over')) {
+      return Colors.orange;
+    }
+    return fallback;
+  }
+}

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_l10n.dart';
+import '../../theme/app_theme_tokens.dart';
+
 class RemindersScreen extends StatefulWidget {
   const RemindersScreen({super.key});
 
@@ -11,9 +14,8 @@ class _RemindersScreenState extends State<RemindersScreen> {
   static const Color _pinkColor = Color(0xFFFF2F68);
   static const Color _greenColor = Color(0xFF4CAF50);
   static const Color _greenHalo = Color(0xFFB9E4BA);
-  static const Color _bgColor = Color(0xFFF5F5F5);
-
-  bool _isLoading = true;
+  
+  bool _isLoading = false;
 
   final List<_ReminderItem> _reminders = <_ReminderItem>[
     const _ReminderItem(
@@ -51,14 +53,6 @@ class _RemindersScreenState extends State<RemindersScreen> {
   @override
   void initState() {
     super.initState();
-    Future<void>.delayed(const Duration(milliseconds: 900), () {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _isLoading = false;
-      });
-    });
   }
 
   Future<void> _openAddReminder() async {
@@ -109,7 +103,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
       barrierColor: Colors.black45,
       builder: (BuildContext dialogContext) {
         return Dialog(
-          backgroundColor: Colors.white,
+          backgroundColor: Theme.of(context).cardColor,
           insetPadding: const EdgeInsets.symmetric(horizontal: 36),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
@@ -119,11 +113,11 @@ class _RemindersScreenState extends State<RemindersScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
+                Text(
                   'You Want To Delete This User?',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: Colors.black,
+                    color: context.textColor,
                     fontSize: 17,
                     fontWeight: FontWeight.w700,
                   ),
@@ -144,7 +138,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
                               borderRadius: BorderRadius.circular(10),
                             ),
                           ),
-                          child: const Text(
+                          child: Text(
                             'CANCEL',
                             style: TextStyle(
                               color: Colors.white,
@@ -168,7 +162,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
                               borderRadius: BorderRadius.circular(10),
                             ),
                           ),
-                          child: const Text(
+                          child: Text(
                             'OK',
                             style: TextStyle(
                               color: Colors.white,
@@ -197,25 +191,25 @@ class _RemindersScreenState extends State<RemindersScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _isLoading ? Colors.white : _bgColor,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: _isLoading ? Colors.white : _bgColor,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         centerTitle: false,
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
-          icon: const Icon(
+          icon: Icon(
             Icons.arrow_back_ios_new,
             color: _pinkColor,
             size: 20,
           ),
         ),
         titleSpacing: 0,
-        title: const Text(
-          'Maintenance Reminders',
+        title: Text(
+          context.tr('Maintenance Reminders'),
           style: TextStyle(
-            color: Colors.black,
+            color: context.textColor,
             fontSize: 20,
             fontWeight: FontWeight.w800,
           ),
@@ -225,7 +219,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
         onPressed: _openAddReminder,
         backgroundColor: _pinkColor,
         elevation: 4,
-        child: const Icon(Icons.add, color: Colors.white, size: 28),
+        child: Icon(Icons.add, color: Colors.white, size: 28),
       ),
       body: _isLoading
           ? const Center(child: _LoadingDots())
@@ -238,7 +232,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
                 return Container(
                   padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: context.containerColor,
                     borderRadius: BorderRadius.circular(14),
                     boxShadow: [
                       BoxShadow(
@@ -253,7 +247,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
                       Container(
                         width: 52,
                         height: 52,
-                        decoration: const BoxDecoration(
+                        decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: _greenHalo,
                         ),
@@ -261,11 +255,11 @@ class _RemindersScreenState extends State<RemindersScreen> {
                         child: Container(
                           width: 38,
                           height: 38,
-                          decoration: const BoxDecoration(
+                          decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color: _greenColor,
                           ),
-                          child: const Icon(
+                          child: Icon(
                             Icons.person_outline,
                             color: Colors.white,
                             size: 22,
@@ -279,8 +273,8 @@ class _RemindersScreenState extends State<RemindersScreen> {
                           children: [
                             Text(
                               item.title,
-                              style: const TextStyle(
-                                color: Colors.black,
+                              style: TextStyle(
+                                color: context.textColor,
                                 fontSize: 16,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -288,7 +282,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
                             const SizedBox(height: 2),
                             Text(
                               'Type: ${item.type}',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: Color(0xFF555555),
                                 fontSize: 13,
                                 fontWeight: FontWeight.w400,
@@ -296,7 +290,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
                             ),
                             Text(
                               'Period: ${item.period}',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: Color(0xFF555555),
                                 fontSize: 13,
                                 fontWeight: FontWeight.w400,
@@ -307,7 +301,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
                       ),
                       IconButton(
                         onPressed: () => _openEditReminder(item),
-                        icon: const Icon(
+                        icon: Icon(
                           Icons.edit_square,
                           color: _greenColor,
                           size: 24,
@@ -315,7 +309,7 @@ class _RemindersScreenState extends State<RemindersScreen> {
                       ),
                       IconButton(
                         onPressed: () => _confirmDelete(item),
-                        icon: const Icon(
+                        icon: Icon(
                           Icons.delete_outline,
                           color: _pinkColor,
                           size: 26,
@@ -371,13 +365,13 @@ class _AddNewReminderScreenState extends State<_AddNewReminderScreen> {
   InputDecoration _fieldDecoration({required String hint}) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: const TextStyle(
+      hintStyle: TextStyle(
         color: Color(0xFF666666),
         fontSize: 15,
         fontWeight: FontWeight.w400,
       ),
       filled: true,
-      fillColor: const Color(0xFFF5F5F5),
+      fillColor: context.fieldFillColor,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
@@ -415,14 +409,14 @@ class _AddNewReminderScreenState extends State<_AddNewReminderScreen> {
 
     if (type.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select reminder type')),
+        SnackBar(content: Text(context.tr('Please select reminder type'))),
       );
       return;
     }
 
     if (start == null || period == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter odometer values')),
+        SnackBar(content: Text(context.tr('Please enter odometer values'))),
       );
       return;
     }
@@ -441,25 +435,25 @@ class _AddNewReminderScreenState extends State<_AddNewReminderScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).cardColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: Theme.of(context).cardColor,
+        surfaceTintColor: Theme.of(context).cardColor,
         elevation: 0,
         centerTitle: false,
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
-          icon: const Icon(
+          icon: Icon(
             Icons.arrow_back_ios_new,
             color: _pinkColor,
             size: 20,
           ),
         ),
         titleSpacing: 0,
-        title: const Text(
-          'Add New Reminder',
+        title: Text(
+          context.tr('Add New Reminder'),
           style: TextStyle(
-            color: Colors.black87,
+            color: context.textColor,
             fontSize: 20,
             fontWeight: FontWeight.w800,
           ),
@@ -475,7 +469,7 @@ class _AddNewReminderScreenState extends State<_AddNewReminderScreen> {
                   readOnly: true,
                   onTap: _pickReminderType,
                   controller: _typeController,
-                  style: const TextStyle(color: Colors.black87, fontSize: 15),
+                  style: TextStyle(color: context.textColor, fontSize: 15),
                   decoration: _fieldDecoration(hint: 'Select Reminder Type'),
                 ),
                 const SizedBox(height: 14),
@@ -483,7 +477,7 @@ class _AddNewReminderScreenState extends State<_AddNewReminderScreen> {
                   controller: _odometerStartController,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
-                  style: const TextStyle(color: Colors.black87, fontSize: 15),
+                  style: TextStyle(color: context.textColor, fontSize: 15),
                   decoration: _fieldDecoration(hint: 'Odometer Start'),
                 ),
                 const SizedBox(height: 14),
@@ -491,7 +485,7 @@ class _AddNewReminderScreenState extends State<_AddNewReminderScreen> {
                   controller: _periodController,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
-                  style: const TextStyle(color: Colors.black87, fontSize: 15),
+                  style: TextStyle(color: context.textColor, fontSize: 15),
                   decoration: _fieldDecoration(
                     hint: 'Period of odometer in which you want alerts',
                   ),
@@ -516,7 +510,7 @@ class _AddNewReminderScreenState extends State<_AddNewReminderScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text(
+                  child: Text(
                     'Add Reminder',
                     style: TextStyle(
                       color: Colors.white,
@@ -558,25 +552,25 @@ class _AddReminderTypeScreenState extends State<_AddReminderTypeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F7F7),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: Theme.of(context).cardColor,
+        surfaceTintColor: Theme.of(context).cardColor,
         elevation: 0,
         centerTitle: false,
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
-          icon: const Icon(
+          icon: Icon(
             Icons.arrow_back_ios_new,
             color: _pinkColor,
             size: 20,
           ),
         ),
         titleSpacing: 0,
-        title: const Text(
-          'Add New Reminder',
+        title: Text(
+          context.tr('Add New Reminder'),
           style: TextStyle(
-            color: Colors.black,
+            color: context.textColor,
             fontSize: 20,
             fontWeight: FontWeight.w800,
           ),
@@ -591,7 +585,7 @@ class _AddReminderTypeScreenState extends State<_AddReminderTypeScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: context.containerColor,
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withValues(alpha: 0.08),
@@ -618,7 +612,7 @@ class _AddReminderTypeScreenState extends State<_AddReminderTypeScreen> {
                             style: TextStyle(
                               color: _selected == type
                                   ? _pinkColor
-                                  : Colors.black87,
+                                  : context.textColor,
                               fontSize: 16,
                               fontWeight: _selected == type
                                   ? FontWeight.w600
@@ -650,7 +644,7 @@ class _AddReminderTypeScreenState extends State<_AddReminderTypeScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: const Text(
+                  child: Text(
                     'Add Reminder',
                     style: TextStyle(
                       color: Colors.white,
@@ -715,7 +709,7 @@ class _ReminderFormScreenState extends State<_ReminderFormScreen> {
   InputDecoration _fieldDecoration() {
     return InputDecoration(
       filled: true,
-      fillColor: const Color(0xFFF5F5F5),
+      fillColor: context.fieldFillColor,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
@@ -735,7 +729,7 @@ class _ReminderFormScreenState extends State<_ReminderFormScreen> {
 
     if (title.isEmpty || previous == null || period == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill all fields')),
+        SnackBar(content: Text(context.tr('Please fill all fields'))),
       );
       return;
     }
@@ -754,15 +748,15 @@ class _ReminderFormScreenState extends State<_ReminderFormScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).cardColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: Theme.of(context).cardColor,
+        surfaceTintColor: Theme.of(context).cardColor,
         elevation: 0,
         centerTitle: false,
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
-          icon: const Icon(
+          icon: Icon(
             Icons.arrow_back_ios_new,
             color: _pinkColor,
             size: 20,
@@ -770,9 +764,9 @@ class _ReminderFormScreenState extends State<_ReminderFormScreen> {
         ),
         titleSpacing: 0,
         title: Text(
-          widget.appBarTitle,
-          style: const TextStyle(
-            color: Colors.black,
+          context.tr(widget.appBarTitle),
+          style: TextStyle(
+            color: context.textColor,
             fontSize: 20,
             fontWeight: FontWeight.w800,
           ),
@@ -786,7 +780,7 @@ class _ReminderFormScreenState extends State<_ReminderFormScreen> {
               children: [
                 TextField(
                   controller: _titleController,
-                  style: const TextStyle(color: Colors.black87, fontSize: 15),
+                  style: TextStyle(color: context.textColor, fontSize: 15),
                   decoration: _fieldDecoration(),
                 ),
                 const SizedBox(height: 14),
@@ -794,7 +788,7 @@ class _ReminderFormScreenState extends State<_ReminderFormScreen> {
                   controller: _previousController,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
-                  style: const TextStyle(color: Colors.black87, fontSize: 15),
+                  style: TextStyle(color: context.textColor, fontSize: 15),
                   decoration: _fieldDecoration(),
                 ),
                 const SizedBox(height: 14),
@@ -802,7 +796,7 @@ class _ReminderFormScreenState extends State<_ReminderFormScreen> {
                   controller: _periodController,
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
-                  style: const TextStyle(color: Colors.black87, fontSize: 15),
+                  style: TextStyle(color: context.textColor, fontSize: 15),
                   decoration: _fieldDecoration(),
                 ),
               ],
@@ -827,7 +821,7 @@ class _ReminderFormScreenState extends State<_ReminderFormScreen> {
                   ),
                   child: Text(
                     widget.buttonLabel,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: Colors.white,
                       fontSize: 17,
                       fontWeight: FontWeight.w800,

@@ -8,22 +8,47 @@ class AppThemeController extends ChangeNotifier {
   static const String _storageKey = 'app_theme_mode_v2';
   static const String _legacyKey = 'app_theme_mode';
   static const String _legacyIndexKey = 'app_theme_mode_index';
+  static const String _appColorKey = 'app_primary_color_name';
 
   AppThemeMode _mode = AppThemeMode.light;
+  String _appColorName = 'Default Color';
   bool _isReady = false;
 
   AppThemeMode get mode => _mode;
+  String get appColorName => _appColorName;
 
   bool get isReady => _isReady;
 
   bool get isHacking => _mode.isHacking;
 
+  bool get isAurora => _mode.isAurora;
+
   bool get isDark => _mode.isDark;
+
+  Color get customAccentColor {
+    if (_mode == AppThemeMode.hacking) {
+      return const Color(0xFF00FF88);
+    }
+    switch (_appColorName) {
+      case 'Blue':
+        return const Color(0xFF2196F3);
+      case 'Green':
+        return const Color(0xFF4CAF50);
+      case 'Red':
+        return const Color(0xFFE53935);
+      case 'Pink':
+        return const Color(0xFFFF2F68);
+      case 'Default Color':
+      default:
+        return const Color(0xFFFF2F68);
+    }
+  }
 
   Future<void> initialize() async {
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       _mode = _readStoredMode(prefs);
+      _appColorName = prefs.getString(_appColorKey) ?? 'Default Color';
       // Migrate / clean old broken int key so it never crashes again.
       await _migrateLegacy(prefs, _mode);
     } catch (error, stackTrace) {
@@ -32,7 +57,22 @@ class AppThemeController extends ChangeNotifier {
       _mode = AppThemeMode.light;
     } finally {
       _isReady = true;
+      if (hasListeners) {
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> setAppColorName(String name) async {
+    if (_appColorName != name) {
+      _appColorName = name;
       notifyListeners();
+    }
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_appColorKey, name);
+    } catch (error) {
+      debugPrint('AppThemeController.setAppColorName failed: $error');
     }
   }
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:multitrack/l10n/app_l10n.dart';
 import 'package:multitrack/screens/report_screens/ac_report_screen.dart';
 import 'package:multitrack/screens/report_screens/daily_report_screen.dart';
 import 'package:multitrack/screens/report_screens/geofence_report_screen.dart';
@@ -8,6 +9,7 @@ import 'package:multitrack/screens/report_screens/stoppage_report_screen.dart';
 import 'package:multitrack/screens/report_screens/summary_report_screen.dart';
 import 'package:multitrack/screens/report_screens/trip_report_screen.dart';
 import 'package:multitrack/theme/app_theme_tokens.dart';
+
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -16,9 +18,6 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  static const Color backgroundColor = Color(0xFFF7F7F7);
-  static const Color scrolledColor = Color(0xFFE3F2FD);
-
   bool _isScrolled = false;
 
   bool _handleScrollNotification(ScrollNotification notification) {
@@ -56,7 +55,7 @@ class _MainScreenState extends State<MainScreen> {
         title: Padding(
           padding: const EdgeInsets.only(left: 5),
           child: Text(
-            'Reports',
+            context.tr('Reports'),
             style: TextStyle(
               color: Theme.of(context).colorScheme.onSurface,
               fontSize: 22,
@@ -360,7 +359,7 @@ class ReportCard extends StatelessWidget {
       width: cardWidth,
       height: cardHeight,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.containerColor,
         borderRadius: BorderRadius.circular(10),
         boxShadow: [
           BoxShadow(
@@ -404,7 +403,7 @@ class ReportCard extends StatelessWidget {
                 ),
                 SizedBox(height: imageTextGap),
                 Text(
-                  title,
+                  context.tr(title),
                   textAlign: TextAlign.center,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,

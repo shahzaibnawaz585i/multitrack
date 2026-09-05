@@ -1,13 +1,12 @@
-// import 'package:flutter/material.dart';
-// import 'package:multitrack/dashboard_screen.dart';
-// import 'package:multitrack/forget_screen.dart';
-// import 'package:multitrack/screens/dashboard_screen.dart';
-// import 'package:multitrack/screens/forget_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'dashboard_screen.dart';
 import 'forget_screen.dart';
+import '../l10n/app_l10n.dart';
+import '../services/app_bootstrap_service.dart';
 import '../services/auth_service.dart';
+import '../services/fcm_service.dart';
 import '../theme/app_theme_tokens.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -19,31 +18,157 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
-  bool isPasswordHidden = true;
-  String selectedServer = "Server 1";
-  TextEditingController userId = TextEditingController();
+  bool _isLoading = false;
+  String selectedServer = "Server 1 (Live)";
+  final TextEditingController userId = TextEditingController();
+  final TextEditingController password = TextEditingController();
+  final TextEditingController customServer =
+      TextEditingController(text: 'https://gps.m-track.net.pk');
   final _formKey = GlobalKey<FormState>();
 
-  final List<String> servers = ["Server 1", "Server 2", "Server 3"];
+  final List<String> servers = [
+    "Server 1 (Live)",
+    "Server 2",
+    "Nostrum Track",
+    "Fleet Wox",
+    "Server 3",
+    "Custom Server URL",
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedServer();
+  }
+
+  Future<void> _loadSavedServer() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final String? savedServer = prefs.getString('logged_in_server');
+    final String? savedCustomUrl = prefs.getString('custom_server_url');
+
+    if (savedCustomUrl != null && savedCustomUrl.isNotEmpty) {
+      customServer.text = savedCustomUrl;
+    }
+
+    if (savedServer != null && savedServer.isNotEmpty) {
+      if (servers.contains(savedServer)) {
+        setState(() {
+          selectedServer = savedServer;
+        });
+      } else if (savedServer.startsWith('http')) {
+        setState(() {
+          selectedServer = 'Custom Server URL';
+          customServer.text = savedServer;
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    userId.dispose();
+    password.dispose();
+    customServer.dispose();
+    super.dispose();
+  }
+
+  Future<void> _login() async {
+    final String userid = userId.text.trim();
+    final String pass = password.text;
+    if (userid.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.tr('Please enter User ID'))),
+      );
+      return;
+    }
+
+    if (pass.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.tr('Please enter Password'))),
+      );
+      return;
+    }
+
+    String effectiveServer = selectedServer;
+    if (selectedServer == 'Custom Server URL') {
+      String url = customServer.text.trim();
+      if (url.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter Server URL')),
+        );
+        return;
+      }
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'https://$url';
+      }
+      effectiveServer = url;
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString('custom_server_url', url);
+    } else if (selectedServer == 'Server 1 (Live)') {
+      effectiveServer = 'Server 1';
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    final result = await AuthService.login(
+      userId: userid,
+      password: pass,
+      server: effectiveServer,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = false;
+    });
+
+    if (!result.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.tr(result.message))),
+      );
+      return;
+    }
+
+    await AppBootstrapService.prefetchAfterLogin();
+    await FcmService.registerStoredToken();
+
+    if (!mounted) {
+      return;
+    }
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute<void>(
+        builder: (context) => const DashboardScreen(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final Color textColor = theme.colorScheme.onSurface;
     final Color accentColor = theme.colorScheme.primary;
 
+    final bool isCustomServer = selectedServer == 'Custom Server URL';
+
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       body: SingleChildScrollView(
         child: Column(
           children: [
-            const SizedBox(height: 90),
+            const SizedBox(height: 70),
             Padding(
               padding: const EdgeInsets.only(left: 40),
               child: Row(
                 children: [
                   Container(
-                    height: 75,
-                    width: 75,
+                    height: 70,
+                    width: 70,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(100),
                     ),
@@ -61,13 +186,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 50),
+            const SizedBox(height: 35),
             Padding(
               padding: const EdgeInsets.all(14.0),
               child: Column(
                 children: [
                   Container(
-                    height: 300,
                     width: double.infinity,
                     decoration: context.containerDecoration(
                       borderRadius: BorderRadius.circular(14),
@@ -82,14 +206,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       ],
                     ),
                     child: Padding(
-                      padding: const EdgeInsets.all(14.0),
+                      padding: const EdgeInsets.all(16.0),
                       child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         mainAxisAlignment: MainAxisAlignment.start,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const SizedBox(height: 4),
                           Text(
-                            'Login',
+                            context.tr('Login'),
                             style: TextStyle(
                               fontFamily: 'normalbold.ttf',
                               fontSize: 25,
@@ -98,114 +223,170 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           Form(
                             key: _formKey,
-                            child: TextFormField(
-                              controller: userId,
-                              style: TextStyle(color: textColor),
-                              decoration: InputDecoration(
-                                label: Text(
-                                  'User ID',
+                            child: Column(
+                              children: [
+                                TextFormField(
+                                  controller: userId,
+                                  enabled: !_isLoading,
+                                  textInputAction: TextInputAction.next,
                                   style: TextStyle(color: textColor),
-                                ),
-                                enabledBorder: const UnderlineInputBorder(
-                                  borderSide: BorderSide(
-                                    color: Colors.grey,
-                                    width: 1,
+                                  decoration: InputDecoration(
+                                    label: Text(
+                                      context.tr('User ID / Email'),
+                                      style: TextStyle(color: textColor),
+                                    ),
+                                    enabledBorder: const UnderlineInputBorder(
+                                      borderSide: BorderSide(
+                                        color: Colors.grey,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    focusedBorder: UnderlineInputBorder(
+                                      borderRadius: const BorderRadius.only(
+                                        bottomRight: Radius.circular(8),
+                                        bottomLeft: Radius.circular(8),
+                                      ),
+                                      borderSide: BorderSide(
+                                        color: accentColor,
+                                        width: 3,
+                                      ),
+                                    ),
                                   ),
                                 ),
-                                focusedBorder: UnderlineInputBorder(
-                                  borderRadius: const BorderRadius.only(
-                                    bottomRight: Radius.circular(8),
-                                    bottomLeft: Radius.circular(8),
+                                TextFormField(
+                                  controller: password,
+                                  enabled: !_isLoading,
+                                  obscureText: _obscurePassword,
+                                  textInputAction: TextInputAction.done,
+                                  onFieldSubmitted: (_) {
+                                    if (!_isLoading) {
+                                      _login();
+                                    }
+                                  },
+                                  style: TextStyle(color: textColor),
+                                  decoration: InputDecoration(
+                                    label: Text(
+                                      context.tr('Password'),
+                                      style: TextStyle(color: textColor),
+                                    ),
+                                    suffixIcon: IconButton(
+                                      onPressed: () {
+                                        setState(() {
+                                          _obscurePassword = !_obscurePassword;
+                                        });
+                                      },
+                                      icon: Icon(
+                                        _obscurePassword
+                                            ? Icons.visibility_off
+                                            : Icons.visibility,
+                                        color: textColor,
+                                      ),
+                                    ),
+                                    enabledBorder: const UnderlineInputBorder(
+                                      borderSide: BorderSide(
+                                        color: Colors.grey,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    focusedBorder: UnderlineInputBorder(
+                                      borderRadius: const BorderRadius.only(
+                                        bottomLeft: Radius.circular(8),
+                                        bottomRight: Radius.circular(8),
+                                      ),
+                                      borderSide: BorderSide(
+                                        color: accentColor,
+                                        width: 3,
+                                      ),
+                                    ),
                                   ),
-                                  borderSide: BorderSide(
+                                ),
+                                DropdownButtonFormField<String>(
+                                  isExpanded: true,
+                                  initialValue: selectedServer,
+                                  dropdownColor: context.containerColor,
+                                  style: TextStyle(color: textColor),
+                                  onChanged: _isLoading
+                                      ? null
+                                      : (String? value) {
+                                          if (value != null) {
+                                            setState(() {
+                                              selectedServer = value;
+                                            });
+                                          }
+                                        },
+                                  decoration: InputDecoration(
+                                    filled: true,
+                                    fillColor: context.containerColor,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      vertical: 16,
+                                    ),
+                                    enabledBorder: const UnderlineInputBorder(
+                                      borderSide:
+                                          BorderSide(color: Colors.grey),
+                                    ),
+                                    focusedBorder: UnderlineInputBorder(
+                                      borderSide: BorderSide(
+                                        color: accentColor,
+                                        width: 3,
+                                      ),
+                                      borderRadius: const BorderRadius.only(
+                                        bottomLeft: Radius.circular(8),
+                                        bottomRight: Radius.circular(8),
+                                      ),
+                                    ),
+                                  ),
+                                  icon: Icon(
+                                    Icons.arrow_drop_down,
                                     color: accentColor,
-                                    width: 3,
                                   ),
+                                  items: servers.map((String server) {
+                                    return DropdownMenuItem<String>(
+                                      value: server,
+                                      child: Text(context.tr(server)),
+                                    );
+                                  }).toList(),
                                 ),
-                              ),
+                                if (isCustomServer) ...[
+                                  const SizedBox(height: 8),
+                                  TextFormField(
+                                    controller: customServer,
+                                    enabled: !_isLoading,
+                                    keyboardType: TextInputType.url,
+                                    textInputAction: TextInputAction.done,
+                                    style: TextStyle(
+                                      color: textColor,
+                                      fontSize: 13,
+                                    ),
+                                    decoration: InputDecoration(
+                                      labelText: 'Server Base URL',
+                                      hintText: 'https://gps.yourdomain.com',
+                                      hintStyle: TextStyle(
+                                        color: Colors.grey.shade500,
+                                        fontSize: 12,
+                                      ),
+                                      prefixIcon: Icon(
+                                        Icons.link,
+                                        size: 20,
+                                        color: accentColor,
+                                      ),
+                                      enabledBorder:
+                                          const UnderlineInputBorder(
+                                        borderSide: BorderSide(
+                                          color: Colors.grey,
+                                          width: 1,
+                                        ),
+                                      ),
+                                      focusedBorder: UnderlineInputBorder(
+                                        borderSide: BorderSide(
+                                          color: accentColor,
+                                          width: 2,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
-                          ),
-                          TextFormField(
-                            obscureText: _obscurePassword,
-                            style: TextStyle(color: textColor),
-                            decoration: InputDecoration(
-                              label: Text(
-                                'Password',
-                                style: TextStyle(color: textColor),
-                              ),
-                              suffixIcon: IconButton(
-                                onPressed: () {
-                                  setState(() {
-                                    _obscurePassword = !_obscurePassword;
-                                  });
-                                },
-                                icon: Icon(
-                                  _obscurePassword
-                                      ? Icons.visibility_off
-                                      : Icons.visibility,
-                                  color: textColor,
-                                ),
-                              ),
-                              enabledBorder: const UnderlineInputBorder(
-                                borderSide: BorderSide(
-                                  color: Colors.grey,
-                                  width: 1,
-                                ),
-                              ),
-                              focusedBorder: UnderlineInputBorder(
-                                borderRadius: const BorderRadius.only(
-                                  bottomLeft: Radius.circular(8),
-                                  bottomRight: Radius.circular(8),
-                                ),
-                                borderSide: BorderSide(
-                                  color: accentColor,
-                                  width: 3,
-                                ),
-                              ),
-                            ),
-                          ),
-                          DropdownButtonFormField<String>(
-                            isExpanded: true,
-                            value: selectedServer,
-                            dropdownColor: context.containerColor,
-                            style: TextStyle(color: textColor),
-                            decoration: InputDecoration(
-                              filled: true,
-                              fillColor: context.containerColor,
-                              contentPadding: const EdgeInsets.symmetric(
-                                vertical: 16,
-                              ),
-                              enabledBorder: const UnderlineInputBorder(
-                                borderSide: BorderSide(color: Colors.grey),
-                              ),
-                              focusedBorder: UnderlineInputBorder(
-                                borderSide: BorderSide(
-                                  color: accentColor,
-                                  width: 3,
-                                ),
-                                borderRadius: const BorderRadius.only(
-                                  bottomLeft: Radius.circular(8),
-                                  bottomRight: Radius.circular(8),
-                                ),
-                              ),
-                            ),
-                            icon: Icon(
-                              Icons.arrow_drop_down,
-                              color: accentColor,
-                            ),
-                            items: servers.map((String server) {
-                              return DropdownMenuItem<String>(
-                                value: server,
-                                child: Text(server),
-                              );
-                            }).toList(),
-                            onChanged: (String? value) {
-                              if (value != null) {
-                                setState(() {
-                                  selectedServer = value;
-                                });
-                              }
-                            },
                           ),
                           const SizedBox(height: 10),
                           Align(
@@ -223,7 +404,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 padding: EdgeInsets.zero,
                               ),
                               child: Text(
-                                'Forget Your Password?',
+                                context.tr('Forget Your Password?'),
                                 style: TextStyle(
                                   fontSize: 14,
                                   fontFamily: 'normalbold.ttf',
@@ -243,33 +424,12 @@ class _LoginScreenState extends State<LoginScreen> {
                       width: 150,
                       height: 50,
                       child: ElevatedButton(
-                        onPressed: () async {
-                          if (_formKey.currentState!.validate()) {
-                            final String userid = userId.text.trim();
-                            if (userid == 'admin@gmail.com') {
-                              await AuthService.setLoggedIn(true);
-                              if (!context.mounted) {
-                                return;
-                              }
-                              Navigator.pushReplacement(
-                                context,
-                                MaterialPageRoute<void>(
-                                  builder: (context) =>
-                                      const DashboardScreen(),
-                                ),
-                              );
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Invalid User Id'),
-                                ),
-                              );
-                            }
-                          }
-                        },
+                        onPressed: _isLoading ? null : _login,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: accentColor,
                           foregroundColor: Colors.white,
+                          disabledBackgroundColor: accentColor,
+                          disabledForegroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 40,
                             vertical: 12,
@@ -278,10 +438,21 @@ class _LoginScreenState extends State<LoginScreen> {
                             borderRadius: BorderRadius.circular(10),
                           ),
                         ),
-                        child: const Text(
-                          'LOG IN',
-                          style: TextStyle(fontFamily: 'normalbold.ttf'),
-                        ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.4,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text(
+                                context.tr('LOG IN'),
+                                style: const TextStyle(
+                                  fontFamily: 'normalbold.ttf',
+                                ),
+                              ),
                       ),
                     ),
                   ),
@@ -289,11 +460,10 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
             SizedBox(
-              height: 195,
+              height: 160,
               width: double.infinity,
               child: Image.asset(
-                'assets/loginscreenicons.jpeg',
-                fit: BoxFit.cover,
+                'assets/login_screen_image.png',
               ),
             ),
           ],

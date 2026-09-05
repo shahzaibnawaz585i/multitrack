@@ -22,14 +22,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _startNavigation() async {
-    final Future<bool> loginFuture = AuthService.isLoggedIn();
-    await Future<void>.delayed(const Duration(milliseconds: 600));
-
-    if (!mounted) {
-      return;
-    }
-
-    final bool isLoggedIn = await loginFuture;
+    final bool isLoggedIn = await AuthService.isLoggedIn();
 
     if (!mounted) {
       return;
@@ -40,7 +33,11 @@ class _SplashScreenState extends State<SplashScreen> {
 
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute<void>(builder: (_) => nextScreen),
+      PageRouteBuilder<void>(
+        pageBuilder: (_, __, ___) => nextScreen,
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
     );
   }
 
@@ -72,6 +69,9 @@ class _SplashScreenState extends State<SplashScreen> {
                     height: 110,
                     width: 110,
                     fit: BoxFit.cover,
+                    cacheWidth: 220,
+                    cacheHeight: 220,
+                    filterQuality: FilterQuality.low,
                   ),
                 ),
                 const SizedBox(width: 1),

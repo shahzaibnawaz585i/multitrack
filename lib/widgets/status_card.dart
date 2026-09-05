@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_l10n.dart';
 import '../theme/app_theme_tokens.dart';
 
 class StatusCard extends StatelessWidget {
@@ -67,7 +68,7 @@ class StatusCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    title,
+                    context.tr(title),
                     style: TextStyle(
                       fontSize: 11,
                       color: context.mutedTextColor,

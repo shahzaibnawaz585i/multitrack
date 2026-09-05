@@ -1,10 +1,14 @@
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:multitrack/l10n/app_l10n.dart';
 import 'package:multitrack/screens/report_screens/main_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../theme/app_theme_tokens.dart';
+import '../data/vehicle_data.dart';
+import '../models/vehicle_model.dart';
+import '../services/app_bootstrap_service.dart';
+import '../theme/app_theme_tokens.dart';
 import 'lists_screen.dart';
 import 'map_screen.dart';
 import 'settings_screen/add_expense_screen.dart';
@@ -29,10 +33,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   String _vehicleFilter = 'all';
 
-  // Pehli visit ke baad tabs alive rehti hain — List/Map dobara slow create nahi hote.
-  final Set<int> _loadedTabs = <int>{_listIndex};
-
   final PageStorageBucket _pageStorageBucket = PageStorageBucket();
+
+  late final Set<int> _loadedTabs = <int>{_selectedIndex};
+
+  @override
+  void initState() {
+    super.initState();
+    AppBootstrapService.refreshVehicles(forceRefresh: true);
+  }
 
   void _onNavigationTap(int index) {
     if (_selectedIndex == index) {
@@ -40,8 +49,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     setState(() {
-      _loadedTabs.add(index);
       _selectedIndex = index;
+      _loadedTabs.add(index);
 
       // Bottom navigation se List open ho to All Vehicles show hon.
       if (index == _listIndex) {
@@ -54,48 +63,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final String normalizedFilter = filter.trim().toLowerCase();
 
     setState(() {
-      _loadedTabs.add(_listIndex);
       _vehicleFilter = normalizedFilter;
       _selectedIndex = _listIndex;
+      _loadedTabs.add(_listIndex);
     });
-  }
-
-  Widget _buildTab(int index) {
-    if (!_loadedTabs.contains(index)) {
-      return const SizedBox.shrink();
-    }
-
-    switch (index) {
-      case _dashboardIndex:
-        return MainDashboardContent(
-          key: const PageStorageKey<String>('dashboard_screen'),
-          onStatusTap: _openVehicleList,
-        );
-
-      case _mapIndex:
-        return const MapScreen(
-          key: PageStorageKey<String>('map_screen'),
-        );
-
-      case _listIndex:
-        return ListScreen(
-          key: const PageStorageKey<String>('vehicle_list_screen'),
-          initialFilter: _vehicleFilter,
-        );
-
-      case _reportIndex:
-        return const MainScreen(
-          key: PageStorageKey<String>('report_screen'),
-        );
-
-      case _settingsIndex:
-        return const SettingScreen(
-          key: PageStorageKey<String>('settings_screen'),
-        );
-
-      default:
-        return const SizedBox.shrink();
-    }
   }
 
   Widget _buildNavigationItem({
@@ -105,7 +76,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final bool isSelected = _selectedIndex == index;
 
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
+      duration: Duration.zero,
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: isSelected
@@ -134,11 +105,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: IndexedStack(
           index: _selectedIndex,
           children: <Widget>[
-            _buildTab(_dashboardIndex),
-            _buildTab(_mapIndex),
-            _buildTab(_listIndex),
-            _buildTab(_reportIndex),
-            _buildTab(_settingsIndex),
+            _loadedTabs.contains(_dashboardIndex)
+                ? MainDashboardContent(
+                    key: const PageStorageKey<String>('dashboard_screen'),
+                    onStatusTap: _openVehicleList,
+                  )
+                : const SizedBox.shrink(),
+            _loadedTabs.contains(_mapIndex)
+                ? MapScreen(
+                    key: const ValueKey<String>('map_screen'),
+                    isVisible: _selectedIndex == _mapIndex,
+                  )
+                : const SizedBox.shrink(),
+            ListScreen(
+              key: const PageStorageKey<String>('vehicle_list_screen'),
+              initialFilter: _vehicleFilter,
+            ),
+            _loadedTabs.contains(_reportIndex)
+                ? const MainScreen(
+                    key: PageStorageKey<String>('report_screen'),
+                  )
+                : const SizedBox.shrink(),
+            _loadedTabs.contains(_settingsIndex)
+                ? const SettingScreen(
+                    key: PageStorageKey<String>('settings_screen'),
+                  )
+                : const SizedBox.shrink(),
           ],
         ),
       ),
@@ -148,8 +140,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         backgroundColor: Colors.transparent,
         color: theme.cardColor,
         buttonBackgroundColor: theme.cardColor,
-        animationDuration: const Duration(milliseconds: 400),
-        animationCurve: Curves.easeInOutCubic,
+        animationDuration: Duration.zero,
+        animationCurve: Curves.linear,
         items: <Widget>[
           _buildNavigationItem(
             icon: Icons.dashboard,
@@ -185,8 +177,6 @@ class MainDashboardContent extends StatelessWidget {
     super.key,
     required this.onStatusTap,
   });
-
-  static const Color _primaryColor = Color(0xFFF43A6B);
 
   static const List<String> _chartDates = <String>[
     '21/6',
@@ -243,14 +233,14 @@ class MainDashboardContent extends StatelessWidget {
 
             const SizedBox(height: 10),
 
-            _buildDashboardTitle(textColor, accentColor),
+            _buildDashboardTitle(context, textColor, accentColor),
 
             const SizedBox(height: 20),
 
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text(
-                'Fleet Status',
+                context.tr('Fleet Status'),
                 style: TextStyle(
                   fontSize: 16,
                   fontFamily: 'NormalBold',
@@ -265,7 +255,7 @@ class MainDashboardContent extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text(
-                'Engine Hours',
+                context.tr('Engine Hours'),
                 style: TextStyle(
                   fontFamily: 'NormalBold',
                   fontSize: 16,
@@ -274,12 +264,15 @@ class MainDashboardContent extends StatelessWidget {
               ),
             ),
 
-            _buildEngineHoursChart(context),
+            _DeferredChartBox(
+              height: 268,
+              builder: _buildEngineHoursChart,
+            ),
 
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text(
-                'Travel Distance (in KM)',
+                context.tr('Travel Distance (in KM)'),
                 style: TextStyle(
                   fontFamily: 'NormalBold',
                   fontSize: 16,
@@ -288,7 +281,10 @@ class MainDashboardContent extends StatelessWidget {
               ),
             ),
 
-            _buildTravelDistanceChart(context),
+            _DeferredChartBox(
+              height: 368,
+              builder: _buildTravelDistanceChart,
+            ),
 
             const _TodaysFuelRateSection(),
 
@@ -314,6 +310,8 @@ class MainDashboardContent extends StatelessWidget {
             'assets/loginicon.png',
             height: 40,
             width: 40,
+            cacheWidth: 120,
+            cacheHeight: 120,
             errorBuilder: (
                 BuildContext context,
                 Object error,
@@ -341,6 +339,8 @@ class MainDashboardContent extends StatelessWidget {
             'assets/penicons.png',
             height: 50,
             width: 50,
+            cacheWidth: 150,
+            cacheHeight: 150,
             errorBuilder: (
                 BuildContext context,
                 Object error,
@@ -363,13 +363,17 @@ class MainDashboardContent extends StatelessWidget {
     );
   }
 
-  Widget _buildDashboardTitle(Color textColor, Color accentColor) {
+  Widget _buildDashboardTitle(
+    BuildContext context,
+    Color textColor,
+    Color accentColor,
+  ) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
           Text(
-            'Dashboard',
+            context.tr('Dashboard'),
             style: TextStyle(
               fontSize: 20,
               fontFamily: 'NormalBold',
@@ -408,6 +412,28 @@ class MainDashboardContent extends StatelessWidget {
   }
 
   Widget _buildFleetStatusCard(BuildContext context, Color mutedColor) {
+    int running = 0;
+    int idle = 0;
+    int stopped = 0;
+    int expired = 0;
+    int inactive = 0;
+
+    for (final VehicleModel v in VehicleData.vehicles) {
+      final String s = v.status.trim().toLowerCase();
+      if (s == 'running') {
+        running++;
+      } else if (s == 'idle') {
+        idle++;
+      } else if (s == 'stopped') {
+        stopped++;
+      } else if (s == 'expired') {
+        expired++;
+      } else if (s == 'inactive' || s == 'not reporting') {
+        inactive++;
+      }
+    }
+    final int total = VehicleData.vehicles.length;
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Container(
@@ -454,7 +480,13 @@ class MainDashboardContent extends StatelessWidget {
                             _handlePieSectionTap(sectionIndex);
                           },
                         ),
-                        sections: _buildPieSections(),
+                        sections: _buildPieSections(
+                          running: running,
+                          idle: idle,
+                          stopped: stopped,
+                          inactive: inactive,
+                          expired: expired,
+                        ),
                       ),
                     ),
                   ),
@@ -464,7 +496,7 @@ class MainDashboardContent extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          '124',
+                          total > 0 ? '$total' : '0',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 20,
@@ -473,7 +505,7 @@ class MainDashboardContent extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          'Objects',
+                          context.tr('Objects'),
                           style: TextStyle(
                             color: mutedColor,
                             fontSize: 13,
@@ -495,31 +527,31 @@ class MainDashboardContent extends StatelessWidget {
                 children: [
                   StatusRow(
                     title: 'Running',
-                    value: 10,
+                    value: running,
                     color: Colors.green,
                     onTap: () => onStatusTap('running'),
                   ),
                   StatusRow(
                     title: 'Idle',
-                    value: 8,
+                    value: idle,
                     color: Colors.orange,
                     onTap: () => onStatusTap('idle'),
                   ),
                   StatusRow(
                     title: 'Stopped',
-                    value: 72,
+                    value: stopped,
                     color: Colors.red,
                     onTap: () => onStatusTap('stopped'),
                   ),
                   StatusRow(
                     title: 'Expired',
-                    value: 2,
+                    value: expired,
                     color: Colors.pink,
                     onTap: () => onStatusTap('expired'),
                   ),
                   StatusRow(
                     title: 'InActive',
-                    value: 34,
+                    value: inactive,
                     color: Colors.blue,
                     onTap: () => onStatusTap('inactive'),
                   ),
@@ -558,41 +590,95 @@ class MainDashboardContent extends StatelessWidget {
     }
   }
 
-  List<PieChartSectionData> _buildPieSections() {
-    return <PieChartSectionData>[
-      PieChartSectionData(
-        value: 72,
+  List<PieChartSectionData> _buildPieSections({
+    required int running,
+    required int idle,
+    required int stopped,
+    required int inactive,
+    required int expired,
+  }) {
+    const TextStyle sliceStyle = TextStyle(
+      color: Colors.white,
+      fontSize: 10,
+      fontWeight: FontWeight.w700,
+    );
+
+    final List<PieChartSectionData> sections = <PieChartSectionData>[];
+    if (stopped > 0) {
+      sections.add(PieChartSectionData(
+        value: stopped.toDouble(),
         color: Colors.red,
-        radius: 30,
-        showTitle: false,
-      ),
-      PieChartSectionData(
-        value: 34,
+        radius: 32,
+        title: '$stopped',
+        titleStyle: sliceStyle,
+      ));
+    }
+    if (inactive > 0) {
+      sections.add(PieChartSectionData(
+        value: inactive.toDouble(),
         color: Colors.blue,
-        radius: 30,
-        showTitle: false,
-      ),
-      PieChartSectionData(
-        value: 10,
+        radius: 32,
+        title: '$inactive',
+        titleStyle: sliceStyle,
+      ));
+    }
+    if (running > 0) {
+      sections.add(PieChartSectionData(
+        value: running.toDouble(),
         color: Colors.green,
-        radius: 30,
-        showTitle: false,
-      ),
-      PieChartSectionData(
-        value: 8,
+        radius: 32,
+        title: '$running',
+        titleStyle: sliceStyle,
+      ));
+    }
+    if (idle > 0) {
+      sections.add(PieChartSectionData(
+        value: idle.toDouble(),
         color: Colors.orange,
-        radius: 30,
-        showTitle: false,
-      ),
-    ];
+        radius: 32,
+        title: '$idle',
+        titleStyle: sliceStyle,
+      ));
+    }
+
+    if (sections.isEmpty) {
+      sections.add(PieChartSectionData(
+        value: 1,
+        color: Colors.grey,
+        radius: 32,
+        title: '0',
+        titleStyle: sliceStyle,
+      ));
+    }
+
+    return sections;
+  }
+
+  TextStyle _chartLabelStyle(BuildContext context, {double alpha = 0.92}) {
+    return TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.w600,
+      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: alpha),
+    );
+  }
+
+  TextStyle _chartAxisNameStyle(BuildContext context) {
+    return TextStyle(
+      fontSize: 10,
+      fontWeight: FontWeight.w700,
+      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.72),
+    );
   }
 
   Widget _buildEngineHoursChart(BuildContext context) {
+    final Color labelColor = Theme.of(context).colorScheme.onSurface;
+    final Color tooltipBg = Theme.of(context).colorScheme.surface;
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Container(
-        padding: const EdgeInsets.all(16),
-        height: 220,
+        padding: const EdgeInsets.fromLTRB(8, 16, 12, 8),
+        height: 236,
         width: double.infinity,
         decoration: context.containerDecoration(
           borderRadius: BorderRadius.circular(16),
@@ -606,8 +692,31 @@ class MainDashboardContent extends StatelessWidget {
               maxY: 5,
               borderData: FlBorderData(show: false),
               gridData: const FlGridData(show: false),
+              lineTouchData: LineTouchData(
+                enabled: true,
+                touchTooltipData: LineTouchTooltipData(
+                  getTooltipColor: (_) => tooltipBg,
+                  getTooltipItems: (List<LineBarSpot> spots) {
+                    return spots.map((LineBarSpot spot) {
+                      return LineTooltipItem(
+                        '${spot.y.toStringAsFixed(1)} hrs',
+                        TextStyle(
+                          color: labelColor,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      );
+                    }).toList();
+                  },
+                ),
+              ),
               titlesData: FlTitlesData(
                 leftTitles: AxisTitles(
+                  axisNameWidget: Text(
+                    context.tr('Hours'),
+                    style: _chartAxisNameStyle(context),
+                  ),
+                  axisNameSize: 18,
                   sideTitles: SideTitles(
                     showTitles: true,
                     interval: 1,
@@ -620,11 +729,7 @@ class MainDashboardContent extends StatelessWidget {
                         axisSide: meta.axisSide,
                         child: Text(
                           value.toInt().toString(),
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.black87,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          style: _chartLabelStyle(context),
                         ),
                       );
                     },
@@ -633,7 +738,10 @@ class MainDashboardContent extends StatelessWidget {
                 bottomTitles: AxisTitles(
                   sideTitles: SideTitles(
                     showTitles: true,
-                    getTitlesWidget: _buildBottomTitle,
+                    reservedSize: 28,
+                    getTitlesWidget: (double value, TitleMeta meta) {
+                      return _buildBottomTitle(context, value, meta);
+                    },
                   ),
                 ),
                 topTitles: const AxisTitles(
@@ -649,7 +757,7 @@ class MainDashboardContent extends StatelessWidget {
                   color: Colors.teal,
                   barWidth: 3,
                   spots: _engineHourSpots,
-                  dotData: const FlDotData(show: false),
+                  dotData: const FlDotData(show: true),
                   belowBarData: BarAreaData(
                     show: true,
                     gradient: LinearGradient(
@@ -673,13 +781,15 @@ class MainDashboardContent extends StatelessWidget {
   Widget _buildTravelDistanceChart(BuildContext context) {
     const double maxY = 13;
     const Color barGreen = Color(0xFF4CAF50);
-    const Color trackGrey = Color(0xFFE0E0E0);
+    final Color labelColor = Theme.of(context).colorScheme.onSurface;
+    final Color tooltipBg = Theme.of(context).colorScheme.surface;
+    final Color trackColor = labelColor.withValues(alpha: 0.12);
 
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Container(
         padding: const EdgeInsets.fromLTRB(8, 16, 16, 8),
-        height: 320,
+        height: 336,
         width: double.infinity,
         decoration: context.containerDecoration(
           borderRadius: BorderRadius.circular(16),
@@ -692,7 +802,27 @@ class MainDashboardContent extends StatelessWidget {
               alignment: BarChartAlignment.spaceAround,
               borderData: FlBorderData(show: false),
               gridData: const FlGridData(show: false),
-              barTouchData: BarTouchData(enabled: false),
+              barTouchData: BarTouchData(
+                enabled: true,
+                touchTooltipData: BarTouchTooltipData(
+                  getTooltipColor: (_) => tooltipBg,
+                  getTooltipItem: (
+                    BarChartGroupData group,
+                    int groupIndex,
+                    BarChartRodData rod,
+                    int rodIndex,
+                  ) {
+                    return BarTooltipItem(
+                      '${rod.toY.toStringAsFixed(rod.toY % 1 == 0 ? 0 : 1)} KM',
+                      TextStyle(
+                        color: labelColor,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    );
+                  },
+                ),
+              ),
               titlesData: FlTitlesData(
                 topTitles: const AxisTitles(
                   sideTitles: SideTitles(showTitles: false),
@@ -701,6 +831,11 @@ class MainDashboardContent extends StatelessWidget {
                   sideTitles: SideTitles(showTitles: false),
                 ),
                 leftTitles: AxisTitles(
+                  axisNameWidget: Text(
+                    context.tr('KM'),
+                    style: _chartAxisNameStyle(context),
+                  ),
+                  axisNameSize: 18,
                   sideTitles: SideTitles(
                     showTitles: true,
                     interval: 1,
@@ -713,10 +848,7 @@ class MainDashboardContent extends StatelessWidget {
                         axisSide: meta.axisSide,
                         child: Text(
                           value.toInt().toString(),
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.black54,
-                          ),
+                          style: _chartLabelStyle(context, alpha: 0.78),
                         ),
                       );
                     },
@@ -725,6 +857,7 @@ class MainDashboardContent extends StatelessWidget {
                 bottomTitles: AxisTitles(
                   sideTitles: SideTitles(
                     showTitles: true,
+                    reservedSize: 28,
                     getTitlesWidget: (double value, TitleMeta meta) {
                       final int index = value.toInt();
                       if (value != index.toDouble() ||
@@ -736,10 +869,7 @@ class MainDashboardContent extends StatelessWidget {
                         axisSide: meta.axisSide,
                         child: Text(
                           _travelDistanceDates[index],
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.black87,
-                          ),
+                          style: _chartLabelStyle(context),
                         ),
                       );
                     },
@@ -760,7 +890,7 @@ class MainDashboardContent extends StatelessWidget {
                         backDrawRodData: BackgroundBarChartRodData(
                           show: true,
                           toY: maxY,
-                          color: trackGrey,
+                          color: trackColor,
                         ),
                       ),
                     ],
@@ -775,9 +905,10 @@ class MainDashboardContent extends StatelessWidget {
   }
 
   Widget _buildBottomTitle(
-      double value,
-      TitleMeta meta,
-      ) {
+    BuildContext context,
+    double value,
+    TitleMeta meta,
+  ) {
     final int index = value.toInt();
 
     if (value != index.toDouble() ||
@@ -790,9 +921,47 @@ class MainDashboardContent extends StatelessWidget {
       axisSide: meta.axisSide,
       child: Text(
         _chartDates[index],
-        style: const TextStyle(fontSize: 10),
+        style: _chartLabelStyle(context),
       ),
     );
+  }
+}
+
+class _DeferredChartBox extends StatefulWidget {
+  final double height;
+  final Widget Function(BuildContext context) builder;
+
+  const _DeferredChartBox({
+    required this.height,
+    required this.builder,
+  });
+
+  @override
+  State<_DeferredChartBox> createState() => _DeferredChartBoxState();
+}
+
+class _DeferredChartBoxState extends State<_DeferredChartBox> {
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _ready = true;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_ready) {
+      return SizedBox(height: widget.height, width: double.infinity);
+    }
+    return widget.builder(context);
   }
 }
 
@@ -888,7 +1057,7 @@ class _TodaysFuelRateSectionState extends State<_TodaysFuelRateSection> {
             children: [
               Expanded(
                 child: Text(
-                  "Today's Fuel Rate",
+                  context.tr("Today's Fuel Rate"),
                   style: TextStyle(
                     fontFamily: 'NormalBold',
                     fontSize: 16,
@@ -906,7 +1075,7 @@ class _TodaysFuelRateSectionState extends State<_TodaysFuelRateSection> {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: context.containerColor,
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
                       color: textColor.withValues(alpha: 0.45),
@@ -985,7 +1154,7 @@ class _FuelRateColumn extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Text(
-          label,
+          context.tr(label),
           style: TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.w500,
@@ -1058,9 +1227,13 @@ class _SelectStateDialogState extends State<_SelectStateDialog> {
   @override
   Widget build(BuildContext context) {
     final Size size = MediaQuery.sizeOf(context);
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final Color textColor = colors.onSurface;
+    final Color mutedColor = textColor.withValues(alpha: 0.45);
+    final Color borderColor = textColor.withValues(alpha: 0.28);
 
     return Dialog(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).cardColor,
       insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
@@ -1074,14 +1247,14 @@ class _SelectStateDialogState extends State<_SelectStateDialog> {
             children: [
               TextField(
                 controller: _searchController,
-                style: const TextStyle(
-                  color: Colors.black87,
+                style: TextStyle(
+                  color: textColor,
                   fontSize: 15,
                 ),
                 decoration: InputDecoration(
-                  hintText: 'Search state',
-                  hintStyle: const TextStyle(
-                    color: Colors.black38,
+                  hintText: context.tr('Search state'),
+                  hintStyle: TextStyle(
+                    color: mutedColor,
                     fontSize: 15,
                   ),
                   isDense: true,
@@ -1092,14 +1265,14 @@ class _SelectStateDialogState extends State<_SelectStateDialog> {
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                     borderSide: BorderSide(
-                      color: Colors.grey.shade400,
+                      color: borderColor,
                       width: 1,
                     ),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                     borderSide: BorderSide(
-                      color: Colors.grey.shade600,
+                      color: colors.primary,
                       width: 1.2,
                     ),
                   ),
@@ -1108,10 +1281,10 @@ class _SelectStateDialogState extends State<_SelectStateDialog> {
               const SizedBox(height: 10),
               Expanded(
                 child: _filtered.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Text(
-                          'No state found',
-                          style: TextStyle(color: Colors.black45),
+                          context.tr('No state found'),
+                          style: TextStyle(color: mutedColor),
                         ),
                       )
                     : ListView.builder(
@@ -1128,8 +1301,8 @@ class _SelectStateDialogState extends State<_SelectStateDialog> {
                               ),
                               child: Text(
                                 state,
-                                style: const TextStyle(
-                                  color: Colors.black87,
+                                style: TextStyle(
+                                  color: textColor,
                                   fontSize: 15,
                                   fontWeight: FontWeight.w400,
                                 ),
@@ -1150,7 +1323,7 @@ class _SelectStateDialogState extends State<_SelectStateDialog> {
 class _MaintenanceReminderSection extends StatelessWidget {
   const _MaintenanceReminderSection();
 
-  static const Color _tileBg = Color(0xFFF2F2F2);
+  
   static const Color _iconBoxBg = Color(0xFFD6E6F0);
 
   void _openReminders(BuildContext context) {
@@ -1178,7 +1351,7 @@ class _MaintenanceReminderSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Maintenance Reminder',
+              context.tr('Maintenance Reminder'),
               style: TextStyle(
                 fontFamily: 'NormalBold',
                 fontSize: 16,
@@ -1193,7 +1366,7 @@ class _MaintenanceReminderSection extends StatelessWidget {
                   child: _MaintenanceSummaryTile(
                     label: 'Pending',
                     count: '0',
-                    background: _tileBg,
+                    background: context.fieldFillColor,
                     iconBoxColor: _iconBoxBg,
                     icon: Icons.access_time_filled,
                     iconColor: const Color(0xFF2196F3),
@@ -1206,7 +1379,7 @@ class _MaintenanceReminderSection extends StatelessWidget {
                   child: _MaintenanceSummaryTile(
                     label: 'Overdue',
                     count: '1',
-                    background: _tileBg,
+                    background: context.fieldFillColor,
                     iconBoxColor: _iconBoxBg,
                     icon: Icons.access_time_filled,
                     iconColor: const Color(0xFFE53935),
@@ -1221,7 +1394,7 @@ class _MaintenanceReminderSection extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
               decoration: BoxDecoration(
-                color: _tileBg,
+                color: context.fieldFillColor,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
@@ -1232,7 +1405,7 @@ class _MaintenanceReminderSection extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Overdue',
+                          context.tr('Overdue'),
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
@@ -1361,7 +1534,7 @@ class _MaintenanceSummaryTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      label,
+                      context.tr(label),
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -1424,7 +1597,7 @@ class _MaintenanceSummaryTile extends StatelessWidget {
 class _DashboardExpenseSection extends StatelessWidget {
   const _DashboardExpenseSection();
 
-  static const Color _tileBg = Color(0xFFF2F2F2);
+  
   static const Color _iconBoxBg = Color(0xFFD6E6F0);
 
   @override
@@ -1446,7 +1619,7 @@ class _DashboardExpenseSection extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    'Expense',
+                    context.tr('Expense'),
                     style: TextStyle(
                       fontFamily: 'NormalBold',
                       fontSize: 16,
@@ -1488,7 +1661,7 @@ class _DashboardExpenseSection extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          'Add Expense',
+                          context.tr('Add Expense'),
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
@@ -1506,7 +1679,7 @@ class _DashboardExpenseSection extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
               decoration: BoxDecoration(
-                color: _tileBg,
+                color: context.fieldFillColor,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
@@ -1543,7 +1716,7 @@ class _DashboardExpenseSection extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
               decoration: BoxDecoration(
-                color: _tileBg,
+                color: context.fieldFillColor,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
@@ -1631,7 +1804,7 @@ class _DashboardExpenseSection extends StatelessWidget {
 class _QuickLinksSection extends StatelessWidget {
   const _QuickLinksSection();
 
-  static const Color _tileBg = Color(0xFFF2F2F2);
+  
 
   static const List<_QuickLinkItem> _links = <_QuickLinkItem>[
     _QuickLinkItem(
@@ -1718,7 +1891,7 @@ class _QuickLinksSection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Quick Links',
+              context.tr('Quick Links'),
               style: TextStyle(
                 fontFamily: 'NormalBold',
                 fontSize: 16,
@@ -1749,7 +1922,7 @@ class _QuickLinksSection extends StatelessWidget {
                       SizedBox(
                         width: itemWidth,
                         child: Material(
-                          color: _tileBg,
+                          color: context.fieldFillColor,
                           borderRadius: BorderRadius.circular(7),
                           child: InkWell(
                             onTap: () => _openLink(context, item),
@@ -1769,7 +1942,7 @@ class _QuickLinksSection extends StatelessWidget {
                                   const SizedBox(width: 4),
                                   Expanded(
                                     child: Text(
-                                      item.title,
+                                      context.tr(item.title),
                                       softWrap: true,
                                       style: TextStyle(
                                         fontSize: 10.5,
@@ -1849,7 +2022,7 @@ class StatusRow extends StatelessWidget {
 
               Expanded(
                 child: Text(
-                  title,
+                  context.tr(title),
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,

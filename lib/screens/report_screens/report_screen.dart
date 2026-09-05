@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../data/vehicle_data.dart';
+import '../../l10n/app_l10n.dart';
 import '../../models/vehicle_model.dart';
 import '../../theme/app_theme_tokens.dart';
 import '../../utils/report_date_picker.dart';
@@ -166,7 +167,7 @@ class _ReportScreenState extends State<ReportScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
-          widget.title,
+          context.tr(widget.title),
           style: TextStyle(
             color: textColor,
             fontWeight: FontWeight.w700,
@@ -178,13 +179,13 @@ class _ReportScreenState extends State<ReportScreen> {
             icon: Icon(Icons.more_vert, color: accentColor),
             color: surfaceColor,
             itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-              const PopupMenuItem<String>(
+              PopupMenuItem<String>(
                 value: 'export',
-                child: Text('Export'),
+                child: Text(context.tr('Export')),
               ),
-              const PopupMenuItem<String>(
+              PopupMenuItem<String>(
                 value: 'share',
-                child: Text('Share'),
+                child: Text(context.tr('Share')),
               ),
             ],
           ),
@@ -288,7 +289,7 @@ class _ReportScreenState extends State<ReportScreen> {
                                 height: 28,
                                 alignment: Alignment.center,
                                 child: Text(
-                                  _filters[index],
+                                  context.tr(_filters[index]),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
@@ -406,7 +407,7 @@ class _DateCard extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 Text(
-                  label,
+                  context.tr(label),
                   style: TextStyle(
                     color: textColor,
                     fontWeight: FontWeight.bold,

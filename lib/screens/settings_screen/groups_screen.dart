@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_l10n.dart';
+import '../../theme/app_theme_tokens.dart';
+
 class GroupsScreen extends StatefulWidget {
   const GroupsScreen({super.key});
 
@@ -12,24 +15,11 @@ class _GroupsScreenState extends State<GroupsScreen> {
   static const Color _greenColor = Color(0xFF4CAF50);
   static const Color _greenHalo = Color(0xFFB9E4BA);
 
-  bool _isLoading = true;
+  bool _isLoading = false;
   final List<_GroupItem> _groups = <_GroupItem>[
     const _GroupItem(name: 'halku transport', groupId: 0),
     const _GroupItem(name: 'Vikash grup', groupId: 0),
   ];
-
-  @override
-  void initState() {
-    super.initState();
-    Future<void>.delayed(const Duration(milliseconds: 900), () {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _isLoading = false;
-      });
-    });
-  }
 
   Future<void> _openAddGroup() async {
     final String? name = await Navigator.push<String>(
@@ -80,7 +70,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
       barrierColor: Colors.black45,
       builder: (BuildContext dialogContext) {
         return Dialog(
-          backgroundColor: Colors.white,
+          backgroundColor: Theme.of(context).cardColor,
           insetPadding: const EdgeInsets.symmetric(horizontal: 36),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
@@ -90,11 +80,11 @@ class _GroupsScreenState extends State<GroupsScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
+                Text(
                   'You want to delete this group?',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: Colors.black,
+                    color: context.textColor,
                     fontSize: 17,
                     fontWeight: FontWeight.w700,
                   ),
@@ -115,7 +105,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                               borderRadius: BorderRadius.circular(10),
                             ),
                           ),
-                          child: const Text(
+                          child: Text(
                             'CANCEL',
                             style: TextStyle(
                               color: Colors.white,
@@ -139,7 +129,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                               borderRadius: BorderRadius.circular(10),
                             ),
                           ),
-                          child: const Text(
+                          child: Text(
                             'OK',
                             style: TextStyle(
                               color: Colors.white,
@@ -168,25 +158,25 @@ class _GroupsScreenState extends State<GroupsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).cardColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: Theme.of(context).cardColor,
+        surfaceTintColor: Theme.of(context).cardColor,
         elevation: 0,
         centerTitle: false,
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
-          icon: const Icon(
+          icon: Icon(
             Icons.arrow_back_ios_new,
             color: _pinkColor,
             size: 20,
           ),
         ),
         titleSpacing: 0,
-        title: const Text(
-          'Groups',
+        title: Text(
+          context.tr('Groups'),
           style: TextStyle(
-            color: Colors.black,
+            color: context.textColor,
             fontSize: 22,
             fontWeight: FontWeight.w800,
           ),
@@ -196,7 +186,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
         onPressed: _openAddGroup,
         backgroundColor: _pinkColor,
         elevation: 4,
-        child: const Icon(Icons.add, color: Colors.white, size: 28),
+        child: Icon(Icons.add, color: Colors.white, size: 28),
       ),
       body: _isLoading
           ? const Center(child: _LoadingDots())
@@ -211,7 +201,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                     Container(
                       width: 54,
                       height: 54,
-                      decoration: const BoxDecoration(
+                      decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: _greenHalo,
                       ),
@@ -219,11 +209,11 @@ class _GroupsScreenState extends State<GroupsScreen> {
                       child: Container(
                         width: 40,
                         height: 40,
-                        decoration: const BoxDecoration(
+                        decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: _greenColor,
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.person_outline,
                           color: Colors.white,
                           size: 24,
@@ -237,8 +227,8 @@ class _GroupsScreenState extends State<GroupsScreen> {
                         children: [
                           Text(
                             item.name,
-                            style: const TextStyle(
-                              color: Colors.black,
+                            style: TextStyle(
+                              color: context.textColor,
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
                             ),
@@ -246,8 +236,8 @@ class _GroupsScreenState extends State<GroupsScreen> {
                           const SizedBox(height: 2),
                           Text(
                             'Group Id : ${item.groupId}',
-                            style: const TextStyle(
-                              color: Colors.black54,
+                            style: TextStyle(
+                              color: context.mutedTextColor,
                               fontSize: 13,
                               fontWeight: FontWeight.w500,
                             ),
@@ -257,7 +247,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                     ),
                     IconButton(
                       onPressed: () => _openUpdateGroup(item),
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.edit_square,
                         color: _greenColor,
                         size: 24,
@@ -265,7 +255,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                     ),
                     IconButton(
                       onPressed: () => _confirmDelete(item),
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.delete_outline,
                         color: _pinkColor,
                         size: 26,
@@ -325,7 +315,7 @@ class _GroupFormScreenState extends State<_GroupFormScreen> {
     final String name = _nameController.text.trim();
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter group name')),
+        SnackBar(content: Text(context.tr('Please enter group name'))),
       );
       return;
     }
@@ -335,15 +325,15 @@ class _GroupFormScreenState extends State<_GroupFormScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).cardColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
+        backgroundColor: Theme.of(context).cardColor,
+        surfaceTintColor: Theme.of(context).cardColor,
         elevation: 0,
         centerTitle: false,
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
-          icon: const Icon(
+          icon: Icon(
             Icons.arrow_back_ios_new,
             color: _pinkColor,
             size: 20,
@@ -351,9 +341,9 @@ class _GroupFormScreenState extends State<_GroupFormScreen> {
         ),
         titleSpacing: 0,
         title: Text(
-          widget.title,
-          style: const TextStyle(
-            color: Colors.black87,
+          context.tr(widget.title),
+          style: TextStyle(
+            color: context.textColor,
             fontSize: 20,
             fontWeight: FontWeight.w800,
           ),
@@ -365,18 +355,18 @@ class _GroupFormScreenState extends State<_GroupFormScreen> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: TextField(
               controller: _nameController,
-              style: const TextStyle(
-                color: Colors.black87,
+              style: TextStyle(
+                color: context.textColor,
                 fontSize: 15,
               ),
               decoration: InputDecoration(
                 hintText: 'Name',
-                hintStyle: const TextStyle(
-                  color: Colors.black38,
+                hintStyle: TextStyle(
+                  color: context.labelTextColor,
                   fontSize: 15,
                 ),
                 filled: true,
-                fillColor: const Color(0xFFF5F5F5),
+                fillColor: context.fieldFillColor,
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 14,
                   vertical: 14,
@@ -417,7 +407,7 @@ class _GroupFormScreenState extends State<_GroupFormScreen> {
                   ),
                   child: Text(
                     widget.buttonLabel,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: Colors.white,
                       fontSize: 17,
                       fontWeight: FontWeight.w800,
