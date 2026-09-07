@@ -197,6 +197,9 @@ dependencies:
   # API
   http: ^1.4.0
 
+  # Internationalisation / date formatting
+  intl: ^0.20.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

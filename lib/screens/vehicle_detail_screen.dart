@@ -46,7 +46,9 @@ class VehicleDetailScreen extends StatefulWidget {
   State<VehicleDetailScreen> createState() => _VehicleDetailScreenState();
 }
 
-class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
+class _VehicleDetailScreenState extends State<VehicleDetailScreen>
+    with SingleTickerProviderStateMixin {
+  // ─── UI state ─────────────────────────────────────────────────────────────
   int _currentBottomIndex = 0;
   double _historySliderValue = 0.0;
   bool _isHistoryPlaying = false;
@@ -61,35 +63,63 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   bool _historyPanelReady = false;
   bool _historyLoading = false;
   HistoryRoute _historyRoute = const HistoryRoute(points: <HistoryPoint>[]);
-  DateTime _historyFrom = DateTime.now().subtract(const Duration(hours: 1));
-  DateTime _historyTo = DateTime.now();
+  final DateTime _historyFrom =
+      DateTime.now().subtract(const Duration(hours: 1));
+  final DateTime _historyTo = DateTime.now();
 
+  // ─── Map / camera ─────────────────────────────────────────────────────────
   GoogleMapController? _mapController;
-  late LatLng _carLocation;
-  double _carRotation = 90.0;
-  final List<LatLng> _trailPoints = <LatLng>[];
-  Timer? _timer;
+  bool _userDraggingMap = false;       // suppress camera follow while user pans
+  Timer? _dragIdleTimer;               // re-engage follow after 2.5 s idle
 
+  // ─── Car render state (what is actually drawn on screen) ──────────────────
+  late LatLng _carLocation;            // alias kept for UI reads
+  double _carRotation = 0.0;
+  LatLng _renderPos = const LatLng(0, 0);
+  double _renderBearing = 0.0;
+
+  // ─── Kinematic engine ─────────────────────────────────────────────────────
+  // Vsync AnimationController drives the 60-fps tick
+  late AnimationController _animCtrl;
+
+  // Catmull-Rom waypoint ring buffer (last 4 confirmed GPS fixes)
+  final List<LatLng> _waypoints = <LatLng>[];
+
+  // Animation progress 0→1 between _fromPos and _toPos
+  LatLng _fromPos = const LatLng(0, 0);
+  LatLng _toPos   = const LatLng(0, 0);
+  double _fromBearing = 0.0;
+  double _toBearing   = 0.0;
+
+  // Dead-reckoning: velocity in deg/s (lat & lng components separately)
+  double _velLatDegPerSec = 0.0;
+  double _velLngDegPerSec = 0.0;
+
+  // Timestamp / duration of current animation segment
+  DateTime _segmentStart = DateTime.now();
+  double   _segmentDurMs = 500.0;      // initial guess — refined on each fix
+
+  // Kalman-like GPS smoothing (exponential filter on incoming lat/lng)
+  LatLng? _filteredGps;
+  static const double _gpsAlpha = 0.72;
+
+  // ─── Trail polyline points ─────────────────────────────────────────────────
+  final List<LatLng> _trailPoints = <LatLng>[];
+
+  // ─── API polling ──────────────────────────────────────────────────────────
+  Timer? _pollTimer;
+  DateTime _lastFixTime = DateTime.now();
+  LatLng  _lastFixPos   = const LatLng(0, 0);
+
+  // ─── Cached marker icon ───────────────────────────────────────────────────
+  BitmapDescriptor? _carIcon;
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────
   bool get _isRunning =>
       widget.status.trim().toLowerCase() == 'running' ||
       (double.tryParse(widget.speed) ?? 0.0) > 0;
 
-  double get _markerHue {
-    switch (widget.status.trim().toLowerCase()) {
-      case 'running':
-        return BitmapDescriptor.hueGreen;
-      case 'stopped':
-        return BitmapDescriptor.hueRed;
-      case 'idle':
-        return BitmapDescriptor.hueOrange;
-      case 'expired':
-        return BitmapDescriptor.hueRose;
-      case 'not reporting':
-      case 'inactive':
-      default:
-        return BitmapDescriptor.hueAzure;
-    }
-  }
+  String get _carIconAsset => 'assets/caricon.png';
 
   static LatLng _resolveInitialPosition(
     double? lat,
@@ -114,192 +144,309 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _carLocation = _resolveInitialPosition(
+    final LatLng initial = _resolveInitialPosition(
       widget.latitude,
       widget.longitude,
       widget.location,
     );
-    _trailPoints.add(_carLocation);
+    _carLocation   = initial;
+    _renderPos     = initial;
+    _fromPos       = initial;
+    _toPos         = initial;
+    _lastFixPos    = initial;
+    _filteredGps   = initial;
+    _waypoints.add(initial);
+    _trailPoints.add(initial);
 
     _trackMarkers = ValueNotifier<Set<Marker>>(<Marker>{
       Marker(
         markerId: const MarkerId('car'),
-        position: _carLocation,
+        position: initial,
         rotation: _carRotation,
         flat: true,
         anchor: const Offset(0.5, 0.5),
-        icon: BitmapDescriptor.defaultMarkerWithHue(_markerHue),
+        icon: BitmapDescriptor.defaultMarker,
       ),
     });
 
-    _syncTrackMarkers();
+    _animCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(days: 999),
+    )..addListener(_onAnimationTick);
+
+    _loadCarIcon();
     _startLiveTracking();
   }
 
+  Future<void> _loadCarIcon() async {
+    final BitmapDescriptor icon = await BitmapDescriptor.asset(
+      const ImageConfiguration(size: Size(60, 60)),
+      _carIconAsset,
+    );
+    if (!mounted) return;
+    _carIcon = icon;
+    _syncMarker();
+  }
+
   void _startLiveTracking() {
-    _timer?.cancel();
+    _pollTimer?.cancel();
+    _animCtrl.stop();
+
     if (widget.deviceId == null) {
-      if (!_isRunning) {
-        return;
-      }
-      _startSimulatedTracking();
+      if (_isRunning) _startSimulatedTracking();
       return;
     }
 
+    _animCtrl.repeat();
     _refreshLivePosition();
-    _timer = Timer.periodic(const Duration(seconds: 15), (_) {
+    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       _refreshLivePosition();
     });
   }
 
-  Future<void> _refreshLivePosition() async {
-    if (widget.deviceId == null || !mounted) {
-      return;
+  void _onAnimationTick() {
+    if (!mounted) return;
+
+    final double elapsedMs =
+        DateTime.now().difference(_segmentStart).inMicroseconds / 1000.0;
+    final double rawT = _segmentDurMs > 0 ? elapsedMs / _segmentDurMs : 1.0;
+
+    LatLng target;
+    double targetBearing;
+
+    if (rawT <= 1.0) {
+      final double t = _easeInOutCubic(rawT);
+      target = _catmullRomLatLng(t);
+      targetBearing = _lerpAngle(_fromBearing, _toBearing, t);
+    } else {
+      final double extraMs = elapsedMs - _segmentDurMs;
+      final double extraSec = (extraMs / 1000.0).clamp(0.0, 30.0);
+      target = LatLng(
+        _toPos.latitude  + _velLatDegPerSec * extraSec,
+        _toPos.longitude + _velLngDegPerSec * extraSec,
+      );
+      targetBearing = _toBearing;
     }
+
+    const double bearingDamp = 0.12;
+    _renderBearing = _lerpAngle(_renderBearing, targetBearing, bearingDamp);
+
+    _renderPos   = target;
+    _carLocation = _renderPos;
+    _carRotation = _renderBearing;
+    _syncMarker();
+
+    if (_currentBottomIndex == 0 && !_userDraggingMap) {
+      _followCamera();
+    }
+  }
+
+  void _followCamera() {
+    try {
+      _mapController?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: _renderPos,
+            zoom: 17.5,
+            bearing: _renderBearing,
+            tilt: _isRunning ? 45.0 : 0.0,
+          ),
+        ),
+      );
+    } catch (_) {
+      _mapController = null;
+    }
+  }
+
+  Future<void> _refreshLivePosition() async {
+    if (widget.deviceId == null || !mounted) return;
 
     final List<VehicleModel> devices =
         await VehicleService.getDevices(forceRefresh: true);
     VehicleModel? match;
-    for (final VehicleModel device in devices) {
-      if (device.id == widget.deviceId) {
-        match = device;
-        break;
-      }
+    for (final VehicleModel d in devices) {
+      if (d.id == widget.deviceId) { match = d; break; }
     }
 
-    if (match == null ||
-        match.latitude == null ||
-        match.longitude == null ||
-        !mounted) {
-      return;
+    if (match == null || match.latitude == null ||
+        match.longitude == null || !mounted) return;
+
+    final LatLng raw = LatLng(match.latitude!, match.longitude!);
+
+    final LatLng prev = _filteredGps ?? raw;
+    final LatLng filtered = LatLng(
+      prev.latitude  + _gpsAlpha * (raw.latitude  - prev.latitude),
+      prev.longitude + _gpsAlpha * (raw.longitude - prev.longitude),
+    );
+    _filteredGps = filtered;
+
+    final double dist = _haversineMeters(_lastFixPos, filtered);
+    if (dist < 4.0) return;
+
+    final double secsSinceFix =
+        DateTime.now().difference(_lastFixTime).inMilliseconds / 1000.0;
+    final double newBearing = dist > 1.0
+        ? _calculateBearing(_lastFixPos, filtered)
+        : _toBearing;
+
+    if (secsSinceFix > 0.3 && dist > 2.0) {
+      const double mPerDegLat = 111319.5;
+      final double mPerDegLng =
+          mPerDegLat * math.cos(filtered.latitude * math.pi / 180);
+      _velLatDegPerSec =
+          (filtered.latitude  - _lastFixPos.latitude)  / secsSinceFix;
+      _velLngDegPerSec =
+          (filtered.longitude - _lastFixPos.longitude) / secsSinceFix;
+      final double maxLatDeg = 200.0 / 3.6 / mPerDegLat;
+      final double maxLngDeg = 200.0 / 3.6 / mPerDegLng;
+      _velLatDegPerSec = _velLatDegPerSec.clamp(-maxLatDeg, maxLatDeg);
+      _velLngDegPerSec = _velLngDegPerSec.clamp(-maxLngDeg, maxLngDeg);
+    } else {
+      _velLatDegPerSec = 0;
+      _velLngDegPerSec = 0;
     }
 
-    final LatLng next = LatLng(match.latitude!, match.longitude!);
-    setState(() {
-      _carLocation = next;
-      _trailPoints.add(next);
-      if (_trailPoints.length > 120) {
-        _trailPoints.removeAt(0);
-      }
-    });
-    _syncTrackMarkers();
+    _waypoints.add(filtered);
+    if (_waypoints.length > 4) _waypoints.removeAt(0);
 
-    if (_currentBottomIndex == 0) {
-      _mapController?.animateCamera(
-        CameraUpdate.newLatLngZoom(_carLocation, 16.5),
-      );
-    }
+    _fromPos      = _renderPos;
+    _toPos        = filtered;
+    _fromBearing  = _renderBearing;
+    _toBearing    = newBearing;
+    _segmentStart = DateTime.now();
+    _segmentDurMs = (secsSinceFix * 1000).clamp(300.0, 8000.0);
+
+    _lastFixPos  = filtered;
+    _lastFixTime = DateTime.now();
+
+    _trailPoints.add(filtered);
+    if (_trailPoints.length > 200) _trailPoints.removeAt(0);
+    _syncTrailPolyline();
   }
 
   void _startSimulatedTracking() {
-    _timer = Timer.periodic(const Duration(milliseconds: 1500), (Timer timer) {
-      if (!mounted) {
-        return;
+    final double kmh = double.tryParse(widget.speed) ?? 30.0;
+    final double mps = kmh / 3.6;
+    const double mPerDegLat = 111319.5;
+    final double refLat = _carLocation.latitude;
+    final double mPerDegLng = mPerDegLat * math.cos(refLat * math.pi / 180);
+
+    _carRotation   = 45.0;
+    _renderBearing = 45.0;
+
+    double simBearing = 45.0;
+    int frame = 0;
+    final math.Random rng = math.Random();
+
+    _animCtrl.addListener(() {
+      if (!mounted || widget.deviceId != null) return;
+      frame++;
+
+      if (frame % 240 == 0) {
+        simBearing = (simBearing + (rng.nextDouble() - 0.5) * 28 + 360) % 360;
       }
 
-      final double currentSpeed = double.tryParse(widget.speed) ?? 25.0;
-      final double speedFactor = (currentSpeed / 40.0).clamp(0.4, 2.5);
-      const double baseStep = 0.00010;
-      final double step = baseStep * speedFactor;
+      _renderBearing = _lerpAngle(_renderBearing, simBearing, 0.025);
+      _carRotation   = _renderBearing;
 
-      final double rad = (_carRotation * math.pi) / 180.0;
-      final double nextLat = _carLocation.latitude + (step * math.cos(rad));
-      final double nextLng = _carLocation.longitude + (step * math.sin(rad));
+      const double dtMs = 1000.0 / 60.0;
+      final double rad  = _renderBearing * math.pi / 180.0;
+      final double dLat = mps * math.cos(rad) / mPerDegLat * (dtMs / 1000.0);
+      final double dLng = mps * math.sin(rad) / mPerDegLng * (dtMs / 1000.0);
 
-      if (timer.tick % 8 == 0) {
-        _carRotation = (_carRotation + 12.0) % 360.0;
+      _carLocation = LatLng(_carLocation.latitude + dLat,
+                            _carLocation.longitude + dLng);
+      _renderPos   = _carLocation;
+
+      if (frame % 30 == 0) {
+        _trailPoints.add(_carLocation);
+        if (_trailPoints.length > 200) _trailPoints.removeAt(0);
+        _syncTrailPolyline();
       }
 
-      _carLocation = LatLng(nextLat, nextLng);
-      _trailPoints.add(_carLocation);
-      if (_trailPoints.length > 60) {
-        _trailPoints.removeAt(0);
-      }
+      _syncMarker();
 
-      _syncTrackMarkers();
-
-      if (_currentBottomIndex == 0) {
-        _mapController?.animateCamera(
-          CameraUpdate.newCameraPosition(
-            CameraPosition(
-              target: _carLocation,
-              zoom: 16.5,
-              bearing: _carRotation,
-            ),
-          ),
-        );
+      if (_currentBottomIndex == 0 && !_userDraggingMap) {
+        _followCamera();
       }
     });
+
+    _animCtrl.repeat();
   }
 
+  LatLng _catmullRomLatLng(double t) {
+    if (_waypoints.length < 2) return _toPos;
+    if (_waypoints.length < 4) {
+      return LatLng(
+        _fromPos.latitude  + (_toPos.latitude  - _fromPos.latitude)  * t,
+        _fromPos.longitude + (_toPos.longitude - _fromPos.longitude) * t,
+      );
+    }
+    final LatLng p0 = _waypoints[_waypoints.length - 4];
+    final LatLng p1 = _waypoints[_waypoints.length - 3];
+    final LatLng p2 = _waypoints[_waypoints.length - 2];
+    final LatLng p3 = _waypoints[_waypoints.length - 1];
+    final double t2 = t * t, t3 = t2 * t;
+    final double lat =
+        0.5 * ((2.0 * p1.latitude) +
+        (-p0.latitude + p2.latitude) * t +
+        (2.0 * p0.latitude - 5.0 * p1.latitude + 4.0 * p2.latitude - p3.latitude) * t2 +
+        (-p0.latitude + 3.0 * p1.latitude - 3.0 * p2.latitude + p3.latitude) * t3);
+    final double lng =
+        0.5 * ((2.0 * p1.longitude) +
+        (-p0.longitude + p2.longitude) * t +
+        (2.0 * p0.longitude - 5.0 * p1.longitude + 4.0 * p2.longitude - p3.longitude) * t2 +
+        (-p0.longitude + 3.0 * p1.longitude - 3.0 * p2.longitude + p3.longitude) * t3);
+    return LatLng(lat, lng);
+  }
+
+  static double _easeInOutCubic(double t) =>
+      t < 0.5 ? 4.0 * t * t * t : 1.0 - math.pow(-2.0 * t + 2.0, 3) / 2.0;
+
+  static double _haversineMeters(LatLng a, LatLng b) {
+    const double r = 6371000;
+    final double lat1 = a.latitude  * math.pi / 180;
+    final double lat2 = b.latitude  * math.pi / 180;
+    final double dLat = (b.latitude  - a.latitude)  * math.pi / 180;
+    final double dLng = (b.longitude - a.longitude) * math.pi / 180;
+    final double s = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) * math.cos(lat2) *
+        math.sin(dLng / 2) * math.sin(dLng / 2);
+    return r * 2 * math.atan2(math.sqrt(s), math.sqrt(1 - s));
+  }
+
+  static double _lerpAngle(double from, double to, double t) {
+    final double diff = (to - from + 540) % 360 - 180;
+    return (from + diff * t + 360) % 360;
+  }
+
+  /// Calculates the compass bearing from [start] to [end].
+  static double _calculateBearing(LatLng start, LatLng end) {
+    final double lat1 = start.latitude * math.pi / 180;
+    final double lat2 = end.latitude * math.pi / 180;
+    final double dLng = (end.longitude - start.longitude) * math.pi / 180;
+    final double y = math.sin(dLng) * math.cos(lat2);
+    final double x = math.cos(lat1) * math.sin(lat2) -
+        math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
+    return (math.atan2(y, x) * 180 / math.pi + 360) % 360;
+  }
+
+  // ─── Tab management ────────────────────────────────────────────────────────
   void _selectTab(int index) {
-    if (_currentBottomIndex == index) {
-      return;
-    }
-    setState(() {
-      _currentBottomIndex = index;
-    });
-    if (index == 1) {
-      _loadHistory();
-    }
+    if (_currentBottomIndex == index) return;
+    setState(() => _currentBottomIndex = index);
     if (index == 0) {
       _startLiveTracking();
     } else {
-      _timer?.cancel();
+      _pollTimer?.cancel();
+      _animCtrl.stop();
+      if (index == 1) _loadHistory();
     }
   }
 
-  Future<void> _loadHistory() async {
-    if (widget.deviceId == null) {
-      return;
-    }
-
-    setState(() => _historyLoading = true);
-    final HistoryRoute route = await HistoryService.getRoute(
-      deviceId: widget.deviceId!,
-      from: _historyFrom,
-      to: _historyTo,
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _historyLoading = false;
-      _historyRoute = route;
-      if (route.points.isNotEmpty) {
-        _historySliderValue = 0;
-      }
-    });
-  }
-
-  Future<void> _shareLocation() async {
-    if (widget.deviceId == null) {
-      return;
-    }
-
-    final Map<String, dynamic>? response = await TrackingApiService.sharing(
-      <String, dynamic>{
-        'device_id': widget.deviceId.toString(),
-        'lat': widget.latitude?.toString() ?? _carLocation.latitude.toString(),
-        'lng': widget.longitude?.toString() ?? _carLocation.longitude.toString(),
-      },
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    final String message = response?['url']?.toString() ??
-        response?['message']?.toString() ??
-        context.tr('Location shared');
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
-  }
-
-  void _syncTrackMarkers() {
+  // ─── Marker + polyline sync ────────────────────────────────────────────────
+  void _syncMarker() {
+    final BitmapDescriptor icon = _carIcon ?? BitmapDescriptor.defaultMarker;
     _trackMarkers.value = <Marker>{
       Marker(
         markerId: const MarkerId('car'),
@@ -307,33 +454,82 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
         rotation: _carRotation,
         flat: true,
         anchor: const Offset(0.5, 0.5),
-        icon: BitmapDescriptor.defaultMarkerWithHue(_markerHue),
+        icon: icon,
+        zIndexInt: 10,
       ),
     };
-
-    if (_trailPoints.length >= 2) {
-      _trackPolylines.value = <Polyline>{
-        Polyline(
-          polylineId: const PolylineId('vehicle_trail'),
-          points: List<LatLng>.from(_trailPoints),
-          color: _isRunning ? Colors.green : Theme.of(context).colorScheme.primary,
-          width: 5,
-          startCap: Cap.roundCap,
-          endCap: Cap.roundCap,
-        ),
-      };
-    }
   }
 
+  // Alias for backward compatibility (history screen calls this)
+  void _syncTrackMarkers() => _syncMarker();
+
+  void _syncTrailPolyline() {
+    if (_trailPoints.length < 2) return;
+    _trackPolylines.value = <Polyline>{
+      Polyline(
+        polylineId: const PolylineId('vehicle_trail'),
+        points: List<LatLng>.from(_trailPoints),
+        color: _isRunning
+            ? const Color(0xFF00E676)
+            : Theme.of(context).colorScheme.primary,
+        width: 6,
+        startCap: Cap.roundCap,
+        endCap: Cap.roundCap,
+        jointType: JointType.round,
+      ),
+    };
+  }
+
+  void _syncTrackPolyline() => _syncTrailPolyline();
+
+  // ─── History ──────────────────────────────────────────────────────────────
+  Future<void> _loadHistory() async {
+    if (widget.deviceId == null) return;
+    setState(() => _historyLoading = true);
+    final HistoryRoute route = await HistoryService.getRoute(
+      deviceId: widget.deviceId!,
+      from: _historyFrom,
+      to: _historyTo,
+    );
+    if (!mounted) return;
+    setState(() {
+      _historyLoading = false;
+      _historyRoute   = route;
+      if (route.points.isNotEmpty) _historySliderValue = 0;
+    });
+  }
+
+  Future<void> _shareLocation() async {
+    if (widget.deviceId == null) return;
+    final Map<String, dynamic>? response = await TrackingApiService.sharing(
+      <String, dynamic>{
+        'device_id': widget.deviceId.toString(),
+        'lat': widget.latitude?.toString() ?? _carLocation.latitude.toString(),
+        'lng': widget.longitude?.toString() ?? _carLocation.longitude.toString(),
+      },
+    );
+    if (!mounted) return;
+    final String message = response?['url']?.toString() ??
+        response?['message']?.toString() ??
+        context.tr('Location shared');
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  // ─── Lifecycle ────────────────────────────────────────────────────────────
   @override
   void dispose() {
-    _timer?.cancel();
+    _pollTimer?.cancel();
+    _dragIdleTimer?.cancel();
+    _animCtrl.dispose();
+    _mapController = null;
     _sheetProgress.dispose();
     _historyPanelTop.dispose();
     _trackMarkers.dispose();
     _trackPolylines.dispose();
     super.dispose();
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -715,8 +911,14 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
                             children: [
                               Row(
                                 children: [
-                                  Icon(Icons.directions_car, color: widget.color, size: 22),
-                                  const SizedBox(width: 4),
+                                  Image.asset(
+                                    'assets/caricon.png',
+                                    height: 26,
+                                    width: 26,
+                                    color: widget.color,
+                                    colorBlendMode: BlendMode.srcIn,
+                                  ),
+                                  const SizedBox(width: 6),
                                   Expanded(
                                     child: Text(
                                       widget.name,
@@ -957,6 +1159,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen> {
               child: _HistoryMap(route: _historyRoute),
             ),
           ),
+          if (_historyLoading)
+            const Positioned.fill(
+              child: ColoredBox(
+                color: Color(0x55000000),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            ),
           Positioned(top: 130, left: 16, child: Column(children: [_floatingMapButton(Icons.map_outlined, context.textColor, () {}), const SizedBox(height: 12), _floatingMapButton(Icons.settings_outlined, context.textColor, () {})])),
           Positioned(
             top: 320, right: 16,
