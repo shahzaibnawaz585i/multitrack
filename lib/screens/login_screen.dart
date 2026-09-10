@@ -31,6 +31,7 @@ class _LoginScreenState extends State<LoginScreen> {
     "Server 2",
     "Nostrum Track",
     "Fleet Wox",
+    "Fleet Wo",
     "Server 3",
     "Custom Server URL",
   ];
@@ -43,6 +44,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _loadSavedServer() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+
     final String? savedServer = prefs.getString('logged_in_server');
     final String? savedCustomUrl = prefs.getString('custom_server_url');
 
@@ -52,10 +55,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (savedServer != null && savedServer.isNotEmpty) {
       if (servers.contains(savedServer)) {
+        if (!mounted) return;
         setState(() {
           selectedServer = savedServer;
         });
       } else if (savedServer.startsWith('http')) {
+        if (!mounted) return;
         setState(() {
           selectedServer = 'Custom Server URL';
           customServer.text = savedServer;

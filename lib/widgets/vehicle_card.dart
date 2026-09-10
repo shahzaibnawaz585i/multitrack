@@ -92,8 +92,8 @@ class VehicleCard extends StatelessWidget {
               : Border.all(color: context.appTokens.containerBorderColor!),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.12),
-              blurRadius: 8,
+              color: Colors.black.withValues(alpha: 0.16),
+              blurRadius: 10,
               offset: const Offset(0, 4),
             ),
           ],
@@ -194,12 +194,14 @@ class VehicleCard extends StatelessWidget {
           color: vehicle.color,
           speed: vehicle.speed,
           distance: vehicle.distance,
+          odometer: vehicle.odometer,
           time: vehicle.time,
           livetime: vehicle.liveTime,
           location: vehicle.location,
           date: vehicle.date,
           latitude: vehicle.latitude,
           longitude: vehicle.longitude,
+          initialTail: vehicle.tail,
         ),
       ),
     );
@@ -220,9 +222,9 @@ class VehicleCard extends StatelessWidget {
               : Border.all(color: context.appTokens.containerBorderColor!),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.08),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
+              color: Colors.black.withValues(alpha: 0.14),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
@@ -687,8 +689,8 @@ class _MiniCardSurface extends StatelessWidget {
                 borderRadius: _radius,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.grey.withValues(alpha: 0.25),
-                    blurRadius: 4,
+                    color: Colors.black.withValues(alpha: 0.12),
+                    blurRadius: 6,
                     offset: const Offset(0, 3),
                   ),
                 ],

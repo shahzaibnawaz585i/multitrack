@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'dart:async';
@@ -6,8 +8,13 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../l10n/app_l10n.dart';
 import '../models/vehicle_model.dart';
 import '../services/history_service.dart';
+import '../services/live_route_service.dart';
 import '../services/tracking_api_service.dart';
 import '../services/vehicle_service.dart';
+import '../data/vehicle_data.dart';
+import '../controllers/vehicle_track_controller.dart';
+import '../services/road_route_service.dart';
+import '../utils/map_arrow_icon.dart';
 import '../theme/app_theme_tokens.dart';
 import 'notifications_screen.dart'; 
 import 'notification_filter_screen.dart';
@@ -19,12 +26,14 @@ class VehicleDetailScreen extends StatefulWidget {
   final Color color;
   final String speed;
   final String distance;
+  final String odometer;
   final String time;
   final String livetime;
   final String location;
   final String date;
   final double? latitude;
   final double? longitude;
+  final List<VehicleTrackPoint> initialTail;
 
   const VehicleDetailScreen({
     super.key,
@@ -34,12 +43,14 @@ class VehicleDetailScreen extends StatefulWidget {
     required this.color,
     required this.speed,
     required this.distance,
+    required this.odometer,
     required this.time,
     required this.livetime,
     required this.location,
     required this.date,
     this.latitude,
     this.longitude,
+    this.initialTail = const <VehicleTrackPoint>[],
   });
 
   @override
@@ -47,21 +58,18 @@ class VehicleDetailScreen extends StatefulWidget {
 }
 
 class _VehicleDetailScreenState extends State<VehicleDetailScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   // ─── UI state ─────────────────────────────────────────────────────────────
   int _currentBottomIndex = 0;
-  double _historySliderValue = 0.0;
-  bool _isHistoryPlaying = false;
-  String _selectedStatFilter = "Today";
+  final Set<int> _loadedDetailTabs = <int>{0};
 
   final ValueNotifier<double> _sheetProgress = ValueNotifier<double>(0.0);
   final ValueNotifier<double> _historyPanelTop = ValueNotifier<double>(0.0);
-  late final ValueNotifier<Set<Marker>> _trackMarkers;
-  final ValueNotifier<Set<Polyline>> _trackPolylines =
-      ValueNotifier<Set<Polyline>>(<Polyline>{});
+  final GlobalKey<_LiveVehicleMapState> _liveMapKey =
+      GlobalKey<_LiveVehicleMapState>();
 
-  bool _historyPanelReady = false;
   bool _historyLoading = false;
+  bool _historyLoaded = false;
   HistoryRoute _historyRoute = const HistoryRoute(points: <HistoryPoint>[]);
   final DateTime _historyFrom =
       DateTime.now().subtract(const Duration(hours: 1));
@@ -69,57 +77,132 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
 
   // ─── Map / camera ─────────────────────────────────────────────────────────
   GoogleMapController? _mapController;
-  bool _userDraggingMap = false;       // suppress camera follow while user pans
-  Timer? _dragIdleTimer;               // re-engage follow after 2.5 s idle
+  bool _userDraggingMap = false;
+  DateTime _programmaticCameraUntil = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _followEnabled = true;
+  static const double _followZoom = 17.5;
 
-  // ─── Car render state (what is actually drawn on screen) ──────────────────
-  late LatLng _carLocation;            // alias kept for UI reads
+  // ─── Car render state ─────────────────────────────────────────────────────
+  late LatLng _carLocation;
   double _carRotation = 0.0;
   LatLng _renderPos = const LatLng(0, 0);
   double _renderBearing = 0.0;
 
-  // ─── Kinematic engine ─────────────────────────────────────────────────────
-  // Vsync AnimationController drives the 60-fps tick
-  late AnimationController _animCtrl;
-
-  // Catmull-Rom waypoint ring buffer (last 4 confirmed GPS fixes)
-  final List<LatLng> _waypoints = <LatLng>[];
-
-  // Animation progress 0→1 between _fromPos and _toPos
-  LatLng _fromPos = const LatLng(0, 0);
-  LatLng _toPos   = const LatLng(0, 0);
-  double _fromBearing = 0.0;
-  double _toBearing   = 0.0;
-
-  // Dead-reckoning: velocity in deg/s (lat & lng components separately)
-  double _velLatDegPerSec = 0.0;
-  double _velLngDegPerSec = 0.0;
-
-  // Timestamp / duration of current animation segment
-  DateTime _segmentStart = DateTime.now();
-  double   _segmentDurMs = 500.0;      // initial guess — refined on each fix
-
-  // Kalman-like GPS smoothing (exponential filter on incoming lat/lng)
-  LatLng? _filteredGps;
-  static const double _gpsAlpha = 0.72;
-
-  // ─── Trail polyline points ─────────────────────────────────────────────────
-  final List<LatLng> _trailPoints = <LatLng>[];
+  // ─── Tracking controller (GPS → filter → route → animation) ───────────────
+  late VehicleTrackController _trackController;
 
   // ─── API polling ──────────────────────────────────────────────────────────
   Timer? _pollTimer;
-  DateTime _lastFixTime = DateTime.now();
-  LatLng  _lastFixPos   = const LatLng(0, 0);
+  final ValueNotifier<double> _historySliderValue = ValueNotifier<double>(0.0);
+  final ValueNotifier<bool> _isHistoryPlaying = ValueNotifier<bool>(false);
 
-  // ─── Cached marker icon ───────────────────────────────────────────────────
-  BitmapDescriptor? _carIcon;
+  // ─── Cached arrow marker ──────────────────────────────────────────────────
+  BitmapDescriptor? _arrowIcon;
+  int _arrowColorKey = 0;
+  final ValueNotifier<String> _liveStatus = ValueNotifier<String>('');
+  final ValueNotifier<String> _liveSpeed = ValueNotifier<String>('00');
+  final ValueNotifier<String> _liveOdometer = ValueNotifier<String>('0 km');
+  bool _forceNextRefresh = true;
+  bool _disposed = false;
+  bool _pollInFlight = false;
+  static const Duration _pollInterval = Duration(seconds: 2);
+  bool _trailDirty = true;
+
+  double _initialSheetFraction(double screenHeight) {
+    return 0.20;
+  }
+
+  double _minSheetFraction(double screenHeight) {
+    return 0.16;
+  }
+
+  double _sheetHeightPx(double screenHeight) =>
+      screenHeight * _initialSheetFraction(screenHeight);
+
+  EdgeInsets _mapPadding(double screenHeight) {
+    final double sheetPx = _sheetHeightPx(screenHeight);
+    final double visible = screenHeight - sheetPx - 60;
+    final double bottomPad = sheetPx + visible * 0.38;
+    return EdgeInsets.only(top: 60, bottom: bottomPad);
+  }
+
+  void _recenterOnCar({double? zoom, bool animated = true}) {
+    if (_mapController == null) return;
+    try {
+      _followEnabled = true;
+      _userDraggingMap = false;
+      _markProgrammaticCamera();
+      final CameraUpdate update = CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: _renderPos,
+          zoom: zoom ?? _followZoom,
+          bearing: 0,
+          tilt: 0,
+        ),
+      );
+      if (animated) {
+        _mapController!.animateCamera(update);
+      } else {
+        _mapController!.moveCamera(update);
+      }
+    } catch (_) {
+      _mapController = null;
+    }
+  }
+
+  void _markProgrammaticCamera() {
+    _programmaticCameraUntil =
+        DateTime.now().add(const Duration(milliseconds: 120));
+  }
+
+  List<LatLng> _trailForMap() => _trackController.animator.trailSnapshot();
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
-  bool get _isRunning =>
-      widget.status.trim().toLowerCase() == 'running' ||
-      (double.tryParse(widget.speed) ?? 0.0) > 0;
 
-  String get _carIconAsset => 'assets/caricon.png';
+  IconData _statusIconFor(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'running':
+        return Icons.directions_car_filled;
+      case 'stopped':
+        return Icons.local_parking_rounded;
+      case 'idle':
+        return Icons.pause_circle_outline;
+      case 'not reporting':
+        return Icons.signal_wifi_off;
+      case 'expired':
+        return Icons.event_busy;
+      default:
+        return Icons.directions_car_outlined;
+    }
+  }
+
+  Color _statusIconColorFor(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'running':
+        return const Color(0xFF00C853);
+      case 'stopped':
+        return const Color(0xFFD50000);
+      case 'idle':
+        return const Color(0xFFFFA000);
+      case 'expired':
+        return const Color(0xFFF43A6B);
+      default:
+        return const Color(0xFF757575);
+    }
+  }
+
+  List<String> _odometerDigits(String raw) {
+    final String numeric = raw.replaceAll(RegExp(r'[^0-9.]'), '');
+    final double value = double.tryParse(numeric) ?? 0.0;
+    final String padded = value.round().toString().padLeft(8, '0');
+    return padded.split('');
+  }
+
+  String _formatOdometerLabel(String raw) {
+    final String numeric = raw.replaceAll(RegExp(r'[^0-9.]'), '');
+    final double value = double.tryParse(numeric) ?? 0.0;
+    return '${value.toStringAsFixed(2)} km';
+  }
 
   static LatLng _resolveInitialPosition(
     double? lat,
@@ -149,109 +232,269 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
       widget.longitude,
       widget.location,
     );
-    _carLocation   = initial;
-    _renderPos     = initial;
-    _fromPos       = initial;
-    _toPos         = initial;
-    _lastFixPos    = initial;
-    _filteredGps   = initial;
-    _waypoints.add(initial);
-    _trailPoints.add(initial);
+    _carLocation = initial;
+    _renderPos = initial;
+    _liveStatus.value = widget.status;
+    _liveSpeed.value = widget.speed;
+    _liveOdometer.value = widget.odometer;
 
-    _trackMarkers = ValueNotifier<Set<Marker>>(<Marker>{
-      Marker(
-        markerId: const MarkerId('car'),
-        position: initial,
-        rotation: _carRotation,
-        flat: true,
-        anchor: const Offset(0.5, 0.5),
-        icon: BitmapDescriptor.defaultMarker,
-      ),
-    });
-
-    _animCtrl = AnimationController(
+    _trackController = VehicleTrackController(
       vsync: this,
-      duration: const Duration(days: 999),
-    )..addListener(_onAnimationTick);
+      deviceId: widget.deviceId,
+    )..onFrame = _onSegmentFrame;
 
-    _loadCarIcon();
-    _startLiveTracking();
+    _seedFromWidgetData(initial);
+
+    // Show arrow + green trail immediately, then refresh in background.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _disposed) return;
+      final double screenHeight = MediaQuery.sizeOf(context).height;
+      _historyPanelTop.value = screenHeight * 0.65;
+      _primeMapVisuals();
+      _loadArrowIcon();
+      _bootstrapLiveRoute();
+      _startLiveTracking();
+    });
   }
 
-  Future<void> _loadCarIcon() async {
-    final BitmapDescriptor icon = await BitmapDescriptor.asset(
-      const ImageConfiguration(size: Size(60, 60)),
-      _carIconAsset,
+  /// Seeds position, bearing and green trail from the vehicle card data — no wait.
+  void _seedFromWidgetData(LatLng fallback) {
+    List<LatLng> tailPoints = widget.initialTail
+        .map((VehicleTrackPoint p) => LatLng(p.latitude, p.longitude))
+        .toList();
+    tailPoints = LiveRouteService.dedupe(tailPoints);
+
+    double bearing = 0;
+    LatLng position = fallback;
+
+    if (tailPoints.length >= 2) {
+      position = tailPoints.last;
+      bearing = _bearingFromTail(tailPoints);
+      _trackController.seed(position, bearing: bearing);
+      _trackController.animator.seedTrailFromPoints(tailPoints);
+    } else {
+      _trackController.seed(position, bearing: bearing);
+    }
+
+    _carLocation = position;
+    _renderPos = position;
+    _renderBearing = bearing;
+    _carRotation = bearing;
+    _trailDirty = true;
+  }
+
+  Future<void> _loadArrowIcon() async {
+    final Color color = _arrowColorForLive();
+    final int colorKey = color.toARGB32();
+    if (_arrowIcon != null && _arrowColorKey == colorKey) return;
+
+    try {
+      final BitmapDescriptor icon = await MapArrowIcon.forColor(color);
+      if (!mounted || _disposed) return;
+      _arrowIcon = icon;
+      _arrowColorKey = colorKey;
+      _liveMapKey.currentState?.updateMarker(
+        position: _renderPos,
+        bearing: _renderBearing,
+        arrowIcon: _arrowIcon,
+        force: true,
+      );
+    } catch (_) {
+      if (!mounted || _disposed) return;
+      _arrowIcon = BitmapDescriptor.defaultMarkerWithHue(
+        BitmapDescriptor.hueGreen,
+      );
+      _liveMapKey.currentState?.updateMarker(
+        position: _renderPos,
+        bearing: _renderBearing,
+        arrowIcon: _arrowIcon,
+        force: true,
+      );
+    }
+  }
+
+  void _primeMapVisuals() {
+    if (_disposed || !mounted) return;
+    _liveMapKey.currentState?.updateMarker(
+      position: _renderPos,
+      bearing: _renderBearing,
+      arrowIcon: _arrowIcon,
+      force: true,
     );
-    if (!mounted) return;
-    _carIcon = icon;
-    _syncMarker();
+    _pushTrailToMap(force: true);
+    if (_followEnabled) {
+      _followCameraSmooth(force: true);
+    }
+  }
+
+  void _onSegmentFrame(LatLng position, double bearing) {
+    if (_disposed || !mounted) return;
+    _renderPos = position;
+    _renderBearing = bearing;
+    _carLocation = _renderPos;
+    _carRotation = _renderBearing;
+    _trailDirty = true;
+
+    _liveMapKey.currentState?.updateMarker(
+      position: _renderPos,
+      bearing: _renderBearing,
+      arrowIcon: _arrowIcon,
+      fromAnimation: true,
+    );
+    _pushTrailToMap();
+
+    if (_followEnabled && !_userDraggingMap) {
+      _followCameraSmooth(fromAnimation: true);
+    }
+  }
+
+  void _pushTrailToMap({bool force = false}) {
+    final List<LatLng> trail = _trailForMap();
+    if (trail.length < 2) return;
+    _trailDirty = false;
+    _liveMapKey.currentState?.updateTrail(trail, force: force);
+  }
+
+  void _readAnimatorState() {
+    _renderPos = _trackController.animator.displayPosition;
+    _renderBearing = _trackController.animator.displayBearing;
+    _carLocation = _renderPos;
+    _carRotation = _renderBearing;
+  }
+
+  Future<void> _bootstrapLiveRoute() async {
+    List<VehicleTrackPoint> tail = widget.initialTail;
+    if (tail.isEmpty && widget.deviceId != null) {
+      final VehicleModel? cached =
+          VehicleService.findCachedDevice(widget.deviceId!);
+      if (cached != null && cached.id == widget.deviceId) {
+        tail = cached.tail;
+      } else {
+        for (final VehicleModel vehicle in VehicleData.vehicles) {
+          if (vehicle.id == widget.deviceId) {
+            tail = vehicle.tail;
+            break;
+          }
+        }
+      }
+    }
+
+    List<LatLng> points = tail
+        .map((VehicleTrackPoint p) => LatLng(p.latitude, p.longitude))
+        .toList();
+    points = LiveRouteService.dedupe(points);
+
+    if (widget.deviceId != null && points.length < 4) {
+      final List<LatLng> bootstrap = await LiveRouteService.bootstrapRoute(
+        deviceId: widget.deviceId!,
+        tail: tail,
+      );
+      if (bootstrap.length >= 2) {
+        points = bootstrap;
+      }
+    }
+
+    if (!mounted || _disposed || points.isEmpty) return;
+
+    if (points.length >= 2) {
+      final List<LatLng> roadPath = await RoadRouteService.routeBetween(
+        from: points.first,
+        to: points.last,
+        tailHint: points,
+      );
+      if (roadPath.length >= 2) {
+        points = roadPath;
+      }
+    }
+
+    // Only refresh trail if we are far — never jump the visible car position.
+    final LatLng latest = points.last;
+    final double bearing = points.length >= 2
+        ? _bearingFromTail(points)
+        : _renderBearing;
+    final double driftMeters =
+        LiveRouteService.haversineMeters(_renderPos, latest);
+
+    if (driftMeters >= 50.0) {
+      _trackController.seed(latest, bearing: bearing);
+      _readAnimatorState();
+    }
+
+    if (points.length >= 2) {
+      _trackController.animator.seedTrailFromPoints(points);
+    }
+    _primeMapVisuals();
+  }
+
+  Color _arrowColorForLive() {
+    final double speed = double.tryParse(_liveSpeed.value) ?? 0.0;
+    if (speed > 0) return const Color(0xFF00C853);
+    switch (_liveStatus.value.trim().toLowerCase()) {
+      case 'running':
+        return const Color(0xFF00C853);
+      case 'stopped':
+        return const Color(0xFFD50000);
+      case 'idle':
+        return const Color(0xFFFFA000);
+      case 'not reporting':
+        return const Color(0xFF757575);
+      default:
+        return const Color(0xFF757575);
+    }
+  }
+
+  void _onUserMapGesture() {
+    if (DateTime.now().isBefore(_programmaticCameraUntil)) return;
+    _userDraggingMap = true;
+    _followEnabled = false;
+  }
+
+  void _onMapCameraIdle() {
+    if (_disposed || DateTime.now().isBefore(_programmaticCameraUntil)) return;
+    _userDraggingMap = false;
   }
 
   void _startLiveTracking() {
     _pollTimer?.cancel();
-    _animCtrl.stop();
 
-    if (widget.deviceId == null) {
-      if (_isRunning) _startSimulatedTracking();
-      return;
-    }
+    if (widget.deviceId == null) return;
 
-    _animCtrl.repeat();
     _refreshLivePosition();
-    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      _refreshLivePosition();
+    _pollTimer = Timer.periodic(_pollInterval, (_) {
+      if (!_disposed && mounted) {
+        _refreshLivePosition();
+      }
     });
   }
 
-  void _onAnimationTick() {
-    if (!mounted) return;
+  void _stopLiveTracking() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+  }
 
-    final double elapsedMs =
-        DateTime.now().difference(_segmentStart).inMicroseconds / 1000.0;
-    final double rawT = _segmentDurMs > 0 ? elapsedMs / _segmentDurMs : 1.0;
-
-    LatLng target;
-    double targetBearing;
-
-    if (rawT <= 1.0) {
-      final double t = _easeInOutCubic(rawT);
-      target = _catmullRomLatLng(t);
-      targetBearing = _lerpAngle(_fromBearing, _toBearing, t);
-    } else {
-      final double extraMs = elapsedMs - _segmentDurMs;
-      final double extraSec = (extraMs / 1000.0).clamp(0.0, 30.0);
-      target = LatLng(
-        _toPos.latitude  + _velLatDegPerSec * extraSec,
-        _toPos.longitude + _velLngDegPerSec * extraSec,
-      );
-      targetBearing = _toBearing;
-    }
-
-    const double bearingDamp = 0.12;
-    _renderBearing = _lerpAngle(_renderBearing, targetBearing, bearingDamp);
-
-    _renderPos   = target;
-    _carLocation = _renderPos;
-    _carRotation = _renderBearing;
-    _syncMarker();
-
-    if (_currentBottomIndex == 0 && !_userDraggingMap) {
-      _followCamera();
+  void _syncVisuals({bool forceTrail = false}) {
+    if (_disposed || !mounted) return;
+    if (forceTrail || _trailDirty) {
+      _pushTrailToMap(force: true);
     }
   }
 
-  void _followCamera() {
+  /// Camera pans to keep the road arrow marker in view — north-up, marker shows direction.
+  void _followCameraSmooth({
+    bool force = false,
+    bool fromAnimation = false,
+  }) {
+    if (!_followEnabled ||
+        _userDraggingMap ||
+        _mapController == null ||
+        _disposed) {
+      return;
+    }
+
     try {
-      _mapController?.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: _renderPos,
-            zoom: 17.5,
-            bearing: _renderBearing,
-            tilt: _isRunning ? 45.0 : 0.0,
-          ),
-        ),
+      _markProgrammaticCamera();
+      _mapController!.moveCamera(
+        CameraUpdate.newLatLng(_renderPos),
       );
     } catch (_) {
       _mapController = null;
@@ -259,172 +502,106 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
   }
 
   Future<void> _refreshLivePosition() async {
-    if (widget.deviceId == null || !mounted) return;
-
-    final List<VehicleModel> devices =
-        await VehicleService.getDevices(forceRefresh: true);
-    VehicleModel? match;
-    for (final VehicleModel d in devices) {
-      if (d.id == widget.deviceId) { match = d; break; }
+    if (widget.deviceId == null || !mounted || _disposed || _pollInFlight) {
+      return;
     }
+    _pollInFlight = true;
 
-    if (match == null || match.latitude == null ||
-        match.longitude == null || !mounted) return;
-
-    final LatLng raw = LatLng(match.latitude!, match.longitude!);
-
-    final LatLng prev = _filteredGps ?? raw;
-    final LatLng filtered = LatLng(
-      prev.latitude  + _gpsAlpha * (raw.latitude  - prev.latitude),
-      prev.longitude + _gpsAlpha * (raw.longitude - prev.longitude),
-    );
-    _filteredGps = filtered;
-
-    final double dist = _haversineMeters(_lastFixPos, filtered);
-    if (dist < 4.0) return;
-
-    final double secsSinceFix =
-        DateTime.now().difference(_lastFixTime).inMilliseconds / 1000.0;
-    final double newBearing = dist > 1.0
-        ? _calculateBearing(_lastFixPos, filtered)
-        : _toBearing;
-
-    if (secsSinceFix > 0.3 && dist > 2.0) {
-      const double mPerDegLat = 111319.5;
-      final double mPerDegLng =
-          mPerDegLat * math.cos(filtered.latitude * math.pi / 180);
-      _velLatDegPerSec =
-          (filtered.latitude  - _lastFixPos.latitude)  / secsSinceFix;
-      _velLngDegPerSec =
-          (filtered.longitude - _lastFixPos.longitude) / secsSinceFix;
-      final double maxLatDeg = 200.0 / 3.6 / mPerDegLat;
-      final double maxLngDeg = 200.0 / 3.6 / mPerDegLng;
-      _velLatDegPerSec = _velLatDegPerSec.clamp(-maxLatDeg, maxLatDeg);
-      _velLngDegPerSec = _velLngDegPerSec.clamp(-maxLngDeg, maxLngDeg);
-    } else {
-      _velLatDegPerSec = 0;
-      _velLngDegPerSec = 0;
-    }
-
-    _waypoints.add(filtered);
-    if (_waypoints.length > 4) _waypoints.removeAt(0);
-
-    _fromPos      = _renderPos;
-    _toPos        = filtered;
-    _fromBearing  = _renderBearing;
-    _toBearing    = newBearing;
-    _segmentStart = DateTime.now();
-    _segmentDurMs = (secsSinceFix * 1000).clamp(300.0, 8000.0);
-
-    _lastFixPos  = filtered;
-    _lastFixTime = DateTime.now();
-
-    _trailPoints.add(filtered);
-    if (_trailPoints.length > 200) _trailPoints.removeAt(0);
-    _syncTrailPolyline();
-  }
-
-  void _startSimulatedTracking() {
-    final double kmh = double.tryParse(widget.speed) ?? 30.0;
-    final double mps = kmh / 3.6;
-    const double mPerDegLat = 111319.5;
-    final double refLat = _carLocation.latitude;
-    final double mPerDegLng = mPerDegLat * math.cos(refLat * math.pi / 180);
-
-    _carRotation   = 45.0;
-    _renderBearing = 45.0;
-
-    double simBearing = 45.0;
-    int frame = 0;
-    final math.Random rng = math.Random();
-
-    _animCtrl.addListener(() {
-      if (!mounted || widget.deviceId != null) return;
-      frame++;
-
-      if (frame % 240 == 0) {
-        simBearing = (simBearing + (rng.nextDouble() - 0.5) * 28 + 360) % 360;
-      }
-
-      _renderBearing = _lerpAngle(_renderBearing, simBearing, 0.025);
-      _carRotation   = _renderBearing;
-
-      const double dtMs = 1000.0 / 60.0;
-      final double rad  = _renderBearing * math.pi / 180.0;
-      final double dLat = mps * math.cos(rad) / mPerDegLat * (dtMs / 1000.0);
-      final double dLng = mps * math.sin(rad) / mPerDegLng * (dtMs / 1000.0);
-
-      _carLocation = LatLng(_carLocation.latitude + dLat,
-                            _carLocation.longitude + dLng);
-      _renderPos   = _carLocation;
-
-      if (frame % 30 == 0) {
-        _trailPoints.add(_carLocation);
-        if (_trailPoints.length > 200) _trailPoints.removeAt(0);
-        _syncTrailPolyline();
-      }
-
-      _syncMarker();
-
-      if (_currentBottomIndex == 0 && !_userDraggingMap) {
-        _followCamera();
-      }
-    });
-
-    _animCtrl.repeat();
-  }
-
-  LatLng _catmullRomLatLng(double t) {
-    if (_waypoints.length < 2) return _toPos;
-    if (_waypoints.length < 4) {
-      return LatLng(
-        _fromPos.latitude  + (_toPos.latitude  - _fromPos.latitude)  * t,
-        _fromPos.longitude + (_toPos.longitude - _fromPos.longitude) * t,
+    try {
+      final List<VehicleModel> devices = await VehicleService.getDevices(
+        forceRefresh: _forceNextRefresh,
       );
+      _forceNextRefresh = false;
+      if (!mounted || _disposed) return;
+
+      VehicleModel? match = VehicleService.findCachedDevice(widget.deviceId!);
+      if (match == null) {
+        for (final VehicleModel d in devices) {
+          if (d.id == widget.deviceId) {
+            match = d;
+            break;
+          }
+        }
+      }
+
+      if (match == null || match.id != widget.deviceId) return;
+
+      final bool statusChanged = match.status != _liveStatus.value;
+      final bool speedChanged = match.speed != _liveSpeed.value;
+      final String previousSpeed = _liveSpeed.value;
+      if (statusChanged || speedChanged) {
+        if (statusChanged) {
+          _liveStatus.value = match.status;
+        }
+        if (speedChanged) {
+          _liveSpeed.value = match.speed;
+        }
+        final double oldSpd = double.tryParse(previousSpeed) ?? 0.0;
+        final double newSpd = double.tryParse(match.speed) ?? 0.0;
+        if (statusChanged || (oldSpd == 0) != (newSpd == 0)) {
+          await _loadArrowIcon();
+        }
+      }
+
+      if (match.odometer != _liveOdometer.value) {
+        _liveOdometer.value = match.odometer;
+      }
+
+      if (match.latitude == null || match.longitude == null) return;
+
+      final LatLng serverPos = LatLng(match.latitude!, match.longitude!);
+      final LatLng posBefore = _trackController.animator.displayPosition;
+      final GpsIngestResult ingestResult =
+          await _trackController.ingestVehicleModel(match);
+      if (!mounted || _disposed) return;
+
+      if (ingestResult == GpsIngestResult.wrongDevice) return;
+
+      final LatLng posAfter = _trackController.animator.displayPosition;
+      final double driftMeters =
+          LiveRouteService.haversineMeters(posAfter, serverPos);
+
+      if (ingestResult == GpsIngestResult.rejected && driftMeters >= 12.0) {
+        final List<LatLng> tail = match.tail
+            .map((VehicleTrackPoint p) => LatLng(p.latitude, p.longitude))
+            .toList();
+        final double bearing = tail.length >= 2
+            ? _bearingFromTail(tail)
+            : _trackController.animator.displayBearing;
+        _trackController.forceSnapTo(serverPos, bearing: bearing);
+      }
+
+      _readAnimatorState();
+      final bool moved = posBefore.latitude != posAfter.latitude ||
+          posBefore.longitude != posAfter.longitude ||
+          ingestResult == GpsIngestResult.snapped ||
+          ingestResult == GpsIngestResult.animated;
+
+      if (moved || statusChanged || speedChanged || driftMeters >= 1.0) {
+        _trailDirty = moved || driftMeters >= 1.0;
+        _liveMapKey.currentState?.updateMarker(
+          position: _renderPos,
+          bearing: _renderBearing,
+          arrowIcon: _arrowIcon,
+          force: true,
+        );
+        _syncVisuals(forceTrail: _trailDirty);
+        if (_followEnabled && !_userDraggingMap && moved) {
+          _followCameraSmooth(force: true);
+        }
+      }
+    } finally {
+      _pollInFlight = false;
     }
-    final LatLng p0 = _waypoints[_waypoints.length - 4];
-    final LatLng p1 = _waypoints[_waypoints.length - 3];
-    final LatLng p2 = _waypoints[_waypoints.length - 2];
-    final LatLng p3 = _waypoints[_waypoints.length - 1];
-    final double t2 = t * t, t3 = t2 * t;
-    final double lat =
-        0.5 * ((2.0 * p1.latitude) +
-        (-p0.latitude + p2.latitude) * t +
-        (2.0 * p0.latitude - 5.0 * p1.latitude + 4.0 * p2.latitude - p3.latitude) * t2 +
-        (-p0.latitude + 3.0 * p1.latitude - 3.0 * p2.latitude + p3.latitude) * t3);
-    final double lng =
-        0.5 * ((2.0 * p1.longitude) +
-        (-p0.longitude + p2.longitude) * t +
-        (2.0 * p0.longitude - 5.0 * p1.longitude + 4.0 * p2.longitude - p3.longitude) * t2 +
-        (-p0.longitude + 3.0 * p1.longitude - 3.0 * p2.longitude + p3.longitude) * t3);
-    return LatLng(lat, lng);
   }
 
-  static double _easeInOutCubic(double t) =>
-      t < 0.5 ? 4.0 * t * t * t : 1.0 - math.pow(-2.0 * t + 2.0, 3) / 2.0;
-
-  static double _haversineMeters(LatLng a, LatLng b) {
-    const double r = 6371000;
-    final double lat1 = a.latitude  * math.pi / 180;
-    final double lat2 = b.latitude  * math.pi / 180;
-    final double dLat = (b.latitude  - a.latitude)  * math.pi / 180;
-    final double dLng = (b.longitude - a.longitude) * math.pi / 180;
-    final double s = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(lat1) * math.cos(lat2) *
-        math.sin(dLng / 2) * math.sin(dLng / 2);
-    return r * 2 * math.atan2(math.sqrt(s), math.sqrt(1 - s));
-  }
-
-  static double _lerpAngle(double from, double to, double t) {
-    final double diff = (to - from + 540) % 360 - 180;
-    return (from + diff * t + 360) % 360;
-  }
-
-  /// Calculates the compass bearing from [start] to [end].
-  static double _calculateBearing(LatLng start, LatLng end) {
-    final double lat1 = start.latitude * math.pi / 180;
-    final double lat2 = end.latitude * math.pi / 180;
-    final double dLng = (end.longitude - start.longitude) * math.pi / 180;
+  static double _bearingFromTail(List<LatLng> tail) {
+    if (tail.length < 2) return 0;
+    final LatLng from = tail[tail.length - 2];
+    final LatLng to = tail.last;
+    final double lat1 = from.latitude * math.pi / 180;
+    final double lat2 = to.latitude * math.pi / 180;
+    final double dLng = (to.longitude - from.longitude) * math.pi / 180;
     final double y = math.sin(dLng) * math.cos(lat2);
     final double x = math.cos(lat1) * math.sin(lat2) -
         math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
@@ -434,57 +611,24 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
   // ─── Tab management ────────────────────────────────────────────────────────
   void _selectTab(int index) {
     if (_currentBottomIndex == index) return;
-    setState(() => _currentBottomIndex = index);
+    setState(() {
+      _currentBottomIndex = index;
+      _loadedDetailTabs.add(index);
+    });
     if (index == 0) {
       _startLiveTracking();
     } else {
-      _pollTimer?.cancel();
-      _animCtrl.stop();
-      if (index == 1) _loadHistory();
+      _stopLiveTracking();
+      if (index == 1 && !_historyLoaded) {
+        _loadHistory();
+      }
     }
   }
 
-  // ─── Marker + polyline sync ────────────────────────────────────────────────
-  void _syncMarker() {
-    final BitmapDescriptor icon = _carIcon ?? BitmapDescriptor.defaultMarker;
-    _trackMarkers.value = <Marker>{
-      Marker(
-        markerId: const MarkerId('car'),
-        position: _carLocation,
-        rotation: _carRotation,
-        flat: true,
-        anchor: const Offset(0.5, 0.5),
-        icon: icon,
-        zIndexInt: 10,
-      ),
-    };
-  }
-
-  // Alias for backward compatibility (history screen calls this)
-  void _syncTrackMarkers() => _syncMarker();
-
-  void _syncTrailPolyline() {
-    if (_trailPoints.length < 2) return;
-    _trackPolylines.value = <Polyline>{
-      Polyline(
-        polylineId: const PolylineId('vehicle_trail'),
-        points: List<LatLng>.from(_trailPoints),
-        color: _isRunning
-            ? const Color(0xFF00E676)
-            : Theme.of(context).colorScheme.primary,
-        width: 6,
-        startCap: Cap.roundCap,
-        endCap: Cap.roundCap,
-        jointType: JointType.round,
-      ),
-    };
-  }
-
-  void _syncTrackPolyline() => _syncTrailPolyline();
-
   // ─── History ──────────────────────────────────────────────────────────────
-  Future<void> _loadHistory() async {
+  Future<void> _loadHistory({bool force = false}) async {
     if (widget.deviceId == null) return;
+    if (!force && _historyLoaded) return;
     setState(() => _historyLoading = true);
     final HistoryRoute route = await HistoryService.getRoute(
       deviceId: widget.deviceId!,
@@ -494,8 +638,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
     if (!mounted) return;
     setState(() {
       _historyLoading = false;
+      _historyLoaded = true;
       _historyRoute   = route;
-      if (route.points.isNotEmpty) _historySliderValue = 0;
+      if (route.points.isNotEmpty) _historySliderValue.value = 0;
     });
   }
 
@@ -519,14 +664,18 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
   // ─── Lifecycle ────────────────────────────────────────────────────────────
   @override
   void dispose() {
-    _pollTimer?.cancel();
-    _dragIdleTimer?.cancel();
-    _animCtrl.dispose();
+    _disposed = true;
+    _stopLiveTracking();
+    _trackController.dispose();
+    _mapController?.dispose();
     _mapController = null;
     _sheetProgress.dispose();
     _historyPanelTop.dispose();
-    _trackMarkers.dispose();
-    _trackPolylines.dispose();
+    _liveStatus.dispose();
+    _liveSpeed.dispose();
+    _liveOdometer.dispose();
+    _historySliderValue.dispose();
+    _isHistoryPlaying.dispose();
     super.dispose();
   }
 
@@ -539,17 +688,39 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
 
     final double maxTopLimit = 120.0;
     final double bottomLimit = screenHeight * 0.8;
-    if (!_historyPanelReady) {
-      _historyPanelTop.value = screenHeight * 0.65;
-      _historyPanelReady = true;
-    }
 
     return Scaffold(
-      body: _buildSelectedTab(
-        maxTopLimit,
-        bottomLimit,
-        screenHeight,
-        accentColor,
+      body: IndexedStack(
+        index: _currentBottomIndex,
+        children: <Widget>[
+          Offstage(
+            offstage: _currentBottomIndex != 0,
+            child: _buildTrackView(),
+          ),
+          _loadedDetailTabs.contains(1)
+              ? _buildHistoryView(
+                  maxTopLimit,
+                  bottomLimit,
+                  screenHeight,
+                  accentColor,
+                )
+              : const SizedBox.shrink(),
+          _loadedDetailTabs.contains(2)
+              ? NotificationsScreen(
+                  key: const ValueKey<String>('vehicle_detail_alerts'),
+                  showAlertsOnly: true,
+                  vehicleName: widget.name,
+                  deviceId: widget.deviceId,
+                )
+              : const SizedBox.shrink(),
+          _loadedDetailTabs.contains(3)
+              ? _VehicleStatisticsTab(
+                  key: const ValueKey<String>('vehicle_detail_statistics'),
+                  vehicleName: widget.name,
+                  onBack: () => _selectTab(0),
+                )
+              : const SizedBox.shrink(),
+        ],
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
@@ -575,187 +746,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
     );
   }
 
-  Widget _buildSelectedTab(
-    double maxTopLimit,
-    double bottomLimit,
-    double screenHeight,
-    Color accentColor,
-  ) {
-    switch (_currentBottomIndex) {
-      case 1:
-        return _buildHistoryView(
-          maxTopLimit,
-          bottomLimit,
-          screenHeight,
-          accentColor,
-        );
-      case 2:
-        return NotificationsScreen(
-          showAlertsOnly: true,
-          vehicleName: widget.name,
-          deviceId: widget.deviceId,
-        );
-      case 3:
-        return _buildStatisticsView(accentColor);
-      default:
-        return _buildTrackView();
-    }
-  }
-
-  /// --- STATISTICS VIEW ---
-  Widget _buildStatisticsView(Color accentColor) {
-    final Color textColor = context.textColor;
-    return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(
-        backgroundColor: context.containerColor,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios, color: accentColor, size: 20),
-          onPressed: () => _selectTab(0),
-        ),
-        title: Text(
-          '${widget.name} ${context.tr('Statistics')}',
-          style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 18),
-        ),
-      ),
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: [
-          const SliverToBoxAdapter(child: SizedBox(height: 12)),
-          SliverToBoxAdapter(child: _buildStatFiltersGrid(accentColor)),
-          const SliverToBoxAdapter(child: SizedBox(height: 12)),
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 1.6,
-              ),
-              delegate: SliverChildBuilderDelegate(
-                (BuildContext context, int index) {
-                  final _StatItem item = _statItems[index];
-                  return _buildStatCard(item.title, item.value, item.imagePath);
-                },
-                childCount: _statItems.length,
-                addAutomaticKeepAlives: false,
-                addRepaintBoundaries: true,
-              ),
-            ),
-          ),
-          const SliverToBoxAdapter(child: SizedBox(height: 20)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatFiltersGrid(Color accentColor) {
-    final filters = ["Today", "Yesterday", "2 Days", "3 Days", "This Week", "Last Week", "This Month", "Last Month"];
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: filters.length,
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 4,
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 8,
-          childAspectRatio: 2.2,
-        ),
-        itemBuilder: (context, index) {
-          final filter = filters[index];
-          bool isSelected = _selectedStatFilter == filter;
-          return GestureDetector(
-            onTap: () => setState(() => _selectedStatFilter = filter),
-            child: Container(
-              alignment: Alignment.center,
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              decoration: BoxDecoration(
-                color: isSelected ? accentColor : context.containerColor,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: accentColor, width: 1.2),
-              ),
-              child: Text(
-                context.tr(filter),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: isSelected ? Colors.white : accentColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 10.5,
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildStatCard(String title, String value, String imagePath) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: context.containerColor,
-        borderRadius: BorderRadius.circular(12),
-        border: context.appTokens.containerBorderColor == null ? null : Border.all(color: context.appTokens.containerBorderColor!),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 2))],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Text(
-                  context.tr(title),
-                  style: TextStyle(
-                    color: context.mutedTextColor, 
-                    fontSize: 15.0, 
-                    fontWeight: FontWeight.w600,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              Image.asset(
-                imagePath,
-                height: 26,
-                width: 26,
-                cacheWidth: 52,
-                cacheHeight: 52,
-                filterQuality: FilterQuality.low,
-                errorBuilder: (BuildContext c, Object e, StackTrace? s) => Icon(
-                  Icons.bar_chart,
-                  color: Theme.of(context).colorScheme.primary,
-                  size: 24,
-                ),
-              ),
-            ],
-          ),
-          const Spacer(),
-          Text(
-            value,
-            style: TextStyle(
-              color: context.textColor, 
-              fontSize: 18.0, 
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   /// --- TRACK VIEW ---
   Widget _buildTrackView() {
-    final double currentSpeed = double.tryParse(widget.speed) ?? 0.0;
     final double mediaHeight = MediaQuery.of(context).size.height;
+    final double initialSheetSize = _initialSheetFraction(mediaHeight);
+    final double minSheetSize = _minSheetFraction(mediaHeight);
+    final double sheetHeightPx = _sheetHeightPx(mediaHeight);
+    final EdgeInsets mapPadding = _mapPadding(mediaHeight);
     final Color textColor = context.textColor;
     final Color mutedColor = context.mutedTextColor;
     final Color accentColor = Theme.of(context).colorScheme.primary;
@@ -764,32 +761,26 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
       children: [
         Positioned.fill(
           child: RepaintBoundary(
-            child: ValueListenableBuilder<Set<Marker>>(
-              valueListenable: _trackMarkers,
-              builder: (BuildContext context, Set<Marker> markers, _) {
-                return ValueListenableBuilder<Set<Polyline>>(
-                  valueListenable: _trackPolylines,
-                  builder: (BuildContext context, Set<Polyline> polylines, _) {
-                    return GoogleMap(
-                      key: const ValueKey<String>('vehicle_track_map'),
-                      initialCameraPosition: CameraPosition(
-                        target: _carLocation,
-                        zoom: 16.5,
-                        bearing: _carRotation,
-                      ),
-                      style: context.themedMapStyle,
-                      onMapCreated: (GoogleMapController controller) =>
-                          _mapController = controller,
-                      myLocationEnabled: false,
-                      zoomControlsEnabled: false,
-                      mapToolbarEnabled: false,
-                      compassEnabled: false,
-                      markers: markers,
-                      polylines: polylines,
-                    );
-                  },
-                );
+            child: _LiveVehicleMap(
+              key: _liveMapKey,
+              deviceId: widget.deviceId,
+              padding: mapPadding,
+              initialTarget: _carLocation,
+              initialBearing: _carRotation,
+              mapStyle: context.themedMapStyle,
+              arrowIcon: _arrowIcon,
+              onMapCreated: (GoogleMapController controller) {
+                _mapController = controller;
+                _primeMapVisuals();
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted && !_disposed) {
+                    _primeMapVisuals();
+                    _recenterOnCar(animated: false);
+                  }
+                });
               },
+              onCameraMoveStarted: _onUserMapGesture,
+              onCameraIdle: _onMapCameraIdle,
             ),
           ),
         ),
@@ -812,15 +803,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
                 Icons.my_location,
                 accentColor,
                 () {
-                  _mapController?.animateCamera(
-                    CameraUpdate.newCameraPosition(
-                      CameraPosition(
-                        target: _carLocation,
-                        zoom: 17.0,
-                        bearing: _carRotation,
-                      ),
-                    ),
-                  );
+                  _followEnabled = true;
+                  _userDraggingMap = false;
+                  _recenterOnCar(zoom: 17.0);
                 },
               ),
               const SizedBox(height: 12),
@@ -831,22 +816,12 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
           ),
         ),
         Positioned(
-          bottom: (mediaHeight * 0.47) + 20,
+          bottom: sheetHeightPx + 20,
           left: 16,
           child: _floatingMapButton(
             Icons.route_outlined,
             Colors.redAccent,
-            () {
-              _mapController?.animateCamera(
-                CameraUpdate.newCameraPosition(
-                  CameraPosition(
-                    target: _carLocation,
-                    zoom: 17.0,
-                    bearing: _carRotation,
-                  ),
-                ),
-              );
-            },
+            () => _recenterOnCar(zoom: 17.0),
           ),
         ),
 
@@ -864,9 +839,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
             return true;
           },
           child: DraggableScrollableSheet(
-            initialChildSize: 0.47,
-            minChildSize: 0.47,
-            maxChildSize: 0.85,
+            initialChildSize: initialSheetSize,
+            minChildSize: minSheetSize,
+            maxChildSize: 0.88,
+            snap: true,
+            snapSizes: <double>[initialSheetSize, 0.88],
             builder: (BuildContext context, ScrollController scrollController) {
               return Stack(
                 clipBehavior: Clip.none,
@@ -900,52 +877,47 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
                             borderRadius: BorderRadius.circular(10),
                           ),
                         ),
-                        const SizedBox(height: 40),
+                        const SizedBox(height: 16),
                         Expanded(
-                            child: ListView(
+                          child: ListView(
                             controller: scrollController,
-                            physics: const BouncingScrollPhysics(),
-                            cacheExtent: 250,
+                            physics: const ClampingScrollPhysics(
+                              parent: AlwaysScrollableScrollPhysics(),
+                            ),
+                            cacheExtent: 120,
                             addAutomaticKeepAlives: false,
+                            addRepaintBoundaries: true,
                             padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
                             children: [
-                              Row(
-                                children: [
-                                  Image.asset(
-                                    'assets/caricon.png',
-                                    height: 26,
-                                    width: 26,
-                                    color: widget.color,
-                                    colorBlendMode: BlendMode.srcIn,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(
-                                      widget.name,
-                                      style: TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.bold,
-                                        color: textColor,
+                              ValueListenableBuilder<String>(
+                                valueListenable: _liveStatus,
+                                builder: (BuildContext context, String status, _) {
+                                  return Row(
+                                    children: [
+                                      Icon(
+                                        _statusIconFor(status),
+                                        size: 20,
+                                        color: _statusIconColorFor(status),
                                       ),
-                                      overflow: TextOverflow.ellipsis,
-                                      maxLines: 1,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Icon(Icons.speed, color: accentColor, size: 18),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    widget.distance,
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.bold,
-                                      color: textColor,
-                                    ),
-                                  ),
-                                ],
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          widget.name,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.bold,
+                                            color: textColor,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                          maxLines: 1,
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
                               ),
                               const SizedBox(height: 10),
-                              _buildOdometerRow(context),
+                              _buildOdometerRow(context, accentColor, mutedColor),
                               const SizedBox(height: 14),
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1006,7 +978,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
                                 child: PageView(
                                   physics: const BouncingScrollPhysics(),
                                   children: [
-                                    _buildRunningStopCard(textColor, mutedColor),
+                                    _buildRunningStopCard(textColor, mutedColor, accentColor),
                                     _buildFuelCard(textColor, mutedColor),
                                     _buildSpeedLimitCard(textColor, mutedColor),
                                   ],
@@ -1022,7 +994,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
                   ),
 
                   Positioned(
-                    top: -70,
+                    top: -48,
                     left: 0,
                     right: 0,
                     child: ValueListenableBuilder<double>(
@@ -1033,58 +1005,76 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
                           child: child,
                         );
                       },
-                      child: Center(
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            Container(
-                              height: 140,
-                              width: 140,
-                              decoration: BoxDecoration(
-                                color: context.containerColor,
-                                shape: BoxShape.circle,
-                                border: context.appTokens.containerBorderColor == null
-                                    ? null
-                                    : Border.all(color: context.appTokens.containerBorderColor!),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.08),
-                                    blurRadius: 14,
-                                    spreadRadius: 2,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            SizedBox(
-                              height: 130,
-                              width: 130,
-                              child: RepaintBoundary(
-                                child: CustomPaint(
-                                  painter: FullCircularSpeedoPainter(
-                                    speedValue: currentSpeed,
-                                    scaleTextColor: textColor,
+                      child: ValueListenableBuilder<String>(
+                        valueListenable: _liveSpeed,
+                        builder: (BuildContext context, String speedText, _) {
+                          final double currentSpeed =
+                              double.tryParse(speedText) ?? 0.0;
+                          return Center(
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                Container(
+                                  height: 96,
+                                  width: 96,
+                                  decoration: BoxDecoration(
+                                    color: context.containerColor,
+                                    shape: BoxShape.circle,
+                                    border: context.appTokens.containerBorderColor == null
+                                        ? null
+                                        : Border.all(
+                                            color: context.appTokens.containerBorderColor!,
+                                          ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withValues(alpha: 0.08),
+                                        blurRadius: 10,
+                                        spreadRadius: 1,
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              ),
-                            ),
-                            Positioned(
-                              bottom: 24,
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    widget.speed,
-                                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: textColor, height: 1.0),
+                                SizedBox(
+                                  height: 88,
+                                  width: 88,
+                                  child: RepaintBoundary(
+                                    child: CustomPaint(
+                                      painter: FullCircularSpeedoPainter(
+                                        speedValue: currentSpeed,
+                                        scaleTextColor: textColor,
+                                      ),
+                                    ),
                                   ),
-                                  Text(
-                                    context.tr("kmph"),
-                                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: mutedColor),
+                                ),
+                                Positioned(
+                                  bottom: 16,
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        speedText,
+                                        style: TextStyle(
+                                          fontSize: 17,
+                                          fontWeight: FontWeight.bold,
+                                          color: textColor,
+                                          height: 1.0,
+                                        ),
+                                      ),
+                                      Text(
+                                        context.tr("kmph"),
+                                        style: TextStyle(
+                                          fontSize: 8,
+                                          fontWeight: FontWeight.w600,
+                                          color: mutedColor,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -1215,16 +1205,36 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
                       Stack(
                         children: [
                           Container(height: 40, width: double.infinity, decoration: BoxDecoration(color: context.mutedTextColor.withOpacity(0.1), borderRadius: BorderRadius.circular(20))),
-                          SliderTheme(
-                            data: SliderTheme.of(context).copyWith(trackHeight: 40, thumbShape: SliderComponentShape.noThumb, overlayShape: SliderComponentShape.noOverlay, activeTrackColor: accentColor.withOpacity(0.15), inactiveTrackColor: Colors.transparent),
-                            child: Slider(value: _historySliderValue, onChanged: (v) => setState(() => _historySliderValue = v)),
+                          ValueListenableBuilder<double>(
+                            valueListenable: _historySliderValue,
+                            builder: (BuildContext context, double sliderValue, _) {
+                              return SliderTheme(
+                                data: SliderTheme.of(context).copyWith(trackHeight: 40, thumbShape: SliderComponentShape.noThumb, overlayShape: SliderComponentShape.noOverlay, activeTrackColor: accentColor.withOpacity(0.15), inactiveTrackColor: Colors.transparent),
+                                child: Slider(
+                                  value: sliderValue,
+                                  onChanged: (double v) => _historySliderValue.value = v,
+                                ),
+                              );
+                            },
                           ),
                           Positioned.fill(
                             child: Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 16),
                               child: Row(
                                 children: [
-                                  GestureDetector(onTap: () => setState(() => _isHistoryPlaying = !_isHistoryPlaying), child: Icon(_isHistoryPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill, color: accentColor, size: 30)),
+                                  ValueListenableBuilder<bool>(
+                                    valueListenable: _isHistoryPlaying,
+                                    builder: (BuildContext context, bool playing, _) {
+                                      return GestureDetector(
+                                        onTap: () => _isHistoryPlaying.value = !playing,
+                                        child: Icon(
+                                          playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
+                                          color: accentColor,
+                                          size: 30,
+                                        ),
+                                      );
+                                    },
+                                  ),
                                   const SizedBox(width: 12),
                                   Expanded(child: Text("00:00:00 / 01:20:00", style: TextStyle(color: context.mutedTextColor, fontSize: 12, fontWeight: FontWeight.w600))),
                                   PopupMenuButton<String>(
@@ -1283,18 +1293,79 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
     );
   }
 
-  Widget _buildOdometerRow(BuildContext context) {
-    return Row(
-      children: [
-        _buildOdometerDigit(context, "0"), _buildOdometerDigit(context, "2"), _buildOdometerDigit(context, "6"), _buildOdometerDigit(context, "9"), _buildOdometerDigit(context, "3"), _buildOdometerDigit(context, "1"), _buildOdometerDigit(context, "1"), _buildOdometerDigit(context, "1"),
-        const Spacer(),
-        _miniIconBadge(Icons.severe_cold, Colors.pink), _miniIconBadge(Icons.satellite_alt, Colors.green), _miniIconBadge(Icons.power_settings_new, Colors.green), _miniIconBadge(Icons.vpn_key, Colors.green), _miniIconBadge(Icons.battery_charging_full, Colors.green),
-      ],
+  Widget _buildOdometerRow(
+    BuildContext context,
+    Color accentColor,
+    Color mutedColor,
+  ) {
+    return ValueListenableBuilder<String>(
+      valueListenable: _liveOdometer,
+      builder: (BuildContext context, String odometerValue, _) {
+        final List<String> digits = _odometerDigits(odometerValue);
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(Icons.speed_outlined, color: accentColor, size: 18),
+            const SizedBox(width: 6),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  context.tr('Odometer'),
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                    color: mutedColor,
+                  ),
+                ),
+                Text(
+                  _formatOdometerLabel(odometerValue),
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: context.textColor,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(width: 8),
+            ...digits.map(
+              (String digit) => _buildOdometerDigit(context, digit),
+            ),
+            const Spacer(),
+            _miniIconBadge(Icons.severe_cold, Colors.pink),
+            _miniIconBadge(Icons.satellite_alt, Colors.green),
+            _miniIconBadge(Icons.power_settings_new, Colors.green),
+            _miniIconBadge(Icons.vpn_key, Colors.green),
+            _miniIconBadge(Icons.battery_charging_full, Colors.green),
+          ],
+        );
+      },
     );
   }
 
   Widget _buildOdometerDigit(BuildContext context, String digit) {
-    return Container(margin: const EdgeInsets.only(right: 3), padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4), decoration: BoxDecoration(color: context.containerColor, borderRadius: BorderRadius.circular(4), border: Border.all(color: context.appTokens.containerBorderColor ?? context.mutedTextColor.withOpacity(0.35))), child: Text(digit, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: context.textColor)));
+    return Container(
+      margin: const EdgeInsets.only(right: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+      decoration: BoxDecoration(
+        color: context.containerColor,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(
+          color: context.appTokens.containerBorderColor ??
+              context.mutedTextColor.withOpacity(0.35),
+        ),
+      ),
+      child: Text(
+        digit,
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.bold,
+          color: context.textColor,
+        ),
+      ),
+    );
   }
 
   Widget _miniIconBadge(IconData icon, Color color) {
@@ -1394,13 +1465,41 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
     );
   }
 
-  Widget _buildRunningStopCard(Color textColor, Color mutedColor) {
+  Widget _buildRunningStopCard(
+    Color textColor,
+    Color mutedColor,
+    Color accentColor,
+  ) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
       decoration: BoxDecoration(color: context.containerColor, borderRadius: BorderRadius.circular(16), border: Border.all(color: context.appTokens.containerBorderColor ?? mutedColor.withValues(alpha: 0.25)), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))]),
       child: Row(
         children: [
-          SizedBox(width: 65, child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [const Icon(Icons.location_on, color: Color(0xfff53d6b), size: 28), const SizedBox(height: 4), Text(widget.distance.isNotEmpty ? widget.distance : "0 km", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textColor), textAlign: TextAlign.center)])),
+          SizedBox(
+            width: 65,
+            child: ValueListenableBuilder<String>(
+              valueListenable: _liveOdometer,
+              builder: (BuildContext context, String odometerValue, _) {
+                return Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.speed_outlined, color: accentColor, size: 22),
+                    const SizedBox(height: 4),
+                    Text(
+                      _formatOdometerLabel(odometerValue),
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: textColor,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
           Container(width: 1, height: 75, color: Colors.black.withValues(alpha: 0.06), margin: const EdgeInsets.symmetric(horizontal: 10)),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [_buildSummaryRow(context, const Color(0xff55b985), "Running :", "00:00:00 Hrs"), const SizedBox(height: 6), _buildSummaryRow(context, const Color(0xfff53d6b), "Stop :", "00:00:00 Hrs"), const SizedBox(height: 6), _buildSummaryRow(context, const Color(0xffe2ab2f), "Idle :", "00:00:00 Hrs"), const SizedBox(height: 6), _buildSummaryRow(context, const Color(0xff2aa1ca), "Inactive :", "00:00:00 Hrs")])),
         ],
@@ -1646,17 +1745,70 @@ const List<_StatItem> _statItems = <_StatItem>[
   _StatItem('Engine hours', '00:00:00', 'assets/engine_work.png'),
 ];
 
-class _HistoryMap extends StatelessWidget {
+class _HistoryMap extends StatefulWidget {
   const _HistoryMap({required this.route});
 
   final HistoryRoute route;
 
   @override
+  State<_HistoryMap> createState() => _HistoryMapState();
+}
+
+class _HistoryMapState extends State<_HistoryMap> {
+  Set<Polyline> _polylines = const <Polyline>{};
+  Set<Marker> _markers = const <Marker>{};
+  List<LatLng> _points = const <LatLng>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _applyRoute(widget.route);
+  }
+
+  @override
+  void didUpdateWidget(covariant _HistoryMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.route != widget.route) {
+      _applyRoute(widget.route);
+    }
+  }
+
+  void _applyRoute(HistoryRoute route) {
+    _points = route.points.map((HistoryPoint p) => p.position).toList();
+    if (_points.length >= 2) {
+      _polylines = <Polyline>{
+        Polyline(
+          polylineId: const PolylineId('history_route'),
+          points: _points,
+          color: const Color(0xFFF53D6B),
+          width: 4,
+        ),
+      };
+    } else {
+      _polylines = const <Polyline>{};
+    }
+
+    if (_points.isNotEmpty) {
+      _markers = <Marker>{
+        Marker(
+          markerId: const MarkerId('history_start'),
+          position: _points.first,
+        ),
+        if (_points.length > 1)
+          Marker(
+            markerId: const MarkerId('history_end'),
+            position: _points.last,
+          ),
+      };
+    } else {
+      _markers = const <Marker>{};
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final List<LatLng> points =
-        route.points.map((HistoryPoint p) => p.position).toList();
-    final LatLng target = points.isNotEmpty
-        ? points.first
+    final LatLng target = _points.isNotEmpty
+        ? _points.first
         : const LatLng(31.5204, 74.3587);
 
     return GoogleMap(
@@ -1669,29 +1821,377 @@ class _HistoryMap extends StatelessWidget {
       myLocationEnabled: false,
       compassEnabled: false,
       mapToolbarEnabled: false,
-      polylines: points.length >= 2
-          ? <Polyline>{
-              Polyline(
-                polylineId: const PolylineId('history_route'),
-                points: points,
-                color: const Color(0xFFF53D6B),
-                width: 4,
+      polylines: _polylines,
+      markers: _markers,
+    );
+  }
+}
+
+class _VehicleStatisticsTab extends StatefulWidget {
+  const _VehicleStatisticsTab({
+    super.key,
+    required this.vehicleName,
+    required this.onBack,
+  });
+
+  final String vehicleName;
+  final VoidCallback onBack;
+
+  @override
+  State<_VehicleStatisticsTab> createState() => _VehicleStatisticsTabState();
+}
+
+class _VehicleStatisticsTabState extends State<_VehicleStatisticsTab> {
+  String _selectedStatFilter = 'Today';
+
+  @override
+  Widget build(BuildContext context) {
+    final Color accentColor = Theme.of(context).colorScheme.primary;
+    final Color textColor = context.textColor;
+
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      appBar: AppBar(
+        backgroundColor: context.containerColor,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios, color: accentColor, size: 20),
+          onPressed: widget.onBack,
+        ),
+        title: Text(
+          '${widget.vehicleName} ${context.tr('Statistics')}',
+          style: TextStyle(
+            color: textColor,
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
+        ),
+      ),
+      body: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
+        slivers: <Widget>[
+          const SliverToBoxAdapter(child: SizedBox(height: 12)),
+          SliverToBoxAdapter(child: _buildStatFiltersGrid(accentColor)),
+          const SliverToBoxAdapter(child: SizedBox(height: 12)),
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            sliver: SliverGrid(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 1.6,
               ),
-            }
-          : const <Polyline>{},
-      markers: points.isNotEmpty
-          ? <Marker>{
-              Marker(
-                markerId: const MarkerId('history_start'),
-                position: points.first,
+              delegate: SliverChildBuilderDelegate(
+                (BuildContext context, int index) {
+                  final _StatItem item = _statItems[index];
+                  return _buildStatCard(item.title, item.value, item.imagePath);
+                },
+                childCount: _statItems.length,
+                addAutomaticKeepAlives: false,
+                addRepaintBoundaries: true,
               ),
-              if (points.length > 1)
-                Marker(
-                  markerId: const MarkerId('history_end'),
-                  position: points.last,
+            ),
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: 20)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatFiltersGrid(Color accentColor) {
+    const List<String> filters = <String>[
+      'Today',
+      'Yesterday',
+      '2 Days',
+      '3 Days',
+      'This Week',
+      'Last Week',
+      'This Month',
+      'Last Month',
+    ];
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: filters.length,
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 4,
+          mainAxisSpacing: 8,
+          crossAxisSpacing: 8,
+          childAspectRatio: 2.2,
+        ),
+        itemBuilder: (BuildContext context, int index) {
+          final String filter = filters[index];
+          final bool isSelected = _selectedStatFilter == filter;
+          return GestureDetector(
+            onTap: () => setState(() => _selectedStatFilter = filter),
+            child: Container(
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              decoration: BoxDecoration(
+                color: isSelected ? accentColor : context.containerColor,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: accentColor, width: 1.2),
+              ),
+              child: Text(
+                context.tr(filter),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : accentColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 10.5,
                 ),
-            }
-          : const <Marker>{},
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildStatCard(String title, String value, String imagePath) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: context.containerColor,
+        borderRadius: BorderRadius.circular(12),
+        border: context.appTokens.containerBorderColor == null
+            ? null
+            : Border.all(color: context.appTokens.containerBorderColor!),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  context.tr(title),
+                  style: TextStyle(
+                    color: context.mutedTextColor,
+                    fontSize: 15.0,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Image.asset(
+                imagePath,
+                height: 26,
+                width: 26,
+                cacheWidth: 52,
+                cacheHeight: 52,
+                filterQuality: FilterQuality.low,
+                errorBuilder: (BuildContext c, Object e, StackTrace? s) => Icon(
+                  Icons.bar_chart,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 24,
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          Text(
+            value,
+            style: TextStyle(
+              color: context.textColor,
+              fontSize: 18.0,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LiveVehicleMap extends StatefulWidget {
+  const _LiveVehicleMap({
+    super.key,
+    required this.deviceId,
+    required this.padding,
+    required this.initialTarget,
+    required this.initialBearing,
+    required this.mapStyle,
+    required this.arrowIcon,
+    required this.onMapCreated,
+    required this.onCameraMoveStarted,
+    required this.onCameraIdle,
+  });
+
+  final int? deviceId;
+  final EdgeInsets padding;
+  final LatLng initialTarget;
+  final double initialBearing;
+  final String? mapStyle;
+  final BitmapDescriptor? arrowIcon;
+  final ValueChanged<GoogleMapController> onMapCreated;
+  final VoidCallback onCameraMoveStarted;
+  final VoidCallback onCameraIdle;
+
+  @override
+  State<_LiveVehicleMap> createState() => _LiveVehicleMapState();
+}
+
+class _LiveVehicleMapState extends State<_LiveVehicleMap> {
+  Marker? _arrowMarker;
+  Set<Polyline> _polylines = <Polyline>{};
+  LatLng? _appliedPos;
+  double _appliedBearing = 0.0;
+  int _appliedTrailLen = 0;
+  LatLng? _appliedTrailTip;
+
+  String get _markerIdValue =>
+      'vehicle_arrow_${widget.deviceId ?? 'unknown'}';
+
+  String get _trailIdValue =>
+      'vehicle_trail_${widget.deviceId ?? 'unknown'}';
+
+  Set<Marker> get _markers =>
+      _arrowMarker == null ? <Marker>{} : <Marker>{_arrowMarker!};
+
+  @override
+  void didUpdateWidget(covariant _LiveVehicleMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.arrowIcon != widget.arrowIcon && _arrowMarker != null) {
+      updateMarker(
+        position: _arrowMarker!.position,
+        bearing: _arrowMarker!.rotation,
+        arrowIcon: widget.arrowIcon,
+        force: true,
+      );
+    }
+  }
+
+  void updateMarker({
+    required LatLng position,
+    required double bearing,
+    BitmapDescriptor? arrowIcon,
+    bool force = false,
+    bool fromAnimation = false,
+  }) {
+    if (!mounted) return;
+
+    final LatLng? prev = _appliedPos;
+    final double posDelta = prev == null
+        ? 999.0
+        : LiveRouteService.haversineMeters(prev, position);
+    final double bearingDelta =
+        prev == null ? 999.0 : (bearing - _appliedBearing).abs();
+
+    final double posThreshold = fromAnimation ? 0.01 : 0.08;
+    final double bearingThreshold = fromAnimation ? 0.3 : 1.0;
+
+    if (!force &&
+        posDelta < posThreshold &&
+        bearingDelta < bearingThreshold &&
+        _arrowMarker != null) {
+      return;
+    }
+
+    _appliedPos = position;
+    _appliedBearing = bearing;
+
+    final BitmapDescriptor icon = arrowIcon ??
+        widget.arrowIcon ??
+        BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
+
+    _arrowMarker = Marker(
+      markerId: MarkerId(_markerIdValue),
+      position: position,
+      rotation: bearing,
+      flat: true,
+      anchor: MapArrowIcon.markerAnchor,
+      icon: icon,
+      zIndexInt: 10,
+    );
+
+    setState(() {});
+  }
+
+  void updateTrail(List<LatLng> trail, {bool force = false}) {
+    if (!mounted) return;
+
+    if (trail.length < 2) {
+      if (_polylines.isEmpty) return;
+      _polylines = <Polyline>{};
+      _appliedTrailLen = 0;
+      _appliedTrailTip = null;
+      setState(() {});
+      return;
+    }
+
+    final LatLng tip = trail.last;
+    if (!force &&
+        _appliedTrailLen == trail.length &&
+        _appliedTrailTip != null &&
+        LiveRouteService.haversineMeters(_appliedTrailTip!, tip) < 0.03) {
+      return;
+    }
+
+    _appliedTrailLen = trail.length;
+    _appliedTrailTip = tip;
+    _polylines = <Polyline>{
+      Polyline(
+        polylineId: PolylineId(_trailIdValue),
+        points: trail,
+        color: const Color(0xFF00E676),
+        width: 5,
+        geodesic: true,
+        zIndex: 1,
+        startCap: Cap.roundCap,
+        endCap: Cap.roundCap,
+        jointType: JointType.round,
+      ),
+    };
+    setState(() {});
+  }
+
+  void clearTrailOverlay() {
+    if (!mounted || _polylines.isEmpty) return;
+    _polylines = <Polyline>{};
+    _appliedTrailLen = 0;
+    _appliedTrailTip = null;
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GoogleMap(
+      key: const ValueKey<String>('vehicle_track_map'),
+      padding: widget.padding,
+      initialCameraPosition: CameraPosition(
+        target: widget.initialTarget,
+        zoom: 17.5,
+        bearing: widget.initialBearing,
+      ),
+      style: widget.mapStyle,
+      onMapCreated: widget.onMapCreated,
+      onCameraMoveStarted: widget.onCameraMoveStarted,
+      onCameraIdle: widget.onCameraIdle,
+      gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+        Factory<EagerGestureRecognizer>(() => EagerGestureRecognizer()),
+      },
+      myLocationEnabled: false,
+      zoomControlsEnabled: false,
+      mapToolbarEnabled: false,
+      compassEnabled: false,
+      rotateGesturesEnabled: true,
+      markers: _markers,
+      polylines: _polylines,
     );
   }
 }
@@ -1706,28 +2206,63 @@ class FullCircularSpeedoPainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2;
     final rect = Rect.fromLTWH(2, 2, size.width - 4, size.height - 4);
-    final circlePaint = Paint()..style = PaintingStyle.stroke..strokeWidth = 2.5..shader = const SweepGradient(colors: [Colors.green, Colors.yellow, Colors.orange, Colors.red, Colors.green]).createShader(rect);
+    final circlePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0
+      ..shader = const SweepGradient(
+        colors: <Color>[Colors.green, Colors.yellow, Colors.orange, Colors.red, Colors.green],
+      ).createShader(rect);
     canvas.drawCircle(center, radius - 2, circlePaint);
     const double startAngle = math.pi * 0.75;
     const double maxSweepAngle = math.pi * 1.5;
-    final List<String> scale = ["0", "_", "50", "_", "100", "_", "150", "_", "200"];
+    final List<String> scale = <String>["0", "_", "50", "_", "100", "_", "150", "_", "200"];
     for (int i = 0; i < scale.length; i++) {
-      final angle = startAngle + (i * maxSweepAngle / (scale.length - 1));
-      final tickPaint = Paint()..color = scale[i] == "_" ? scaleTextColor.withOpacity(0.35) : scaleTextColor..strokeWidth = scale[i] == "_" ? 1.5 : 2;
-      final tickStart = Offset(center.dx + (radius - 5) * math.cos(angle), center.dy + (radius - 5) * math.sin(angle));
-      final tickEnd = Offset(center.dx + (radius - 15) * math.cos(angle), center.dy + (radius - 15) * math.sin(angle));
+      final double angle = startAngle + (i * maxSweepAngle / (scale.length - 1));
+      final Paint tickPaint = Paint()
+        ..color = scale[i] == "_" ? scaleTextColor.withOpacity(0.35) : scaleTextColor
+        ..strokeWidth = scale[i] == "_" ? 1.2 : 1.6;
+      final Offset tickStart = Offset(
+        center.dx + (radius - 4) * math.cos(angle),
+        center.dy + (radius - 4) * math.sin(angle),
+      );
+      final Offset tickEnd = Offset(
+        center.dx + (radius - 11) * math.cos(angle),
+        center.dy + (radius - 11) * math.sin(angle),
+      );
       canvas.drawLine(tickStart, tickEnd, tickPaint);
-      if (scale[i] != "_") _drawScaleText(canvas, center, scale[i], angle, radius - 28);
+      if (scale[i] != "_") {
+        _drawScaleText(canvas, center, scale[i], angle, radius - 20);
+      }
     }
-    final needleAngle = startAngle + ((speedValue / 200).clamp(0.0, 1.0) * maxSweepAngle);
-    final tip = Offset(center.dx + (radius - 18) * math.cos(needleAngle), center.dy + (radius - 18) * math.sin(needleAngle));
-    canvas.drawLine(center, tip, Paint()..color = Colors.red..strokeWidth = 3);
-    canvas.drawCircle(center, 7, Paint()..color = Colors.black87);
-    canvas.drawCircle(center, 4, Paint()..color = Colors.red);
+    final double needleAngle =
+        startAngle + ((speedValue / 200).clamp(0.0, 1.0) * maxSweepAngle);
+    final Offset tip = Offset(
+      center.dx + (radius - 13) * math.cos(needleAngle),
+      center.dy + (radius - 13) * math.sin(needleAngle),
+    );
+    canvas.drawLine(center, tip, Paint()..color = Colors.red..strokeWidth = 2.2);
+    canvas.drawCircle(center, 5, Paint()..color = Colors.black87);
+    canvas.drawCircle(center, 3, Paint()..color = Colors.red);
   }
 
-  void _drawScaleText(Canvas canvas, Offset center, String text, double angle, double distance) {
-    final tp = TextPainter(text: TextSpan(text: text, style: TextStyle(color: scaleTextColor, fontSize: 10, fontWeight: FontWeight.bold)), textDirection: TextDirection.ltr)..layout();
+  void _drawScaleText(
+    Canvas canvas,
+    Offset center,
+    String text,
+    double angle,
+    double distance,
+  ) {
+    final TextPainter tp = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          color: scaleTextColor,
+          fontSize: 7,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
     canvas.save();
     canvas.translate(center.dx + distance * math.cos(angle) - tp.width / 2, center.dy + distance * math.sin(angle) - tp.height / 2);
     tp.paint(canvas, Offset.zero);

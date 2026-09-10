@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -31,8 +32,10 @@ class _MapScreenState extends State<MapScreen> {
   double _carRotation = 90.0;
   GoogleMapController? _mapController;
 
-  LatLng _carLocation = const LatLng(31.5204, 74.3587);
+  static const LatLng _defaultCenter = LatLng(31.5204, 74.3587);
+  LatLng _cameraTarget = _defaultCenter;
   LatLng? _currentUserLocation;
+  int _focusedVehicleIndex = 0;
 
   double _zoom = 16;
 
@@ -42,49 +45,91 @@ class _MapScreenState extends State<MapScreen> {
   bool _isFetchingLocation = false;
   List<VehicleModel> _vehicles = VehicleData.vehicles;
   Timer? _vehicleRefreshTimer;
+  DateTime _lastUserMarkerSync = DateTime.fromMillisecondsSinceEpoch(0);
+  static const Duration _userMarkerSyncInterval = Duration(milliseconds: 500);
+  final Map<String, LatLng> _lastVehiclePositions = <String, LatLng>{};
 
   MapType _mapType = MapType.normal;
 
   StreamSubscription<Position>? _positionSubscription;
   final ValueNotifier<Set<Marker>> _markers = ValueNotifier<Set<Marker>>(
-    <Marker>{
-      const Marker(
-        markerId: MarkerId('car'),
-        position: LatLng(31.5204, 74.3587),
-        rotation: 90.0,
-      ),
-    },
+    <Marker>{},
   );
 
   @override
   void initState() {
     super.initState();
-    _loadVehicles();
+    if (VehicleData.vehicles.isNotEmpty) {
+      _applyFirstVehicle(VehicleData.vehicles);
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _loadVehicles();
+        }
+      });
+    }
     _syncMarkers();
+    if (widget.isVisible) {
+      _startVehicleRefresh();
+    }
+  }
+
+  void _applyFirstVehicle(List<VehicleModel> fetched) {
+    _vehicles = fetched;
+    _focusedVehicleIndex = 0;
+    _cameraTarget = _resolveCameraTarget();
+  }
+
+  LatLng _resolveCameraTarget() {
+    if (_isLiveLocationActive && _currentUserLocation != null) {
+      return _currentUserLocation!;
+    }
+    final List<VehicleModel> mapped = _mappedVehicles;
+    if (mapped.isEmpty) {
+      return _defaultCenter;
+    }
+    final int index = _focusedVehicleIndex.clamp(0, mapped.length - 1);
+    final VehicleModel vehicle = mapped[index];
+    return LatLng(vehicle.latitude!, vehicle.longitude!);
+  }
+
+  static String _markerIdFor(VehicleModel vehicle) {
+    if (vehicle.id != null) {
+      return 'fleet_vehicle_${vehicle.id}';
+    }
+    return 'fleet_vehicle_name_${vehicle.name.hashCode}';
+  }
+
+  static double _bearingForVehicle(VehicleModel vehicle) {
+    if (vehicle.tail.length >= 2) {
+      final VehicleTrackPoint from = vehicle.tail[vehicle.tail.length - 2];
+      final VehicleTrackPoint to = vehicle.tail.last;
+      final double lat1 = from.latitude * 3.141592653589793 / 180;
+      final double lat2 = to.latitude * 3.141592653589793 / 180;
+      final double dLng =
+          (to.longitude - from.longitude) * 3.141592653589793 / 180;
+      final double y = math.sin(dLng) * math.cos(lat2);
+      final double x = math.cos(lat1) * math.sin(lat2) -
+          math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
+      return (math.atan2(y, x) * 180 / 3.141592653589793 + 360) % 360;
+    }
+    return 0;
   }
 
   Future<void> _loadVehicles() async {
     final List<VehicleModel> fetched =
-        await AppBootstrapService.refreshVehicles(forceRefresh: true);
+        await AppBootstrapService.refreshVehicles(forceRefresh: false);
     if (!mounted || fetched.isEmpty) {
       return;
     }
-    setState(() {
-      _vehicles = fetched;
-      final VehicleModel first = fetched.firstWhere(
-        (VehicleModel v) => v.latitude != null && v.longitude != null,
-        orElse: () => fetched.first,
-      );
-      if (first.latitude != null && first.longitude != null) {
-        _carLocation = LatLng(first.latitude!, first.longitude!);
-      }
-    });
+
+    _applyFirstVehicle(fetched);
     _syncMarkers();
   }
 
   void _startVehicleRefresh() {
     _vehicleRefreshTimer?.cancel();
-    _vehicleRefreshTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+    _vehicleRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       _loadVehicles();
     });
   }
@@ -116,6 +161,8 @@ class _MapScreenState extends State<MapScreen> {
   void dispose() {
     _stopVehicleRefresh();
     _positionSubscription?.cancel();
+    _mapController?.dispose();
+    _mapController = null;
     _markers.dispose();
     super.dispose();
   }
@@ -151,6 +198,7 @@ class _MapScreenState extends State<MapScreen> {
           onAction: () async {
             final bool retry =
                 await LocationService.requestForegroundPermission();
+            if (!mounted) return;
             if (retry) {
               await _initCurrentLocation();
             } else {
@@ -208,12 +256,14 @@ class _MapScreenState extends State<MapScreen> {
 
     _currentUserLocation = userLocation;
     if (_isLiveLocationActive) {
-      _carLocation = userLocation;
+      _cameraTarget = userLocation;
       if (position.heading >= 0) {
         _carRotation = position.heading;
       }
+      _syncMarkers();
+    } else {
+      _updateUserLocationMarkerThrottled();
     }
-    _syncMarkers();
 
     if (moveCamera) {
       _mapController?.animateCamera(
@@ -228,6 +278,29 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  void _updateUserLocationMarkerThrottled() {
+    if (_currentUserLocation == null) return;
+
+    final DateTime now = DateTime.now();
+    if (now.difference(_lastUserMarkerSync) < _userMarkerSyncInterval) {
+      return;
+    }
+    _lastUserMarkerSync = now;
+
+    final Set<Marker> current = _markers.value;
+    final Set<Marker> next = current
+        .where((Marker m) => m.markerId.value != 'my_location')
+        .toSet();
+    next.add(
+      Marker(
+        markerId: const MarkerId('my_location'),
+        position: _currentUserLocation!,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+      ),
+    );
+    _markers.value = next;
+  }
+
   List<VehicleModel> get _mappedVehicles => _vehicles
       .where(
         (VehicleModel v) =>
@@ -237,13 +310,27 @@ class _MapScreenState extends State<MapScreen> {
       )
       .toList();
 
-  void _syncMarkers() {
+  void _syncMarkers({bool force = false}) {
     final Set<Marker> nextMarkers = <Marker>{};
+    bool changed = force;
+
     for (final VehicleModel vehicle in _mappedVehicles) {
+      final String markerKey = _markerIdFor(vehicle);
+      final LatLng position = LatLng(vehicle.latitude!, vehicle.longitude!);
+      final LatLng? previous = _lastVehiclePositions[markerKey];
+
+      if (previous == null ||
+          previous.latitude != position.latitude ||
+          previous.longitude != position.longitude) {
+        changed = true;
+      }
+
+      _lastVehiclePositions[markerKey] = position;
       nextMarkers.add(
         Marker(
-          markerId: MarkerId('vehicle_${vehicle.id ?? vehicle.name}'),
-          position: LatLng(vehicle.latitude!, vehicle.longitude!),
+          markerId: MarkerId(markerKey),
+          position: position,
+          rotation: _bearingForVehicle(vehicle),
           infoWindow: InfoWindow(title: vehicle.name, snippet: vehicle.status),
         ),
       );
@@ -252,11 +339,12 @@ class _MapScreenState extends State<MapScreen> {
     if (nextMarkers.isEmpty) {
       nextMarkers.add(
         Marker(
-          markerId: const MarkerId('car'),
-          position: _carLocation,
+          markerId: const MarkerId('fleet_fallback'),
+          position: _cameraTarget,
           rotation: _carRotation,
         ),
       );
+      changed = true;
     }
 
     if (_currentUserLocation != null && !_isLiveLocationActive) {
@@ -269,6 +357,11 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
 
+    if (!changed && nextMarkers.length == _markers.value.length) {
+      return;
+    }
+
+    _cameraTarget = _resolveCameraTarget();
     _markers.value = nextMarkers;
   }
 
@@ -362,39 +455,24 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
-    int currentIndex = mapped.indexWhere(
-      (VehicleModel v) =>
-          v.latitude == _carLocation.latitude &&
-          v.longitude == _carLocation.longitude,
-    );
-    if (currentIndex < 0) {
-      currentIndex = 0;
-    }
-
-    final int nextIndex = currentIndex + direction;
+    final int nextIndex = _focusedVehicleIndex + direction;
     if (nextIndex < 0 || nextIndex >= mapped.length) {
       await _panMapHorizontal(direction * _panScrollPixels);
       return;
     }
 
+    _focusedVehicleIndex = nextIndex;
     final VehicleModel nextVehicle = mapped[nextIndex];
     final LatLng nextLocation =
         LatLng(nextVehicle.latitude!, nextVehicle.longitude!);
 
     setState(() {
-      _carLocation = nextLocation;
-      _carRotation = direction > 0 ? 90 : 270;
+      _cameraTarget = nextLocation;
+      _carRotation = _bearingForVehicle(nextVehicle);
     });
-    _syncMarkers();
 
     await _mapController?.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: _carLocation,
-          zoom: _zoom,
-          bearing: _carRotation,
-        ),
-      ),
+      CameraUpdate.newLatLng(nextLocation),
     );
   }
 
@@ -556,7 +634,7 @@ class _MapScreenState extends State<MapScreen> {
                 return GoogleMap(
                   key: const ValueKey<String>('live_google_map'),
                   initialCameraPosition: CameraPosition(
-                    target: _carLocation,
+                    target: _cameraTarget,
                     zoom: _zoom,
                   ),
                   style: _mapType == MapType.normal
@@ -619,7 +697,12 @@ class _MapScreenState extends State<MapScreen> {
                   onTap: _openNotifications,
                   child: Padding(
                     padding: const EdgeInsets.all(8),
-                    child: Image.asset('assets/radio.png'),
+                    child: Image.asset(
+                      'assets/radio.png',
+                      cacheWidth: 48,
+                      cacheHeight: 48,
+                      filterQuality: FilterQuality.low,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -650,7 +733,12 @@ class _MapScreenState extends State<MapScreen> {
               onTap: _cycleMapType,
               child: Padding(
                 padding: const EdgeInsets.all(14),
-                child: Image.asset('assets/map_fold.png'),
+                    child: Image.asset(
+                      'assets/map_fold.png',
+                      cacheWidth: 48,
+                      cacheHeight: 48,
+                      filterQuality: FilterQuality.low,
+                    ),
               ),
             ),
           ),

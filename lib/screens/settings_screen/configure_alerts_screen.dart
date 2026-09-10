@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/vehicle_data.dart';
 import '../../l10n/app_l10n.dart';
+import '../../models/vehicle_model.dart';
 import '../../services/alert_service.dart';
 import '../../theme/app_theme_tokens.dart';
 
@@ -103,6 +104,25 @@ class _ConfigureAlertsScreenState extends State<ConfigureAlertsScreen> {
         _enabledAlerts.add(alert);
       }
     });
+    _persistAlerts();
+  }
+
+  Future<void> _persistAlerts() async {
+    VehicleModel? resolved;
+    for (final VehicleModel vehicle in VehicleData.vehicles) {
+      if (vehicle.name == _selectedVehicle) {
+        resolved = vehicle;
+        break;
+      }
+    }
+    resolved ??=
+        VehicleData.vehicles.isNotEmpty ? VehicleData.vehicles.first : null;
+    if (resolved?.id == null) return;
+
+    await AlertService.saveAlerts(
+      deviceId: resolved!.id!,
+      enabledTypes: _enabledAlerts.toList(),
+    );
   }
 
   @override

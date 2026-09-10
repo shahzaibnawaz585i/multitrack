@@ -7,7 +7,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../data/vehicle_data.dart';
 import '../models/vehicle_model.dart';
-import '../services/app_bootstrap_service.dart';
 import '../theme/app_theme_tokens.dart';
 import 'lists_screen.dart';
 import 'map_screen.dart';
@@ -40,7 +39,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    AppBootstrapService.refreshVehicles(forceRefresh: true);
+    // Vehicles are prefetched after login; avoid a redundant force refresh here.
   }
 
   void _onNavigationTap(int index) {
@@ -117,10 +116,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     isVisible: _selectedIndex == _mapIndex,
                   )
                 : const SizedBox.shrink(),
-            ListScreen(
-              key: const PageStorageKey<String>('vehicle_list_screen'),
-              initialFilter: _vehicleFilter,
-            ),
+            _loadedTabs.contains(_listIndex)
+                ? ListScreen(
+                    key: const PageStorageKey<String>('vehicle_list_screen'),
+                    initialFilter: _vehicleFilter,
+                    isVisible: _selectedIndex == _listIndex,
+                  )
+                : const SizedBox.shrink(),
             _loadedTabs.contains(_reportIndex)
                 ? const MainScreen(
                     key: PageStorageKey<String>('report_screen'),

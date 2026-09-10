@@ -13,6 +13,7 @@ class ApiConfig {
   // Events & alerts
   static const String getEventsPath = '/api/get_events';
   static const String alertsPath = '/api/alerts';
+  static const String alertTypesPath = '/api/alert-types';
 
   // Geofences
   static const String getGeofencesPath = '/api/get_geofences';
@@ -59,6 +60,7 @@ class ApiConfig {
     'Server 2': 'http://62.171.139.5',
     'Nostrum Track': 'http://62.171.139.5',
     'Fleet Wox': 'http://62.171.139.5',
+    'Fleet Wo': 'http://62.171.139.5',
     'Server 3': 'https://gps.m-track.net.pk',
   };
 
@@ -121,6 +123,9 @@ class ApiConfig {
 
   static Uri alertsUri(String server, {String? token}) =>
       apiUri(server, alertsPath, token: token);
+
+  static Uri alertTypesUri(String server, {String? token}) =>
+      apiUri(server, alertTypesPath, token: token);
 
   static Uri getGeofencesUri(String server, {String? token}) =>
       apiUri(server, getGeofencesPath, token: token);

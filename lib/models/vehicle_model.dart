@@ -2,6 +2,16 @@ import 'package:flutter/material.dart';
 
 import '../services/reverse_geocoding_service.dart';
 
+class VehicleTrackPoint {
+  const VehicleTrackPoint({
+    required this.latitude,
+    required this.longitude,
+  });
+
+  final double latitude;
+  final double longitude;
+}
+
 class VehicleModel {
   final int? id;
   final String name;
@@ -9,6 +19,7 @@ class VehicleModel {
   final Color color;
   final String speed;
   final String distance;
+  final String odometer;
   final String time;
   final String liveTime;
   final String location;
@@ -17,6 +28,7 @@ class VehicleModel {
 
   final double? latitude;
   final double? longitude;
+  final List<VehicleTrackPoint> tail;
 
   const VehicleModel({
     this.id,
@@ -25,6 +37,7 @@ class VehicleModel {
     required this.color,
     required this.speed,
     required this.distance,
+    required this.odometer,
     required this.time,
     required this.liveTime,
     required this.location,
@@ -32,6 +45,7 @@ class VehicleModel {
     this.validity,
     this.latitude,
     this.longitude,
+    this.tail = const <VehicleTrackPoint>[],
   });
 
   VehicleModel copyWith({
@@ -41,6 +55,7 @@ class VehicleModel {
     Color? color,
     String? speed,
     String? distance,
+    String? odometer,
     String? time,
     String? liveTime,
     String? location,
@@ -48,6 +63,7 @@ class VehicleModel {
     String? validity,
     double? latitude,
     double? longitude,
+    List<VehicleTrackPoint>? tail,
   }) {
     return VehicleModel(
       id: id ?? this.id,
@@ -56,6 +72,7 @@ class VehicleModel {
       color: color ?? this.color,
       speed: speed ?? this.speed,
       distance: distance ?? this.distance,
+      odometer: odometer ?? this.odometer,
       time: time ?? this.time,
       liveTime: liveTime ?? this.liveTime,
       location: location ?? this.location,
@@ -63,6 +80,7 @@ class VehicleModel {
       validity: validity ?? this.validity,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
+      tail: tail ?? this.tail,
     );
   }
 
@@ -115,13 +133,13 @@ class VehicleModel {
     final Color color = _statusColor(status);
 
     final String distance = (json['distance'] ??
-            json['total_distance'] ??
             json['today_distance'] ??
-            json['odometer'] ??
-            deviceData['total_distance'] ??
             deviceData['distance'] ??
+            deviceData['today_distance'] ??
             '0 km')
         .toString();
+
+    final String odometer = _resolveOdometer(json, deviceData);
 
     final String time = (json['time'] ??
             json['stop_duration'] ??
@@ -133,6 +151,7 @@ class VehicleModel {
         .toString();
 
     final (double? lat, double? lng) = _resolveLatLng(json, deviceData);
+    final List<VehicleTrackPoint> tail = _resolveTail(json, deviceData);
     final String liveTime = _resolveLiveTime(json, deviceData);
     final String location = _resolveLocation(json, deviceData, lat, lng);
     final String date = _resolveDate(json, deviceData);
@@ -152,6 +171,7 @@ class VehicleModel {
       color: color,
       speed: speed,
       distance: distance.isEmpty ? '0 km' : distance,
+      odometer: odometer,
       time: time.isEmpty
           ? 'since 0d 0h 0m'
           : (time.startsWith('since ') || time.startsWith('3')
@@ -163,7 +183,40 @@ class VehicleModel {
       validity: validity,
       latitude: lat,
       longitude: lng,
+      tail: tail,
     );
+  }
+
+  static List<VehicleTrackPoint> _resolveTail(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+  ) {
+    final dynamic rawTail = json['tail'] ?? deviceData['tail'];
+    if (rawTail is! List || rawTail.isEmpty) {
+      return const <VehicleTrackPoint>[];
+    }
+
+    final List<VehicleTrackPoint> points = <VehicleTrackPoint>[];
+    for (final dynamic item in rawTail) {
+      if (item is! Map) continue;
+      final Map<String, dynamic> map = item.map(
+        (Object? k, Object? v) => MapEntry(k.toString(), v),
+      );
+      final double? lat = double.tryParse(
+        (map['lat'] ?? map['latitude'])?.toString() ?? '',
+      );
+      final double? lng = double.tryParse(
+        (map['lng'] ?? map['lon'] ?? map['longitude'])?.toString() ?? '',
+      );
+      if (lat != null &&
+          lng != null &&
+          (lat != 0.0 || lng != 0.0) &&
+          lat.abs() <= 90 &&
+          lng.abs() <= 180) {
+        points.add(VehicleTrackPoint(latitude: lat, longitude: lng));
+      }
+    }
+    return points;
   }
 
   static (double?, double?) _resolveLatLng(
@@ -536,5 +589,31 @@ class VehicleModel {
     final double? parsed = double.tryParse(speed.toString());
     if (parsed == null || parsed <= 0) return '00';
     return parsed.round().toString().padLeft(2, '0');
+  }
+
+  static String _resolveOdometer(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+  ) {
+    final dynamic raw = json['odometer'] ??
+        deviceData['odometer'] ??
+        json['total_distance'] ??
+        deviceData['total_distance'] ??
+        json['total_km'] ??
+        deviceData['total_km'] ??
+        json['odometer_value'] ??
+        deviceData['odometer_value'];
+
+    if (raw == null) return '0 km';
+
+    final String str = raw.toString().trim();
+    if (str.isEmpty) return '0 km';
+    if (str.toLowerCase().contains('km')) return str;
+
+    final double? parsed = double.tryParse(str.replaceAll(',', ''));
+    if (parsed != null) {
+      return '${parsed.toStringAsFixed(2)} km';
+    }
+    return str;
   }
 }

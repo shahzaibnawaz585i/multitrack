@@ -81,7 +81,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
 
   Future<void> _loadVehicles() async {
     final List<VehicleModel> fetched =
-        await VehicleService.getDevices(forceRefresh: true);
+        await VehicleService.getDevices(forceRefresh: false);
     if (!mounted) {
       return;
     }

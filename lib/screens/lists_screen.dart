@@ -9,14 +9,20 @@ import '../models/vehicle_model.dart';
 import '../l10n/app_l10n.dart';
 import '../services/vehicle_service.dart';
 import '../theme/app_theme_tokens.dart';
+import '../utils/vehicle_refresh_utils.dart';
 import '../widgets/status_card.dart';
 import '../widgets/vehicle_card.dart';
 import 'notifications_screen.dart';
 
 class ListScreen extends StatefulWidget {
   final String initialFilter;
+  final bool isVisible;
 
-  const ListScreen({super.key, this.initialFilter = 'all'});
+  const ListScreen({
+    super.key,
+    this.initialFilter = 'all',
+    this.isVisible = true,
+  });
 
   @override
   State<ListScreen> createState() => _ListScreenState();
@@ -27,10 +33,15 @@ class _ListScreenState extends State<ListScreen> {
   bool _isSearchVisible = false;
   bool _isLoading = true;
   List<VehicleModel> _vehicles = VehicleData.vehicles;
+  List<VehicleModel> _visibleVehicles = VehicleData.vehicles;
+  Map<String, int> _statusCounts = <String, int>{'all': 0};
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   Timer? _searchDebounce;
+  Timer? _refreshTimer;
+
+  static const Duration _refreshInterval = Duration(seconds: 15);
 
   static const List<String> _validFilters = <String>[
     'all',
@@ -45,14 +56,38 @@ class _ListScreenState extends State<ListScreen> {
   void initState() {
     super.initState();
     selectedFilter = _normalizeFilter(widget.initialFilter);
-    _isLoading = _vehicles.isEmpty;
-    _fetchVehicles();
+    if (VehicleData.vehicles.isNotEmpty) {
+      _vehicles = VehicleData.vehicles;
+      _isLoading = false;
+      _recomputeDerivedLists();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _fetchVehicles(isRefresh: false);
+        }
+      });
+    } else {
+      _isLoading = true;
+      _recomputeDerivedLists();
+      _fetchVehicles();
+    }
+    if (widget.isVisible) {
+      _startAutoRefresh();
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         return;
       }
       _precacheVehicleImages();
     });
+  }
+
+  void _recomputeDerivedLists() {
+    _statusCounts = VehicleRefreshUtils.computeStatusCounts(_vehicles);
+    _visibleVehicles = VehicleRefreshUtils.filterVehicles(
+      vehicles: _vehicles,
+      selectedFilter: selectedFilter,
+      searchQuery: _searchQuery,
+    );
   }
 
   Future<void> _fetchVehicles({bool isRefresh = false}) async {
@@ -66,15 +101,28 @@ class _ListScreenState extends State<ListScreen> {
       final List<VehicleModel> data =
           await VehicleService.getDevices(forceRefresh: isRefresh);
       if (!mounted) return;
+
+      final bool changed =
+          VehicleRefreshUtils.listDisplayChanged(_vehicles, data);
+      if (!changed) {
+        if (_isLoading) {
+          setState(() => _isLoading = false);
+        }
+        return;
+      }
+
       setState(() {
         _vehicles = data;
         _isLoading = false;
+        _recomputeDerivedLists();
       });
     } catch (_) {
       if (!mounted) return;
+      if (_vehicles.isNotEmpty && _isLoading == false) return;
       setState(() {
         _vehicles = VehicleData.vehicles;
         _isLoading = false;
+        _recomputeDerivedLists();
       });
     }
   }
@@ -91,13 +139,29 @@ class _ListScreenState extends State<ListScreen> {
       AppImages.inactiveLock,
     ];
     for (final String asset in assets) {
-      precacheImage(AssetImage(asset), context);
+      precacheImage(
+        ResizeImage(AssetImage(asset), width: 96, height: 96),
+        context,
+      );
     }
+  }
+
+  void _startAutoRefresh() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(_refreshInterval, (_) {
+      _fetchVehicles(isRefresh: true);
+    });
+  }
+
+  void _stopAutoRefresh() {
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
   }
 
   @override
   void dispose() {
     _searchDebounce?.cancel();
+    _stopAutoRefresh();
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
@@ -107,12 +171,22 @@ class _ListScreenState extends State<ListScreen> {
   void didUpdateWidget(covariant ListScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
 
+    if (oldWidget.isVisible != widget.isVisible) {
+      if (widget.isVisible) {
+        _fetchVehicles(isRefresh: true);
+        _startAutoRefresh();
+      } else {
+        _stopAutoRefresh();
+      }
+    }
+
     if (oldWidget.initialFilter != widget.initialFilter) {
       final String newFilter = _normalizeFilter(widget.initialFilter);
 
       if (selectedFilter != newFilter) {
         setState(() {
           selectedFilter = newFilter;
+          _recomputeDerivedLists();
         });
       }
     }
@@ -137,43 +211,16 @@ class _ListScreenState extends State<ListScreen> {
 
     setState(() {
       selectedFilter = normalizedFilter;
+      _recomputeDerivedLists();
     });
   }
 
-  bool _matchesFilter(VehicleModel vehicle) {
-    final String status = vehicle.status.trim().toLowerCase();
-
-    if (selectedFilter == 'all') {
-      return true;
-    }
-
-    if (selectedFilter == 'inactive') {
-      return status == 'inactive' || status == 'not reporting';
-    }
-
-    if (selectedFilter == 'expired') {
-      return status == 'expired';
-    }
-
-    return status == selectedFilter;
-  }
-
-  List<VehicleModel> get _filteredVehicles {
-    final String query = _searchQuery.trim().toLowerCase();
-
-    return _vehicles.where((VehicleModel vehicle) {
-      if (!_matchesFilter(vehicle)) {
-        return false;
-      }
-
-      if (query.isEmpty) {
-        return true;
-      }
-
-      return vehicle.name.toLowerCase().contains(query) ||
-          vehicle.location.toLowerCase().contains(query) ||
-          vehicle.status.toLowerCase().contains(query);
-    }).toList(growable: false);
+  void _updateSearchQuery(String value) {
+    if (_searchQuery == value) return;
+    setState(() {
+      _searchQuery = value;
+      _recomputeDerivedLists();
+    });
   }
 
   void _toggleSearch() {
@@ -183,6 +230,7 @@ class _ListScreenState extends State<ListScreen> {
         _searchController.clear();
         _searchQuery = '';
         _searchFocusNode.unfocus();
+        _recomputeDerivedLists();
       }
     });
 
@@ -195,53 +243,19 @@ class _ListScreenState extends State<ListScreen> {
     }
   }
 
-  Map<String, int> get _statusCounts {
-    int running = 0;
-    int idle = 0;
-    int stopped = 0;
-    int expired = 0;
-    int inactive = 0;
-
-    for (final VehicleModel vehicle in _vehicles) {
-      final String value = vehicle.status.trim().toLowerCase();
-      if (value == 'running') {
-        running++;
-      } else if (value == 'idle') {
-        idle++;
-      } else if (value == 'stopped') {
-        stopped++;
-      } else if (value == 'expired') {
-        expired++;
-      } else if (value == 'inactive' || value == 'not reporting') {
-        inactive++;
-      }
-    }
-
-    return <String, int>{
-      'all': _vehicles.length,
-      'running': running,
-      'idle': idle,
-      'stopped': stopped,
-      'expired': expired,
-      'inactive': inactive,
-    };
-  }
-
   void _onSearchChanged(String value) {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 120), () {
       if (!mounted) {
         return;
       }
-      setState(() {
-        _searchQuery = value;
-      });
+      _updateSearchQuery(value);
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final List<VehicleModel> vehicles = _filteredVehicles;
+    final List<VehicleModel> vehicles = _visibleVehicles;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -410,9 +424,7 @@ class _ListScreenState extends State<ListScreen> {
                     onPressed: () {
                       _searchDebounce?.cancel();
                       _searchController.clear();
-                      setState(() {
-                        _searchQuery = '';
-                      });
+                      _updateSearchQuery('');
                     },
                     icon: Icon(
                       Icons.close,
@@ -486,19 +498,23 @@ class _ListScreenState extends State<ListScreen> {
 
   Widget _buildVehicleList(List<VehicleModel> vehicles) {
     return ListView.builder(
-      physics: const AlwaysScrollableScrollPhysics(
-        parent: ClampingScrollPhysics(),
+      physics: const ClampingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
       ),
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-      cacheExtent: 280,
+      cacheExtent: 480,
       addAutomaticKeepAlives: false,
+      addRepaintBoundaries: true,
       itemCount: vehicles.length,
       itemBuilder: (BuildContext context, int index) {
         final VehicleModel vehicle = vehicles[index];
+        final String itemKey = vehicle.id != null
+            ? 'vehicle_${vehicle.id}'
+            : 'vehicle_${vehicle.name}';
 
         return RepaintBoundary(
           child: VehicleCard(
-            key: ValueKey<String>('${vehicle.name}_$index'),
+            key: ValueKey<String>(itemKey),
             vehicle: vehicle,
           ),
         );

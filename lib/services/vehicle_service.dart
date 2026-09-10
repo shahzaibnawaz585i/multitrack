@@ -11,9 +11,38 @@ import 'reverse_geocoding_service.dart';
 class VehicleService {
   VehicleService._();
 
+  static Future<List<VehicleModel>>? _inFlight;
+  static DateTime? _lastSuccessfulFetch;
+  static const Duration _cacheTtl = Duration(seconds: 5);
+  static bool _geocodingInFlight = false;
+  static const int _maxGeocodePerFetch = 6;
+
   /// Fetches vehicles/devices from `{baseUrl}/api/get_devices`.
   /// Falls back to local/cached data if remote server is not configured or in case of error.
   static Future<List<VehicleModel>> getDevices({bool forceRefresh = false}) async {
+    if (!forceRefresh &&
+        _lastSuccessfulFetch != null &&
+        DateTime.now().difference(_lastSuccessfulFetch!) < _cacheTtl &&
+        VehicleData.vehicles.isNotEmpty) {
+      return VehicleData.vehicles;
+    }
+
+    if (_inFlight != null) {
+      return _inFlight!;
+    }
+
+    final Future<List<VehicleModel>> request = _fetchDevices();
+    _inFlight = request;
+    try {
+      return await request;
+    } finally {
+      if (identical(_inFlight, request)) {
+        _inFlight = null;
+      }
+    }
+  }
+
+  static Future<List<VehicleModel>> _fetchDevices() async {
     final String server = await AuthService.server();
     final String? token = await AuthService.token();
 
@@ -49,6 +78,7 @@ class VehicleService {
         _resolveMissingAddresses(parsedDevices, server: server, token: token);
       }
 
+      _lastSuccessfulFetch = DateTime.now();
       return parsedDevices;
     } catch (e, stack) {
       if (kDebugMode) {
@@ -69,27 +99,47 @@ class VehicleService {
     required String server,
     String? token,
   }) {
-    // Fire and forget batch reverse geocoding in background
+    if (_geocodingInFlight) return;
+    _geocodingInFlight = true;
+
     Future.microtask(() async {
-      for (int i = 0; i < devices.length; i++) {
-        final VehicleModel dev = devices[i];
-        if (dev.location == 'Location not available' &&
-            dev.latitude != null &&
-            dev.longitude != null &&
-            (dev.latitude != 0.0 || dev.longitude != 0.0)) {
-          final String resolved = await ReverseGeocodingService.resolveAddress(
-            lat: dev.latitude!,
-            lng: dev.longitude!,
-            server: server,
-            token: token,
-          );
-          if (resolved.isNotEmpty && resolved != 'Location not available') {
-            devices[i] = dev.copyWith(location: resolved);
+      try {
+        int resolved = 0;
+        for (int i = 0; i < devices.length; i++) {
+          if (resolved >= _maxGeocodePerFetch) break;
+
+          final VehicleModel dev = devices[i];
+          if (dev.location == 'Location not available' &&
+              dev.latitude != null &&
+              dev.longitude != null &&
+              (dev.latitude != 0.0 || dev.longitude != 0.0)) {
+            final String address = await ReverseGeocodingService.resolveAddress(
+              lat: dev.latitude!,
+              lng: dev.longitude!,
+              server: server,
+              token: token,
+            );
+            resolved++;
+            if (address.isNotEmpty && address != 'Location not available') {
+              devices[i] = dev.copyWith(location: address);
+            }
           }
         }
+        VehicleData.vehicles = devices;
+      } finally {
+        _geocodingInFlight = false;
       }
-      VehicleData.vehicles = devices;
     });
+  }
+
+  /// Returns a device from the in-memory cache without triggering a network call.
+  static VehicleModel? findCachedDevice(int deviceId) {
+    for (final VehicleModel vehicle in VehicleData.vehicles) {
+      if (vehicle.id == deviceId) {
+        return vehicle;
+      }
+    }
+    return null;
   }
 
   static List<VehicleModel> _parseDevices(dynamic response) {

@@ -105,10 +105,64 @@ class AlertService {
     }
   }
 
-  /// Alert types are configured locally; the Nostrum/Fleet Wox server has no
-  /// `/api/alert-types` endpoint.
+  /// Fetches alert type labels from `{baseUrl}/api/alert-types`.
   static Future<List<String>> getAlertTypes() async {
-    return <String>[];
+    final String server = await AuthService.server();
+    final String? token = await AuthService.token();
+
+    if (!ApiConfig.usesRemoteApi(server) || token == null || token.isEmpty) {
+      return <String>[];
+    }
+
+    try {
+      final dynamic response = await ApiClient.getOptional(
+        ApiConfig.alertTypesUri(server, token: token),
+        token: token,
+      );
+      if (response == null) {
+        return <String>[];
+      }
+      return _parseAlertTypeLabels(response);
+    } catch (_) {
+      return <String>[];
+    }
+  }
+
+  static List<String> _parseAlertTypeLabels(dynamic response) {
+    final List<String> labels = <String>[];
+    void addLabel(dynamic value) {
+      if (value == null) return;
+      final String label = value.toString().trim();
+      if (label.isNotEmpty && !labels.contains(label)) {
+        labels.add(label);
+      }
+    }
+
+    if (response is List) {
+      for (final dynamic item in response) {
+        if (item is Map) {
+          addLabel(item['name'] ?? item['title'] ?? item['type'] ?? item['label']);
+        } else {
+          addLabel(item);
+        }
+      }
+    } else if (response is Map) {
+      if (response['items'] is List) {
+        return _parseAlertTypeLabels(response['items']);
+      }
+      if (response['data'] is List) {
+        return _parseAlertTypeLabels(response['data']);
+      }
+      if (response['types'] is List) {
+        return _parseAlertTypeLabels(response['types']);
+      }
+      for (final dynamic value in response.values) {
+        if (value is List) {
+          labels.addAll(_parseAlertTypeLabels(value));
+        }
+      }
+    }
+    return labels;
   }
 
   /// Saves alert configuration for a device via `POST /api/alerts`.

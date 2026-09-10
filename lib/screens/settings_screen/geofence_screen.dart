@@ -126,6 +126,10 @@ class _GeofenceScreenState extends State<GeofenceScreen> {
         ),
       );
 
+      if (!mounted) {
+        return;
+      }
+
       final LatLng target = LatLng(position.latitude, position.longitude);
       setState(() {
         _mapCenter = target;
