@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'dart:async';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../l10n/app_l10n.dart';
 import '../models/vehicle_model.dart';
 import '../services/history_service.dart';
+import 'vehicle_history_screen.dart';
 import '../services/live_route_service.dart';
 import '../services/tracking_api_service.dart';
 import '../services/vehicle_service.dart';
@@ -16,8 +18,9 @@ import '../controllers/vehicle_track_controller.dart';
 import '../services/road_route_service.dart';
 import '../utils/map_arrow_icon.dart';
 import '../theme/app_theme_tokens.dart';
-import 'notifications_screen.dart'; 
+import 'notifications_screen.dart';
 import 'notification_filter_screen.dart';
+import 'send_command_screen.dart';
 
 class VehicleDetailScreen extends StatefulWidget {
   final int? deviceId;
@@ -34,6 +37,26 @@ class VehicleDetailScreen extends StatefulWidget {
   final double? latitude;
   final double? longitude;
   final List<VehicleTrackPoint> initialTail;
+  final String? deviceTime;
+  final String? serverTime;
+  final String? runningDuration;
+  final String? stopDuration;
+  final String? idleDuration;
+  final String? inactiveDuration;
+  final String? fuelMileage;
+  final String? fuelConsumption;
+  final String? fuelCost;
+  final String? avgSpeed;
+  final String? maxSpeed;
+  final String? devBattery;
+  final String? engineHours;
+  final String? carBattery;
+  final String? satellites;
+  final String? fuelLevel;
+  final String? accuracy;
+  final String? temperature;
+  final String? movement;
+  final VehicleModel? vehicle;
 
   const VehicleDetailScreen({
     super.key,
@@ -51,6 +74,26 @@ class VehicleDetailScreen extends StatefulWidget {
     this.latitude,
     this.longitude,
     this.initialTail = const <VehicleTrackPoint>[],
+    this.deviceTime,
+    this.serverTime,
+    this.runningDuration,
+    this.stopDuration,
+    this.idleDuration,
+    this.inactiveDuration,
+    this.fuelMileage,
+    this.fuelConsumption,
+    this.fuelCost,
+    this.avgSpeed,
+    this.maxSpeed,
+    this.devBattery,
+    this.engineHours,
+    this.carBattery,
+    this.satellites,
+    this.fuelLevel,
+    this.accuracy,
+    this.temperature,
+    this.movement,
+    this.vehicle,
   });
 
   @override
@@ -61,19 +104,9 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
     with TickerProviderStateMixin {
   // ─── UI state ─────────────────────────────────────────────────────────────
   int _currentBottomIndex = 0;
-  final Set<int> _loadedDetailTabs = <int>{0};
-
   final ValueNotifier<double> _sheetProgress = ValueNotifier<double>(0.0);
-  final ValueNotifier<double> _historyPanelTop = ValueNotifier<double>(0.0);
   final GlobalKey<_LiveVehicleMapState> _liveMapKey =
       GlobalKey<_LiveVehicleMapState>();
-
-  bool _historyLoading = false;
-  bool _historyLoaded = false;
-  HistoryRoute _historyRoute = const HistoryRoute(points: <HistoryPoint>[]);
-  final DateTime _historyFrom =
-      DateTime.now().subtract(const Duration(hours: 1));
-  final DateTime _historyTo = DateTime.now();
 
   // ─── Map / camera ─────────────────────────────────────────────────────────
   GoogleMapController? _mapController;
@@ -93,8 +126,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
 
   // ─── API polling ──────────────────────────────────────────────────────────
   Timer? _pollTimer;
-  final ValueNotifier<double> _historySliderValue = ValueNotifier<double>(0.0);
-  final ValueNotifier<bool> _isHistoryPlaying = ValueNotifier<bool>(false);
 
   // ─── Cached arrow marker ──────────────────────────────────────────────────
   BitmapDescriptor? _arrowIcon;
@@ -249,7 +280,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _disposed) return;
       final double screenHeight = MediaQuery.sizeOf(context).height;
-      _historyPanelTop.value = screenHeight * 0.65;
       _primeMapVisuals();
       _loadArrowIcon();
       _bootstrapLiveRoute();
@@ -314,7 +344,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
   }
 
   void _primeMapVisuals() {
-    if (_disposed || !mounted) return;
+    if (_disposed || !mounted || _currentBottomIndex != 0) return;
     _liveMapKey.currentState?.updateMarker(
       position: _renderPos,
       bearing: _renderBearing,
@@ -328,7 +358,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
   }
 
   void _onSegmentFrame(LatLng position, double bearing) {
-    if (_disposed || !mounted) return;
+    if (_disposed || !mounted || _currentBottomIndex != 0) return;
     _renderPos = position;
     _renderBearing = bearing;
     _carLocation = _renderPos;
@@ -349,6 +379,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
   }
 
   void _pushTrailToMap({bool force = false}) {
+    if (_currentBottomIndex != 0) return;
     final List<LatLng> trail = _trailForMap();
     if (trail.length < 2) return;
     _trailDirty = false;
@@ -502,7 +533,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
   }
 
   Future<void> _refreshLivePosition() async {
-    if (widget.deviceId == null || !mounted || _disposed || _pollInFlight) {
+    if (widget.deviceId == null ||
+        !mounted ||
+        _disposed ||
+        _pollInFlight ||
+        _currentBottomIndex != 0) {
       return;
     }
     _pollInFlight = true;
@@ -611,37 +646,174 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
   // ─── Tab management ────────────────────────────────────────────────────────
   void _selectTab(int index) {
     if (_currentBottomIndex == index) return;
-    setState(() {
-      _currentBottomIndex = index;
-      _loadedDetailTabs.add(index);
-    });
+    setState(() => _currentBottomIndex = index);
     if (index == 0) {
+      _trackController.onFrame = _onSegmentFrame;
       _startLiveTracking();
     } else {
+      _trackController.onFrame = null;
       _stopLiveTracking();
-      if (index == 1 && !_historyLoaded) {
-        _loadHistory();
-      }
     }
   }
 
-  // ─── History ──────────────────────────────────────────────────────────────
-  Future<void> _loadHistory({bool force = false}) async {
-    if (widget.deviceId == null) return;
-    if (!force && _historyLoaded) return;
-    setState(() => _historyLoading = true);
-    final HistoryRoute route = await HistoryService.getRoute(
-      deviceId: widget.deviceId!,
-      from: _historyFrom,
-      to: _historyTo,
+  Widget _buildDetailBody(Color accentColor) {
+    switch (_currentBottomIndex) {
+      case 1:
+        return VehicleHistoryScreen(
+          key: const ValueKey<String>('vehicle_detail_history_tab'),
+          deviceId: widget.deviceId ?? widget.vehicle?.id,
+          name: widget.name,
+          accentColor: widget.color,
+          fallbackLocation: widget.location,
+          onClose: () => _selectTab(0),
+        );
+      case 2:
+        return NotificationsScreen(
+          key: const ValueKey<String>('vehicle_detail_alerts'),
+          showAlertsOnly: true,
+          vehicleName: widget.name,
+          deviceId: widget.deviceId,
+        );
+      case 3:
+        return _VehicleStatisticsTab(
+          key: const ValueKey<String>('vehicle_detail_statistics'),
+          vehicleName: widget.name,
+          onBack: () => _selectTab(0),
+        );
+      case 0:
+      default:
+        return _buildTrackView();
+    }
+  }
+
+  LatLng _nearbyAnchor() {
+    if (_renderPos.latitude != 0 || _renderPos.longitude != 0) {
+      return _renderPos;
+    }
+    final double? lat = widget.latitude;
+    final double? lng = widget.longitude;
+    if (lat != null && lng != null) {
+      return LatLng(lat, lng);
+    }
+    return _carLocation;
+  }
+
+  Future<void> _openNearbyOnMaps(String placeQuery) async {
+    final LatLng pos = _nearbyAnchor();
+    if (pos.latitude == 0 && pos.longitude == 0) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.tr('Location not available'))),
+      );
+      return;
+    }
+    final String encoded = Uri.encodeComponent(placeQuery);
+    final Uri uri = Uri.parse(
+      'https://www.google.com/maps/search/$encoded/@${pos.latitude},${pos.longitude},15z',
     );
-    if (!mounted) return;
-    setState(() {
-      _historyLoading = false;
-      _historyLoaded = true;
-      _historyRoute   = route;
-      if (route.points.isNotEmpty) _historySliderValue.value = 0;
-    });
+    try {
+      if (!await canLaunchUrl(uri)) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.tr('Could not open maps'))),
+        );
+        return;
+      }
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.tr('Could not open maps'))),
+      );
+    }
+  }
+
+  int? get _commandDeviceId => widget.deviceId ?? widget.vehicle?.id;
+
+  void _openEngineCommands() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => SendCommandScreen(
+          vehicleName: widget.name,
+          deviceId: _commandDeviceId,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmEngineCommand(String commandType, String actionTitle) async {
+    if (_commandDeviceId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.tr('Device not available'))),
+      );
+      return;
+    }
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(
+            actionTitle,
+            style: const TextStyle(
+              color: Color(0xFFFF5364),
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
+          ),
+          content: Text(
+            ctx.tr('Do you want to Stop/Resume Engine?'),
+            style: TextStyle(fontSize: 14, color: ctx.textColor),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(
+                context.tr('CANCEL'),
+                style: const TextStyle(
+                  color: Color(0xFF1F2937),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(
+                context.tr('OK'),
+                style: const TextStyle(
+                  color: Color(0xFF1F2937),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await TrackingApiService.sendCommandData(<String, dynamic>{
+        'device_id': _commandDeviceId,
+        'type': commandType,
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$actionTitle ${context.tr('command sent successfully')}'),
+          backgroundColor: const Color(0xFF10B981),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(context.tr('Failed to send command')),
+          backgroundColor: const Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   Future<void> _shareLocation() async {
@@ -666,16 +838,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
   void dispose() {
     _disposed = true;
     _stopLiveTracking();
+    _trackController.onFrame = null;
     _trackController.dispose();
-    _mapController?.dispose();
     _mapController = null;
     _sheetProgress.dispose();
-    _historyPanelTop.dispose();
     _liveStatus.dispose();
     _liveSpeed.dispose();
     _liveOdometer.dispose();
-    _historySliderValue.dispose();
-    _isHistoryPlaying.dispose();
     super.dispose();
   }
 
@@ -684,44 +853,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
   Widget build(BuildContext context) {
     final Color accentColor = Theme.of(context).colorScheme.primary;
     final Color mutedColor = context.mutedTextColor;
-    final double screenHeight = MediaQuery.of(context).size.height;
-
-    final double maxTopLimit = 120.0;
-    final double bottomLimit = screenHeight * 0.8;
-
     return Scaffold(
-      body: IndexedStack(
-        index: _currentBottomIndex,
-        children: <Widget>[
-          Offstage(
-            offstage: _currentBottomIndex != 0,
-            child: _buildTrackView(),
-          ),
-          _loadedDetailTabs.contains(1)
-              ? _buildHistoryView(
-                  maxTopLimit,
-                  bottomLimit,
-                  screenHeight,
-                  accentColor,
-                )
-              : const SizedBox.shrink(),
-          _loadedDetailTabs.contains(2)
-              ? NotificationsScreen(
-                  key: const ValueKey<String>('vehicle_detail_alerts'),
-                  showAlertsOnly: true,
-                  vehicleName: widget.name,
-                  deviceId: widget.deviceId,
-                )
-              : const SizedBox.shrink(),
-          _loadedDetailTabs.contains(3)
-              ? _VehicleStatisticsTab(
-                  key: const ValueKey<String>('vehicle_detail_statistics'),
-                  vehicleName: widget.name,
-                  onBack: () => _selectTab(0),
-                )
-              : const SizedBox.shrink(),
-        ],
-      ),
+      body: _buildDetailBody(accentColor),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 10)],
@@ -809,7 +942,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
                 },
               ),
               const SizedBox(height: 12),
-              _floatingMapButton(Icons.lock, Colors.green, () {}),
+              _floatingMapButton(Icons.lock, Colors.green, _openEngineCommands),
               const SizedBox(height: 12),
               _floatingMapButton(Icons.local_parking, Colors.red, () {}),
             ],
@@ -985,6 +1118,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
                                 ),
                               ),
                               const SizedBox(height: 14),
+                              _buildNearbyEngineCard(textColor, mutedColor),
+                              const SizedBox(height: 14),
                               _buildQuickActionsCard(textColor, mutedColor),
                             ],
                           ),
@@ -1087,199 +1222,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
     );
   }
 
-  /// --- HISTORY VIEW ---
-  Widget _buildHistoryView(double maxTop, double bottomLimit, double screenHeight, Color accentColor) {
-    final Color textColor = context.textColor;
-
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: context.containerColor,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios, color: accentColor, size: 22),
-          onPressed: () => _selectTab(0),
-        ),
-        titleSpacing: 0,
-        title: Text(
-          widget.name.isNotEmpty ? widget.name : "KL45Q8460",
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textColor),
-        ),
-        actions: [
-          PopupMenuButton<String>(
-            position: PopupMenuPosition.over,
-            offset: const Offset(0, -310),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-            constraints: const BoxConstraints(minWidth: 100, maxWidth: 100, minHeight: 300, maxHeight: 300),
-            onSelected: (value) {},
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-              decoration: BoxDecoration(color: context.containerColor, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))]),
-              child: Row(
-                children: [
-                  Text(context.tr("Today"), style: TextStyle(color: Colors.grey.shade700, fontSize: 13, fontWeight: FontWeight.w600)),
-                  const SizedBox(width: 4),
-                  Icon(Icons.keyboard_arrow_down, color: accentColor, size: 20),
-                ],
-              ),
-            ),
-            itemBuilder: (context) => [
-              PopupMenuItem(value: "1h", height: 60, child: Center(child: Text(context.tr("1 Hour"), style: const TextStyle(fontSize: 12)))),
-              PopupMenuItem(value: "today", height: 60, child: Center(child: Text(context.tr("Today"), style: const TextStyle(fontSize: 12)))),
-              PopupMenuItem(value: "yesterday", height: 60, child: Center(child: Text(context.tr("Yesterday"), style: const TextStyle(fontSize: 12)))),
-              PopupMenuItem(value: "week", height: 60, child: Center(child: Text(context.tr("Week"), style: const TextStyle(fontSize: 12)))),
-              PopupMenuItem(value: "custom", height: 60, child: Center(child: Text(context.tr("Custom"), style: const TextStyle(fontSize: 12)))),
-            ],
-          ),
-          const SizedBox(width: 12),
-          IconButton(
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-            icon: Icon(Icons.filter_alt_outlined, color: accentColor, size: 26),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationFilterScreen())),
-          ),
-          const SizedBox(width: 16),
-        ],
-      ),
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: RepaintBoundary(
-              child: _HistoryMap(route: _historyRoute),
-            ),
-          ),
-          if (_historyLoading)
-            const Positioned.fill(
-              child: ColoredBox(
-                color: Color(0x55000000),
-                child: Center(child: CircularProgressIndicator()),
-              ),
-            ),
-          Positioned(top: 130, left: 16, child: Column(children: [_floatingMapButton(Icons.map_outlined, context.textColor, () {}), const SizedBox(height: 12), _floatingMapButton(Icons.settings_outlined, context.textColor, () {})])),
-          Positioned(
-            top: 320, right: 16,
-            child: Column(
-              children: [
-                _floatingMapButton(Icons.anchor, context.textColor, () {}), const SizedBox(height: 12),
-                _floatingMapButton(Icons.local_parking, accentColor, () {}), const SizedBox(height: 12),
-                _floatingMapButton(Icons.my_location, context.textColor, () {}), const SizedBox(height: 12),
-                Container(
-                  width: 38,
-                  decoration: BoxDecoration(color: context.containerColor, borderRadius: BorderRadius.circular(8), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)]),
-                  child: Column(children: [SizedBox(height: 38, width: 38, child: IconButton(padding: EdgeInsets.zero, icon: Icon(Icons.add, size: 22, color: context.textColor), onPressed: () {})), Container(width: 25, height: 1, color: Colors.grey.withOpacity(0.2)), SizedBox(height: 38, width: 38, child: IconButton(padding: EdgeInsets.zero, icon: Icon(Icons.remove, size: 22, color: context.textColor), onPressed: () {}))]),
-                ),
-              ],
-            ),
-          ),
-          ValueListenableBuilder<double>(
-            valueListenable: _historyPanelTop,
-            builder: (BuildContext context, double top, Widget? child) {
-              return Positioned(
-                top: top,
-                left: 0,
-                right: 0,
-                child: child!,
-              );
-            },
-            child: GestureDetector(
-              onVerticalDragUpdate: (DragUpdateDetails details) {
-                _historyPanelTop.value =
-                    (_historyPanelTop.value + details.delta.dy)
-                        .clamp(maxTop, bottomLimit);
-              },
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(color: Colors.black.withOpacity(0.12), borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16))),
-                padding: EdgeInsets.fromLTRB(10, screenHeight * 0.05, 10, 20),
-                child: Container(
-                  width: double.infinity, padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(color: context.containerColor, borderRadius: BorderRadius.circular(26), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 15, offset: const Offset(0, -4))]),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [_historyDateLabel(context.tr("From :"), widget.date.isNotEmpty ? widget.date : "29 Jul 2026", accentColor, alignStart: true), Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: accentColor, borderRadius: BorderRadius.circular(15)), child: Text(widget.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11))), _historyDateLabel(context.tr("To :"), widget.date.isNotEmpty ? widget.date : "29 Jul 2026", accentColor, alignStart: false)]),
-                      const SizedBox(height: 14), Divider(height: 1, thickness: 0.8, color: context.mutedTextColor.withOpacity(0.3)), const SizedBox(height: 14),
-                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [_historyStatItem(Icons.speed, "${_historyRoute.avgSpeed?.toStringAsFixed(0) ?? widget.speed} ${context.tr('kmph')}", accentColor), _historyStatItem(Icons.access_time_filled_outlined, _historyRoute.durationLabel ?? "00:00 Hrs", accentColor), _historyStatItem(Icons.route_outlined, "${_historyRoute.distanceKm?.toStringAsFixed(1) ?? widget.distance} km", accentColor)]),
-                      const SizedBox(height: 16),
-                      Stack(
-                        children: [
-                          Container(height: 40, width: double.infinity, decoration: BoxDecoration(color: context.mutedTextColor.withOpacity(0.1), borderRadius: BorderRadius.circular(20))),
-                          ValueListenableBuilder<double>(
-                            valueListenable: _historySliderValue,
-                            builder: (BuildContext context, double sliderValue, _) {
-                              return SliderTheme(
-                                data: SliderTheme.of(context).copyWith(trackHeight: 40, thumbShape: SliderComponentShape.noThumb, overlayShape: SliderComponentShape.noOverlay, activeTrackColor: accentColor.withOpacity(0.15), inactiveTrackColor: Colors.transparent),
-                                child: Slider(
-                                  value: sliderValue,
-                                  onChanged: (double v) => _historySliderValue.value = v,
-                                ),
-                              );
-                            },
-                          ),
-                          Positioned.fill(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              child: Row(
-                                children: [
-                                  ValueListenableBuilder<bool>(
-                                    valueListenable: _isHistoryPlaying,
-                                    builder: (BuildContext context, bool playing, _) {
-                                      return GestureDetector(
-                                        onTap: () => _isHistoryPlaying.value = !playing,
-                                        child: Icon(
-                                          playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
-                                          color: accentColor,
-                                          size: 30,
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(child: Text("00:00:00 / 01:20:00", style: TextStyle(color: context.mutedTextColor, fontSize: 12, fontWeight: FontWeight.w600))),
-                                  PopupMenuButton<String>(
-                                    offset: const Offset(0, -180),
-                                    onSelected: (v) {},
-                                    child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: accentColor, borderRadius: BorderRadius.circular(12)), child: const Text("1.0x", style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold))),
-                                    itemBuilder: (context) => ["0.5x", "1.0x", "1.5x", "2.0x"].map((s) => PopupMenuItem(value: s, child: Text(s))).toList(),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// --- HELPER WIDGETS ---
-  Widget _historyDateLabel(String label, String date, Color color, {required bool alignStart}) {
-    return Column(
-      crossAxisAlignment: alignStart ? CrossAxisAlignment.start : CrossAxisAlignment.end,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
-        Text(date, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color)),
-      ],
-    );
-  }
-
-  Widget _historyStatItem(IconData icon, String value, Color color) {
-    return Row(
-      children: [
-        Icon(icon, color: color, size: 16),
-        const SizedBox(width: 4),
-        Text(value, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: context.textColor)),
-      ],
-    );
-  }
 
   Widget _floatingMapButton(IconData icon, Color iconColor, VoidCallback onTap) {
     return InkWell(
@@ -1330,15 +1272,24 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
               ],
             ),
             const SizedBox(width: 8),
-            ...digits.map(
-              (String digit) => _buildOdometerDigit(context, digit),
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                child: Row(
+                  children: [
+                    ...digits.map(
+                      (String digit) => _buildOdometerDigit(context, digit),
+                    ),
+                    _miniIconBadge(Icons.severe_cold, Colors.pink),
+                    _miniIconBadge(Icons.satellite_alt, Colors.green),
+                    _miniIconBadge(Icons.power_settings_new, Colors.green),
+                    _miniIconBadge(Icons.vpn_key, Colors.green),
+                    _miniIconBadge(Icons.battery_charging_full, Colors.green),
+                  ],
+                ),
+              ),
             ),
-            const Spacer(),
-            _miniIconBadge(Icons.severe_cold, Colors.pink),
-            _miniIconBadge(Icons.satellite_alt, Colors.green),
-            _miniIconBadge(Icons.power_settings_new, Colors.green),
-            _miniIconBadge(Icons.vpn_key, Colors.green),
-            _miniIconBadge(Icons.battery_charging_full, Colors.green),
           ],
         );
       },
@@ -1621,6 +1572,81 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
     );
   }
 
+  Widget _buildNearbyEngineCard(Color textColor, Color mutedColor) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 14),
+      decoration: BoxDecoration(
+        color: context.containerColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: context.appTokens.containerBorderColor ??
+              mutedColor.withValues(alpha: 0.25),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            context.tr('Near By'),
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: textColor,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: Row(
+              children: [
+                _buildActionButton(
+                  Icons.account_balance,
+                  Colors.indigo,
+                  'Near by\nATM',
+                  onTap: () => _openNearbyOnMaps('ATM'),
+                ),
+                _buildActionButton(
+                  Icons.local_hospital,
+                  Colors.pinkAccent,
+                  'Near by\nHospital',
+                  onTap: () => _openNearbyOnMaps('Hospital'),
+                ),
+                _buildActionButton(
+                  Icons.local_gas_station,
+                  Colors.teal,
+                  'Near by\nPetrol',
+                  onTap: () => _openNearbyOnMaps('Petrol pump'),
+                ),
+                _buildActionButton(
+                  Icons.stop_circle,
+                  const Color(0xFFFF5252),
+                  'Stop\nEngine',
+                  onTap: () =>
+                      _confirmEngineCommand('engineStop', 'Stop Engine'),
+                ),
+                _buildActionButton(
+                  Icons.play_circle_fill,
+                  const Color(0xFF4CAF50),
+                  'Resume\nEngine',
+                  onTap: () =>
+                      _confirmEngineCommand('engineResume', 'Resume Engine'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildQuickActionsCard(Color textColor, Color mutedColor) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
@@ -1744,88 +1770,6 @@ const List<_StatItem> _statItems = <_StatItem>[
   _StatItem('Odometer', '28152.79 km', 'assets/odometer.png'),
   _StatItem('Engine hours', '00:00:00', 'assets/engine_work.png'),
 ];
-
-class _HistoryMap extends StatefulWidget {
-  const _HistoryMap({required this.route});
-
-  final HistoryRoute route;
-
-  @override
-  State<_HistoryMap> createState() => _HistoryMapState();
-}
-
-class _HistoryMapState extends State<_HistoryMap> {
-  Set<Polyline> _polylines = const <Polyline>{};
-  Set<Marker> _markers = const <Marker>{};
-  List<LatLng> _points = const <LatLng>[];
-
-  @override
-  void initState() {
-    super.initState();
-    _applyRoute(widget.route);
-  }
-
-  @override
-  void didUpdateWidget(covariant _HistoryMap oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.route != widget.route) {
-      _applyRoute(widget.route);
-    }
-  }
-
-  void _applyRoute(HistoryRoute route) {
-    _points = route.points.map((HistoryPoint p) => p.position).toList();
-    if (_points.length >= 2) {
-      _polylines = <Polyline>{
-        Polyline(
-          polylineId: const PolylineId('history_route'),
-          points: _points,
-          color: const Color(0xFFF53D6B),
-          width: 4,
-        ),
-      };
-    } else {
-      _polylines = const <Polyline>{};
-    }
-
-    if (_points.isNotEmpty) {
-      _markers = <Marker>{
-        Marker(
-          markerId: const MarkerId('history_start'),
-          position: _points.first,
-        ),
-        if (_points.length > 1)
-          Marker(
-            markerId: const MarkerId('history_end'),
-            position: _points.last,
-          ),
-      };
-    } else {
-      _markers = const <Marker>{};
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final LatLng target = _points.isNotEmpty
-        ? _points.first
-        : const LatLng(31.5204, 74.3587);
-
-    return GoogleMap(
-      initialCameraPosition: CameraPosition(
-        target: target,
-        zoom: 14.0,
-      ),
-      style: context.themedMapStyle,
-      zoomControlsEnabled: false,
-      myLocationEnabled: false,
-      compassEnabled: false,
-      mapToolbarEnabled: false,
-      polylines: _polylines,
-      markers: _markers,
-    );
-  }
-}
 
 class _VehicleStatisticsTab extends StatefulWidget {
   const _VehicleStatisticsTab({

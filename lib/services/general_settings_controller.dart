@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class GeneralSettingsController extends ChangeNotifier {
@@ -8,7 +9,7 @@ class GeneralSettingsController extends ChangeNotifier {
     'Vehicle Icon Size': 'Small',
     'Time Format': '12 Hours',
     'Speedo Meter': 'Analog',
-    'Default Page': 'Live Page',
+    'Default Page': 'Vehicle List',
     'Map Type': 'Normal',
     'Fuel Unit': 'Liter',
     'Language': 'English',
@@ -16,7 +17,7 @@ class GeneralSettingsController extends ChangeNotifier {
     'Distance': 'km',
     'Area': 'Hectare',
     'Voice Command': 'ON',
-    'Currency': 'INR',
+    'Currency': 'PKR',
     'Live Page Trail': 'OFF',
     'Show History on Live': 'OFF',
     'Filter History Fluctuation': 'OFF',
@@ -44,12 +45,90 @@ class GeneralSettingsController extends ChangeNotifier {
   String get distanceUnit => get('Distance', defaultValue: 'km');
   String get timeFormat => get('Time Format', defaultValue: '12 Hours');
   String get mapType => get('Map Type', defaultValue: 'Normal');
-  String get currency => get('Currency', defaultValue: 'INR');
+  String get currency => get('Currency', defaultValue: 'PKR');
+
+  /// Server/local amounts for this deployment are in PKR.
+  static const double pkrPerUsd = 280.0;
   String get vehicleIconSize => get('Vehicle Icon Size', defaultValue: 'Small');
   String get speedoMeter => get('Speedo Meter', defaultValue: 'Analog');
   String get areaUnit => get('Area', defaultValue: 'Hectare');
   bool get isNotificationOn => get('Notification', defaultValue: 'ON') == 'ON';
   bool get isVoiceCommandOn => get('Voice Command', defaultValue: 'ON') == 'ON';
+  bool get isAnalogSpeedometer =>
+      speedoMeter.trim().toLowerCase() != 'digital';
+  bool get livePageTrailOn => get('Live Page Trail', defaultValue: 'OFF') == 'ON';
+  bool get showHistoryOnLive =>
+      get('Show History on Live', defaultValue: 'OFF') == 'ON';
+  bool get filterHistoryFluctuation =>
+      get('Filter History Fluctuation', defaultValue: 'OFF') == 'ON';
+  bool get farmCalculationOn =>
+      get('Farm Calculation', defaultValue: 'OFF') == 'ON';
+  String get fuelReadingSource =>
+      get('Fuel Reading', defaultValue: 'Device');
+  String get historyRouteColorName =>
+      get('History Route Color', defaultValue: 'Default Color');
+
+  /// Dashboard bottom nav: 0 home, 1 map, 2 list, 3 reports, 4 settings.
+  int get defaultDashboardTabIndex {
+    switch (get('Default Page', defaultValue: 'Vehicle List')) {
+      case 'Map Page':
+        return 1;
+      case 'Reports Page':
+        return 3;
+      case 'Vehicle List':
+      case 'Live Page':
+      default:
+        return 2;
+    }
+  }
+
+  MapType get googleMapType {
+    switch (mapType.trim().toLowerCase()) {
+      case 'satellite':
+        return MapType.satellite;
+      case 'hybrid':
+        return MapType.hybrid;
+      case 'normal':
+      default:
+        return MapType.normal;
+    }
+  }
+
+  MapType nextMapType(MapType current) {
+    if (current == MapType.normal) {
+      return MapType.satellite;
+    }
+    if (current == MapType.satellite) {
+      return MapType.hybrid;
+    }
+    return MapType.normal;
+  }
+
+  String mapTypeLabelFor(MapType type) {
+    switch (type) {
+      case MapType.satellite:
+        return 'Satellite';
+      case MapType.hybrid:
+        return 'Hybrid';
+      case MapType.normal:
+      default:
+        return 'Normal';
+    }
+  }
+
+  Color historyRouteColor(Color themePrimary) {
+    switch (historyRouteColorName.trim().toLowerCase()) {
+      case 'blue':
+        return const Color(0xFF2196F3);
+      case 'green':
+        return const Color(0xFF4CAF50);
+      case 'red':
+        return const Color(0xFFE53935);
+      case 'default color':
+      default:
+        return themePrimary;
+    }
+  }
 
   Future<void> initialize() async {
     try {
@@ -120,15 +199,40 @@ class GeneralSettingsController extends ChangeNotifier {
     return '${liters.toStringAsFixed(1)} L';
   }
 
-  String formatCurrency(double amount) {
+  double parseMoneyToPkr(String raw) {
+    final String trimmed = raw.trim();
+    if (trimmed.isEmpty || trimmed == '-' || trimmed == '—') {
+      return 0;
+    }
+    final String digits = trimmed.replaceAll(RegExp(r'[^0-9.]'), '');
+    if (digits.isEmpty) {
+      return 0;
+    }
+    return double.tryParse(digits) ?? 0;
+  }
+
+  String formatCurrency(double amountPkr) {
     switch (currency) {
       case 'USD':
-        return '\$${amount.toStringAsFixed(2)}';
-      case 'PKR':
-        return 'Rs. ${amount.toStringAsFixed(0)}';
+        final double usd = amountPkr / pkrPerUsd;
+        return '\$${usd.toStringAsFixed(2)}';
       case 'INR':
+        return '₹${amountPkr.toStringAsFixed(2)}';
+      case 'PKR':
       default:
-        return '₹${amount.toStringAsFixed(0)}';
+        return 'Rs. ${amountPkr.toStringAsFixed(2)}';
     }
+  }
+
+  String formatMoneyString(String raw) {
+    final String trimmed = raw.trim();
+    if (trimmed.isEmpty || trimmed == '-' || trimmed == '—') {
+      return trimmed.isEmpty ? '—' : trimmed;
+    }
+    return formatCurrency(parseMoneyToPkr(trimmed));
+  }
+
+  String formatPricePerLiter(double pkrPerLiter) {
+    return '${formatCurrency(pkrPerLiter)}/Ltr';
   }
 }

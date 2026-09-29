@@ -1,7 +1,10 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../constants/app_theme.dart';
+import '../../services/general_settings_controller.dart';
+import '../../data/expense_local_store.dart';
 import '../../data/vehicle_data.dart';
 import '../../l10n/app_l10n.dart';
 import '../../models/expense_model.dart';
@@ -49,20 +52,25 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
     'December',
   ];
 
-  static const List<ExpenseModel> _expenseData = [
-    ExpenseModel(
-      description: 'Testing',
-      deviceName: 'PB11DD9661',
-      odometer: '48686639',
-      quantity: 2.0,
-      amount: 200.0,
-      paymentMode: 'Other',
-      date: '02 Jul 2026',
-      category: 'Food',
-    ),
-  ];
+  List<ExpenseModel> _expenses = <ExpenseModel>[];
+  bool _loadingExpenses = true;
 
-  List<ExpenseModel> get _expenses => _expenseData;
+  @override
+  void initState() {
+    super.initState();
+    _loadExpenses();
+  }
+
+  Future<void> _loadExpenses() async {
+    final List<ExpenseModel> loaded = await ExpenseLocalStore.loadAll();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _expenses = loaded;
+      _loadingExpenses = false;
+    });
+  }
 
   @override
   void dispose() {
@@ -105,7 +113,11 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
           initialVehicle: _selectedVehicleForAdd,
         ),
       ),
-    );
+    ).then((_) {
+      if (mounted) {
+        _loadExpenses();
+      }
+    });
   }
 
   @override
@@ -196,7 +208,9 @@ class _ExpenseScreenState extends State<ExpenseScreen> {
               children: [
                 const TextSpan(text: 'Total: '),
                 TextSpan(
-                  text: '${_totalAmount.toStringAsFixed(1)} INR',
+                  text: context
+                      .watch<GeneralSettingsController>()
+                      .formatCurrency(_totalAmount),
                   style: const TextStyle(
                     color: pinkColor,
                     fontWeight: FontWeight.w700,
@@ -870,7 +884,9 @@ class _ExpenseListTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    'INR ${item.amount.toStringAsFixed(1)}',
+                    context
+                        .watch<GeneralSettingsController>()
+                        .formatCurrency(item.amount),
                     style: TextStyle(
                       color: context.appTextColor,
                       fontSize: 15,

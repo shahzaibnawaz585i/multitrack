@@ -21,8 +21,12 @@ class _SplashScreenState extends State<SplashScreen> {
     _startNavigation();
   }
 
+  static const Duration _splashDuration = Duration(seconds: 5);
+
   Future<void> _startNavigation() async {
-    final bool isLoggedIn = await AuthService.isLoggedIn();
+    final Future<bool> loginFuture = AuthService.isLoggedIn();
+    await Future<void>.delayed(_splashDuration);
+    final bool isLoggedIn = await loginFuture;
 
     if (!mounted) {
       return;
@@ -34,7 +38,7 @@ class _SplashScreenState extends State<SplashScreen> {
     Navigator.pushReplacement(
       context,
       PageRouteBuilder<void>(
-        pageBuilder: (_, __, ___) => nextScreen,
+        pageBuilder: (_, _, _) => nextScreen,
         transitionDuration: Duration.zero,
         reverseTransitionDuration: Duration.zero,
       ),
@@ -65,7 +69,7 @@ class _SplashScreenState extends State<SplashScreen> {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(60),
                   child: Image.asset(
-                    'assets/loginicon.png',
+                    'assets/appicon.png',
                     height: 110,
                     width: 110,
                     fit: BoxFit.cover,
@@ -96,6 +100,33 @@ class _SplashScreenState extends State<SplashScreen> {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: brandColor,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Loading…',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: brandColor.withValues(alpha: 0.85),
+                ),
+              ),
+            ],
           ),
         ),
       ),

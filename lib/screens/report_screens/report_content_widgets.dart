@@ -1,7 +1,112 @@
 import 'package:flutter/material.dart';
 
+import 'package:intl/intl.dart';
+
 import '../../l10n/app_l10n.dart';
+import '../../models/daily_report_day.dart';
 import '../../models/vehicle_model.dart';
+
+class OverSpeedReportCard extends StatelessWidget {
+  const OverSpeedReportCard({
+    super.key,
+    required this.vehicleName,
+    required this.timeLabel,
+    required this.speedLabel,
+    required this.address,
+    required this.onTap,
+  });
+
+  final String vehicleName;
+  final String timeLabel;
+  final String speedLabel;
+  final String address;
+  final VoidCallback onTap;
+
+  static const Color _accent = Color(0xFFF53D6B);
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Theme.of(context).cardColor,
+      borderRadius: BorderRadius.circular(14),
+      elevation: 2,
+      shadowColor: Colors.black.withValues(alpha: 0.08),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  const Icon(Icons.directions_car, color: _accent, size: 22),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      vehicleName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        color: Color(0xFF292B32),
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.speed, color: Colors.grey.shade800, size: 22),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: <Widget>[
+                  const Icon(Icons.access_time, color: _accent, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      timeLabel,
+                      style: TextStyle(
+                        color: Colors.grey.shade800,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    speedLabel,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: Color(0xFF292B32),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Icon(Icons.location_on, color: _accent, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      address,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.grey.shade700,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class ReportTimelineEvent extends StatelessWidget {
   final String time;
@@ -417,10 +522,17 @@ class ReportInfoRow {
   });
 }
 
-class SummaryReportCard extends StatelessWidget {
-  final VehicleModel vehicle;
+class DailyReportCard extends StatelessWidget {
+  const DailyReportCard({
+    super.key,
+    required this.report,
+    this.showDayTitle = false,
+  });
 
-  const SummaryReportCard({super.key, required this.vehicle});
+  final DailyReportDay report;
+  final bool showDayTitle;
+
+  static const Color _accent = Color(0xFFF53D6B);
 
   @override
   Widget build(BuildContext context) {
@@ -433,69 +545,110 @@ class SummaryReportCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+          children: <Widget>[
+            if (showDayTitle) ...<Widget>[
+              Text(
+                DateFormat('dd MMM yyyy').format(report.dayDate),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: Color(0xFFF53D6B),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(30),
-                    border: Border.all(color: Colors.black12),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
-                          color: Color(0xffffd8df),
-                          shape: BoxShape.circle,
+              children: <Widget>[
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(30),
+                      border: Border.all(color: Colors.black12),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            color: Color(0xffffd8df),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.directions_car,
+                            color: _accent,
+                            size: 16,
+                          ),
                         ),
-                        child: const Icon(
-                          Icons.directions_car,
-                          color: Color(0xfff53d6b),
-                          size: 16,
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            report.vehicleName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                              color: Color(0xFF292B32),
+                            ),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        vehicle.name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: Color(0xFF292B32),
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
+                const SizedBox(width: 8),
                 Row(
-                  children: [
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
                     const Icon(Icons.alt_route, color: Colors.blueAccent, size: 20),
                     const SizedBox(width: 4),
-                    const Text(
-                      '3.21 km',
-                      style: TextStyle(
+                    Text(
+                      report.distanceLabel,
+                      style: const TextStyle(
                         fontWeight: FontWeight.bold,
-                        fontSize: 15,
+                        fontSize: 14,
                         color: Color(0xFF292B32),
                       ),
                     ),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 2),
                     Icon(
                       Icons.arrow_forward_ios_rounded,
                       color: Colors.grey.shade400,
-                      size: 14,
+                      size: 12,
                     ),
                   ],
                 ),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 14),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: _TimeChip(
+                    icon: Icons.access_time,
+                    iconColor: Colors.green,
+                    label: report.startTimeLabel,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _TimeChip(
+                    icon: Icons.access_time,
+                    iconColor: Colors.red,
+                    label: report.endTimeLabel,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
             Container(
               padding: const EdgeInsets.symmetric(vertical: 10),
               decoration: const BoxDecoration(
@@ -505,112 +658,181 @@ class SummaryReportCard extends StatelessWidget {
                 ),
               ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: const [
-                  _MetricCol(label: 'Engine hours', value: '08:22:37'),
-                  _MetricCol(label: 'Running', value: '03:00:20'),
-                  _MetricCol(label: 'Stop', value: '143:20:47'),
-                  _MetricCol(label: 'Idle', value: '05:22:17'),
+                children: <Widget>[
+                  Expanded(
+                    child: _MetricCol(
+                      label: 'Engine hours',
+                      value: report.engineHours,
+                    ),
+                  ),
+                  Expanded(
+                    child: _MetricCol(label: 'Running', value: report.runningTime),
+                  ),
+                  Expanded(
+                    child: _MetricCol(label: 'Stop', value: report.stopTime),
+                  ),
+                  Expanded(
+                    child: _MetricCol(label: 'Idle', value: report.idleTime),
+                  ),
                 ],
               ),
             ),
-            const SizedBox(height: 20),
-            Column(
+            const SizedBox(height: 16),
+            Row(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.circle, color: Colors.green, size: 16),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        '9842+5P7, near Juma masjid, Musliyarangadi, Malappuram...',
-                        style: TextStyle(
-                          color: Colors.grey.shade800,
-                          fontSize: 13,
-                        ),
-                      ),
+              children: <Widget>[
+                const Icon(Icons.circle, color: Colors.green, size: 14),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    report.startLocation,
+                    style: TextStyle(
+                      color: Colors.grey.shade800,
+                      fontSize: 12,
                     ),
-                  ],
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(left: 7),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 1.5,
-                        height: 50,
-                        color: Colors.black12,
-                      ),
-                      const SizedBox(width: 18),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xffe2fbeb),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        child: const Text(
-                          '000028138',
-                          style: TextStyle(
-                            color: Colors.green,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(width: 40, height: 1, color: Colors.black12),
-                      const SizedBox(width: 8),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xffffd8df),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        child: const Text(
-                          '000028141',
-                          style: TextStyle(
-                            color: Color(0xfff53d6b),
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    ],
                   ),
-                ),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.circle, color: Colors.red, size: 16),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Edakkara - Paleamad Road, Malappuram, 679331',
-                        style: TextStyle(
-                          color: Colors.grey.shade800,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),
-            const SizedBox(height: 20),
-            const Divider(color: Colors.black12),
+            Padding(
+              padding: const EdgeInsets.only(left: 6, top: 6, bottom: 6),
+              child: Row(
+                children: <Widget>[
+                  Container(
+                    width: 1.5,
+                    height: 44,
+                    color: Colors.black12,
+                  ),
+                  const SizedBox(width: 14),
+                  _OdoChip(
+                    value: report.startOdometer,
+                    background: const Color(0xffe2fbeb),
+                    foreground: Colors.green.shade700,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(height: 1, color: Colors.black12),
+                  ),
+                  const SizedBox(width: 8),
+                  _OdoChip(
+                    value: report.endOdometer,
+                    background: const Color(0xffffd8df),
+                    foreground: _accent,
+                  ),
+                ],
+              ),
+            ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Icon(Icons.circle, color: Colors.red, size: 14),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    report.endLocation,
+                    style: TextStyle(
+                      color: Colors.grey.shade800,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            const Divider(color: Colors.black12, height: 1),
             const SizedBox(height: 10),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const [
-                _BottomStat(label: 'Avg. 0', icon: Icons.speed),
-                _BottomStat(label: 'Max. 41', icon: Icons.speed),
-                _BottomStat(label: 'Fuel spent 0', icon: Icons.local_gas_station),
+              children: <Widget>[
+                _BottomStat(label: report.avgSpeedLabel, icon: Icons.speed),
+                _BottomStat(label: report.maxSpeedLabel, icon: Icons.speed),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _TimeChip extends StatelessWidget {
+  const _TimeChip({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: <Widget>[
+        Icon(icon, color: iconColor, size: 16),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.grey.shade800,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _OdoChip extends StatelessWidget {
+  const _OdoChip({
+    required this.value,
+    required this.background,
+    required this.foreground,
+  });
+
+  final String value;
+  final Color background;
+  final Color foreground;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      child: Text(
+        value,
+        style: TextStyle(
+          color: foreground,
+          fontWeight: FontWeight.bold,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+}
+
+class SummaryReportCard extends StatelessWidget {
+  final VehicleModel vehicle;
+
+  const SummaryReportCard({super.key, required this.vehicle});
+
+  @override
+  Widget build(BuildContext context) {
+    return DailyReportCard(
+      report: DailyReportDay.fromApiMap(
+        <String, dynamic>{},
+        vehicle.name,
+        dayDate: DateTime.now(),
+        fallbackLocation: vehicle.location,
       ),
     );
   }

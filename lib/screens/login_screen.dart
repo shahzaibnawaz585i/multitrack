@@ -1,9 +1,11 @@
-import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async';
 
+import 'package:flutter/material.dart';
 import 'dashboard_screen.dart';
+import '../theme/fast_page_transitions.dart';
 import 'forget_screen.dart';
 import '../l10n/app_l10n.dart';
+import '../constants/api_config.dart';
 import '../services/app_bootstrap_service.dart';
 import '../services/auth_service.dart';
 import '../services/fcm_service.dart';
@@ -19,61 +21,14 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _isLoading = false;
-  String selectedServer = "Server 1 (Live)";
   final TextEditingController userId = TextEditingController();
   final TextEditingController password = TextEditingController();
-  final TextEditingController customServer =
-      TextEditingController(text: 'https://gps.m-track.net.pk');
   final _formKey = GlobalKey<FormState>();
-
-  final List<String> servers = [
-    "Server 1 (Live)",
-    "Server 2",
-    "Nostrum Track",
-    "Fleet Wox",
-    "Fleet Wo",
-    "Server 3",
-    "Custom Server URL",
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _loadSavedServer();
-  }
-
-  Future<void> _loadSavedServer() async {
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-
-    final String? savedServer = prefs.getString('logged_in_server');
-    final String? savedCustomUrl = prefs.getString('custom_server_url');
-
-    if (savedCustomUrl != null && savedCustomUrl.isNotEmpty) {
-      customServer.text = savedCustomUrl;
-    }
-
-    if (savedServer != null && savedServer.isNotEmpty) {
-      if (servers.contains(savedServer)) {
-        if (!mounted) return;
-        setState(() {
-          selectedServer = savedServer;
-        });
-      } else if (savedServer.startsWith('http')) {
-        if (!mounted) return;
-        setState(() {
-          selectedServer = 'Custom Server URL';
-          customServer.text = savedServer;
-        });
-      }
-    }
-  }
 
   @override
   void dispose() {
     userId.dispose();
     password.dispose();
-    customServer.dispose();
     super.dispose();
   }
 
@@ -94,25 +49,6 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    String effectiveServer = selectedServer;
-    if (selectedServer == 'Custom Server URL') {
-      String url = customServer.text.trim();
-      if (url.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enter Server URL')),
-        );
-        return;
-      }
-      if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        url = 'https://$url';
-      }
-      effectiveServer = url;
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setString('custom_server_url', url);
-    } else if (selectedServer == 'Server 1 (Live)') {
-      effectiveServer = 'Server 1';
-    }
-
     setState(() {
       _isLoading = true;
     });
@@ -120,7 +56,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final result = await AuthService.login(
       userId: userid,
       password: pass,
-      server: effectiveServer,
+      server: ApiConfig.appServerId,
     );
 
     if (!mounted) {
@@ -138,19 +74,19 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    await AppBootstrapService.prefetchAfterLogin();
-    await FcmService.registerStoredToken();
-
     if (!mounted) {
       return;
     }
 
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute<void>(
+      FastMaterialPageRoute<void>(
         builder: (context) => const DashboardScreen(),
       ),
     );
+
+    unawaited(AppBootstrapService.prefetchAfterLogin());
+    unawaited(FcmService.registerStoredToken());
   }
 
   @override
@@ -158,8 +94,6 @@ class _LoginScreenState extends State<LoginScreen> {
     final ThemeData theme = Theme.of(context);
     final Color textColor = theme.colorScheme.onSurface;
     final Color accentColor = theme.colorScheme.primary;
-
-    final bool isCustomServer = selectedServer == 'Custom Server URL';
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -305,91 +239,30 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ),
                                   ),
                                 ),
-                                DropdownButtonFormField<String>(
-                                  isExpanded: true,
-                                  initialValue: selectedServer,
-                                  dropdownColor: context.containerColor,
-                                  style: TextStyle(color: textColor),
-                                  onChanged: _isLoading
-                                      ? null
-                                      : (String? value) {
-                                          if (value != null) {
-                                            setState(() {
-                                              selectedServer = value;
-                                            });
-                                          }
-                                        },
-                                  decoration: InputDecoration(
-                                    filled: true,
-                                    fillColor: context.containerColor,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      vertical: 16,
-                                    ),
-                                    enabledBorder: const UnderlineInputBorder(
-                                      borderSide:
-                                          BorderSide(color: Colors.grey),
-                                    ),
-                                    focusedBorder: UnderlineInputBorder(
-                                      borderSide: BorderSide(
-                                        color: accentColor,
-                                        width: 3,
-                                      ),
-                                      borderRadius: const BorderRadius.only(
-                                        bottomLeft: Radius.circular(8),
-                                        bottomRight: Radius.circular(8),
-                                      ),
-                                    ),
-                                  ),
-                                  icon: Icon(
-                                    Icons.arrow_drop_down,
-                                    color: accentColor,
-                                  ),
-                                  items: servers.map((String server) {
-                                    return DropdownMenuItem<String>(
-                                      value: server,
-                                      child: Text(context.tr(server)),
-                                    );
-                                  }).toList(),
-                                ),
-                                if (isCustomServer) ...[
-                                  const SizedBox(height: 8),
-                                  TextFormField(
-                                    controller: customServer,
-                                    enabled: !_isLoading,
-                                    keyboardType: TextInputType.url,
-                                    textInputAction: TextInputAction.done,
-                                    style: TextStyle(
-                                      color: textColor,
-                                      fontSize: 13,
-                                    ),
-                                    decoration: InputDecoration(
-                                      labelText: 'Server Base URL',
-                                      hintText: 'https://gps.yourdomain.com',
-                                      hintStyle: TextStyle(
-                                        color: Colors.grey.shade500,
-                                        fontSize: 12,
-                                      ),
-                                      prefixIcon: Icon(
-                                        Icons.link,
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 12),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.dns_outlined,
                                         size: 20,
                                         color: accentColor,
                                       ),
-                                      enabledBorder:
-                                          const UnderlineInputBorder(
-                                        borderSide: BorderSide(
-                                          color: Colors.grey,
-                                          width: 1,
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          ApiConfig.defaultBaseUrl,
+                                          style: TextStyle(
+                                            color: textColor.withValues(
+                                              alpha: 0.85,
+                                            ),
+                                            fontSize: 13,
+                                          ),
                                         ),
                                       ),
-                                      focusedBorder: UnderlineInputBorder(
-                                        borderSide: BorderSide(
-                                          color: accentColor,
-                                          width: 2,
-                                        ),
-                                      ),
-                                    ),
+                                    ],
                                   ),
-                                ],
+                                ),
                               ],
                             ),
                           ),

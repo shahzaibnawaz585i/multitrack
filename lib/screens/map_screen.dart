@@ -4,13 +4,17 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:provider/provider.dart';
 
 import '../l10n/app_l10n.dart';
+import '../services/general_settings_controller.dart';
 import '../data/vehicle_data.dart';
 import '../models/vehicle_model.dart';
+import '../services/alert_service.dart';
 import '../services/app_bootstrap_service.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme_tokens.dart';
+import '../utils/map_car_icon.dart';
 import 'notification_filter_screen.dart';
 import 'notifications_screen.dart';
 
@@ -45,11 +49,14 @@ class _MapScreenState extends State<MapScreen> {
   bool _isFetchingLocation = false;
   List<VehicleModel> _vehicles = VehicleData.vehicles;
   Timer? _vehicleRefreshTimer;
-  DateTime _lastUserMarkerSync = DateTime.fromMillisecondsSinceEpoch(0);
-  static const Duration _userMarkerSyncInterval = Duration(milliseconds: 500);
+  bool _vehicleLoadInFlight = false;
+  DateTime _lastUserCameraMove = DateTime.fromMillisecondsSinceEpoch(0);
+  static const Duration _userCameraThrottle = Duration(milliseconds: 600);
   final Map<String, LatLng> _lastVehiclePositions = <String, LatLng>{};
+  int _markerSyncGeneration = 0;
 
   MapType _mapType = MapType.normal;
+  GeneralSettingsController? _generalSettings;
 
   StreamSubscription<Position>? _positionSubscription;
   final ValueNotifier<Set<Marker>> _markers = ValueNotifier<Set<Marker>>(
@@ -59,12 +66,13 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
+    MapCarIcon.clearCache();
     if (VehicleData.vehicles.isNotEmpty) {
       _applyFirstVehicle(VehicleData.vehicles);
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          _loadVehicles();
+          _loadVehicles(forceRefresh: true);
         }
       });
     }
@@ -72,6 +80,35 @@ class _MapScreenState extends State<MapScreen> {
     if (widget.isVisible) {
       _startVehicleRefresh();
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final GeneralSettingsController gs =
+        context.read<GeneralSettingsController>();
+    if (!identical(_generalSettings, gs)) {
+      _generalSettings?.removeListener(_onGeneralSettingsChanged);
+      _generalSettings = gs;
+      _generalSettings!.addListener(_onGeneralSettingsChanged);
+      _applyGeneralSettings(gs);
+    }
+  }
+
+  void _onGeneralSettingsChanged() {
+    if (_generalSettings != null) {
+      _applyGeneralSettings(_generalSettings!);
+    }
+  }
+
+  void _applyGeneralSettings(GeneralSettingsController gs) {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _mapType = gs.googleMapType;
+      _zoom = gs.zoomLevel;
+    });
   }
 
   void _applyFirstVehicle(List<VehicleModel> fetched) {
@@ -104,33 +141,42 @@ class _MapScreenState extends State<MapScreen> {
     if (vehicle.tail.length >= 2) {
       final VehicleTrackPoint from = vehicle.tail[vehicle.tail.length - 2];
       final VehicleTrackPoint to = vehicle.tail.last;
-      final double lat1 = from.latitude * 3.141592653589793 / 180;
-      final double lat2 = to.latitude * 3.141592653589793 / 180;
-      final double dLng =
-          (to.longitude - from.longitude) * 3.141592653589793 / 180;
+      final double lat1 = from.latitude * math.pi / 180;
+      final double lat2 = to.latitude * math.pi / 180;
+      final double dLng = (to.longitude - from.longitude) * math.pi / 180;
       final double y = math.sin(dLng) * math.cos(lat2);
       final double x = math.cos(lat1) * math.sin(lat2) -
           math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
-      return (math.atan2(y, x) * 180 / 3.141592653589793 + 360) % 360;
+      return (math.atan2(y, x) * 180 / math.pi + 360) % 360;
     }
     return 0;
   }
 
-  Future<void> _loadVehicles() async {
-    final List<VehicleModel> fetched =
-        await AppBootstrapService.refreshVehicles(forceRefresh: false);
-    if (!mounted || fetched.isEmpty) {
+  Future<void> _loadVehicles({bool forceRefresh = false}) async {
+    if (_vehicleLoadInFlight) {
       return;
     }
+    _vehicleLoadInFlight = true;
+    try {
+      final List<VehicleModel> fetched =
+          await AppBootstrapService.refreshVehicles(forceRefresh: forceRefresh);
+      if (!mounted || fetched.isEmpty) {
+        return;
+      }
 
-    _applyFirstVehicle(fetched);
-    _syncMarkers();
+      _vehicles = fetched;
+      _focusedVehicleIndex = _focusedVehicleIndex.clamp(0, fetched.length - 1);
+      _cameraTarget = _resolveCameraTarget();
+      await _syncMarkers();
+    } finally {
+      _vehicleLoadInFlight = false;
+    }
   }
 
   void _startVehicleRefresh() {
     _vehicleRefreshTimer?.cancel();
-    _vehicleRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      _loadVehicles();
+    _vehicleRefreshTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+      _loadVehicles(forceRefresh: false);
     });
   }
 
@@ -147,6 +193,7 @@ class _MapScreenState extends State<MapScreen> {
     }
     if (widget.isVisible) {
       _startVehicleRefresh();
+      unawaited(_loadVehicles(forceRefresh: true));
       if (_locationPermissionGranted) {
         _startLocationStream();
       }
@@ -159,9 +206,9 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   void dispose() {
+    _generalSettings?.removeListener(_onGeneralSettingsChanged);
     _stopVehicleRefresh();
     _positionSubscription?.cancel();
-    _mapController?.dispose();
     _mapController = null;
     _markers.dispose();
     super.dispose();
@@ -261,44 +308,23 @@ class _MapScreenState extends State<MapScreen> {
         _carRotation = position.heading;
       }
       _syncMarkers();
-    } else {
-      _updateUserLocationMarkerThrottled();
     }
 
     if (moveCamera) {
-      _mapController?.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: userLocation,
-            zoom: _zoom,
-            bearing: _carRotation,
+      final DateTime now = DateTime.now();
+      if (now.difference(_lastUserCameraMove) >= _userCameraThrottle) {
+        _lastUserCameraMove = now;
+        _mapController?.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: userLocation,
+              zoom: _zoom,
+              bearing: _carRotation,
+            ),
           ),
-        ),
-      );
+        );
+      }
     }
-  }
-
-  void _updateUserLocationMarkerThrottled() {
-    if (_currentUserLocation == null) return;
-
-    final DateTime now = DateTime.now();
-    if (now.difference(_lastUserMarkerSync) < _userMarkerSyncInterval) {
-      return;
-    }
-    _lastUserMarkerSync = now;
-
-    final Set<Marker> current = _markers.value;
-    final Set<Marker> next = current
-        .where((Marker m) => m.markerId.value != 'my_location')
-        .toSet();
-    next.add(
-      Marker(
-        markerId: const MarkerId('my_location'),
-        position: _currentUserLocation!,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-      ),
-    );
-    _markers.value = next;
   }
 
   List<VehicleModel> get _mappedVehicles => _vehicles
@@ -310,7 +336,8 @@ class _MapScreenState extends State<MapScreen> {
       )
       .toList();
 
-  void _syncMarkers({bool force = false}) {
+  Future<void> _syncMarkers({bool force = false}) async {
+    final int generation = ++_markerSyncGeneration;
     final Set<Marker> nextMarkers = <Marker>{};
     bool changed = force;
 
@@ -326,10 +353,28 @@ class _MapScreenState extends State<MapScreen> {
       }
 
       _lastVehiclePositions[markerKey] = position;
+    }
+
+    if (!changed && _markers.value.isNotEmpty) {
+      return;
+    }
+
+    for (final VehicleModel vehicle in _mappedVehicles) {
+      final String markerKey = _markerIdFor(vehicle);
+      final LatLng position = LatLng(vehicle.latitude!, vehicle.longitude!);
+      final BitmapDescriptor icon =
+          await MapCarIcon.forStatus(vehicle.status);
+      if (!mounted || generation != _markerSyncGeneration) {
+        return;
+      }
+
       nextMarkers.add(
         Marker(
           markerId: MarkerId(markerKey),
           position: position,
+          icon: icon,
+          anchor: MapCarIcon.markerAnchor,
+          flat: true,
           rotation: _bearingForVehicle(vehicle),
           infoWindow: InfoWindow(title: vehicle.name, snippet: vehicle.status),
         ),
@@ -337,24 +382,22 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     if (nextMarkers.isEmpty) {
+      final BitmapDescriptor fallbackIcon =
+          await MapCarIcon.forStatus('inactive');
+      if (!mounted || generation != _markerSyncGeneration) {
+        return;
+      }
       nextMarkers.add(
         Marker(
           markerId: const MarkerId('fleet_fallback'),
           position: _cameraTarget,
+          icon: fallbackIcon,
+          anchor: MapCarIcon.markerAnchor,
+          flat: true,
           rotation: _carRotation,
         ),
       );
       changed = true;
-    }
-
-    if (_currentUserLocation != null && !_isLiveLocationActive) {
-      nextMarkers.add(
-        Marker(
-          markerId: const MarkerId('my_location'),
-          position: _currentUserLocation!,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-        ),
-      );
     }
 
     if (!changed && nextMarkers.length == _markers.value.length) {
@@ -499,15 +542,12 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _cycleMapType() {
+    final GeneralSettingsController gs =
+        context.read<GeneralSettingsController>();
     setState(() {
-      if (_mapType == MapType.normal) {
-        _mapType = MapType.satellite;
-      } else if (_mapType == MapType.satellite) {
-        _mapType = MapType.hybrid;
-      } else {
-        _mapType = MapType.normal;
-      }
+      _mapType = gs.nextMapType(_mapType);
     });
+    gs.setSetting('Map Type', gs.mapTypeLabelFor(_mapType));
   }
 
   Future<void> _showLoadingPopup() async {
@@ -552,7 +592,7 @@ class _MapScreenState extends State<MapScreen> {
       },
     );
 
-    await _initCurrentLocation();
+    await _initCurrentLocation(requestOnStart: true);
 
     if (mounted && Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
@@ -733,12 +773,12 @@ class _MapScreenState extends State<MapScreen> {
               onTap: _cycleMapType,
               child: Padding(
                 padding: const EdgeInsets.all(14),
-                    child: Image.asset(
-                      'assets/map_fold.png',
-                      cacheWidth: 48,
-                      cacheHeight: 48,
-                      filterQuality: FilterQuality.low,
-                    ),
+                child: Image.asset(
+                  'assets/map_fold.png',
+                  cacheWidth: 48,
+                  cacheHeight: 48,
+                  filterQuality: FilterQuality.low,
+                ),
               ),
             ),
           ),

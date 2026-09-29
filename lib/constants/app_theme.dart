@@ -195,11 +195,7 @@ class AppThemes {
         ),
       ),
       canvasColor: surface,
-      dividerTheme: DividerThemeData(
-        color: divider,
-        thickness: 1,
-        space: 1,
-      ),
+      dividerTheme: DividerThemeData(color: divider, thickness: 1, space: 1),
       bottomNavigationBarTheme: BottomNavigationBarThemeData(
         backgroundColor: const Color(0xE0071007),
         selectedItemColor: hackNeonBright,
@@ -331,13 +327,16 @@ class AppThemes {
       onSurface: isDark ? Colors.white : const Color(0xFF292B32),
       secondaryText: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
       fieldFill: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFF2F2F2),
-      headerBackground:
-          isDark ? const Color(0xFF1A1A1A) : const Color(0xFFEBF2F8),
+      headerBackground: isDark
+          ? const Color(0xFF1A1A1A)
+          : const Color(0xFFEBF2F8),
       divider: isDark ? const Color(0xFF333333) : Colors.grey.shade300,
-      chipBackground:
-          isDark ? const Color(0xFF2A2A2A) : const Color(0xFFFFE8EE),
-      scrolledHeader:
-          isDark ? const Color(0xFF1F1F1F) : const Color(0xFFE3F2FD),
+      chipBackground: isDark
+          ? const Color(0xFF2A2A2A)
+          : const Color(0xFFFFE8EE),
+      scrolledHeader: isDark
+          ? const Color(0xFF1F1F1F)
+          : const Color(0xFFE3F2FD),
       border: isDark ? const Color(0xFF444444) : Colors.grey.shade400,
       iconCircleFill: isDark ? const Color(0xFF2A2A2A) : Colors.white,
       accentColor: pinkColor,
@@ -433,14 +432,16 @@ class AppThemes {
       ),
       sliderTheme: SliderThemeData(
         activeTrackColor: accentColor,
-        inactiveTrackColor:
-            isDark ? const Color(0xFF555555) : const Color(0xFFCCCCCC),
+        inactiveTrackColor: isDark
+            ? const Color(0xFF555555)
+            : const Color(0xFFCCCCCC),
         thumbColor: accentColor,
         overlayColor: accentColor.withValues(alpha: 0.2),
       ),
       snackBarTheme: SnackBarThemeData(
-        backgroundColor:
-            isDark ? const Color(0xFF2A2A2A) : const Color(0xFF323232),
+        backgroundColor: isDark
+            ? const Color(0xFF2A2A2A)
+            : const Color(0xFF323232),
         contentTextStyle: const TextStyle(color: Colors.white),
       ),
       cardTheme: CardThemeData(
@@ -455,17 +456,13 @@ class AppThemes {
         unselectedItemColor: secondaryText,
       ),
       dropdownMenuTheme: DropdownMenuThemeData(
-        menuStyle: MenuStyle(
-          backgroundColor: WidgetStatePropertyAll(surface),
-        ),
+        menuStyle: MenuStyle(backgroundColor: WidgetStatePropertyAll(surface)),
       ),
       datePickerTheme: DatePickerThemeData(
         backgroundColor: surface,
         headerBackgroundColor: headerBackground,
       ),
-      timePickerTheme: TimePickerThemeData(
-        backgroundColor: surface,
-      ),
+      timePickerTheme: TimePickerThemeData(backgroundColor: surface),
       extensions: <ThemeExtension<dynamic>>[
         AppPalette(
           fieldFill: fieldFill,
@@ -550,7 +547,11 @@ class AppPalette extends ThemeExtension<AppPalette> {
 
     return AppPalette(
       fieldFill: Color.lerp(fieldFill, other.fieldFill, t)!,
-      headerBackground: Color.lerp(headerBackground, other.headerBackground, t)!,
+      headerBackground: Color.lerp(
+        headerBackground,
+        other.headerBackground,
+        t,
+      )!,
       secondaryText: Color.lerp(secondaryText, other.secondaryText, t)!,
       chipBackground: Color.lerp(chipBackground, other.chipBackground, t)!,
       scrolledHeader: Color.lerp(scrolledHeader, other.scrolledHeader, t)!,
@@ -559,8 +560,7 @@ class AppPalette extends ThemeExtension<AppPalette> {
       accentColor: Color.lerp(accentColor, other.accentColor, t)!,
       glowColor: Color.lerp(glowColor, other.glowColor, t)!,
       isHackingTheme: t < 0.5 ? isHackingTheme : other.isHackingTheme,
-      isScreenHackTheme:
-          t < 0.5 ? isScreenHackTheme : other.isScreenHackTheme,
+      isScreenHackTheme: t < 0.5 ? isScreenHackTheme : other.isScreenHackTheme,
     );
   }
 }
@@ -685,9 +685,7 @@ class HackingPanel extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xE00C180C),
         borderRadius: borderRadius,
-        border: Border.all(
-          color: AppThemes.hackNeon.withValues(alpha: 0.35),
-        ),
+        border: Border.all(color: AppThemes.hackNeon.withValues(alpha: 0.35)),
         boxShadow: [
           BoxShadow(
             color: AppThemes.hackGlow,

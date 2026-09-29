@@ -5,6 +5,7 @@ import '../constants/app_images.dart';
 import '../models/vehicle_model.dart';
 import '../screens/vehicle_detail_screen.dart';
 import '../theme/app_theme_tokens.dart';
+import '../theme/fast_page_transitions.dart';
 
 class VehicleCard extends StatelessWidget {
   const VehicleCard({super.key, required this.vehicle});
@@ -33,17 +34,17 @@ class VehicleCard extends StatelessWidget {
   String get _carImage {
     switch (vehicle.status.toLowerCase()) {
       case 'running':
-        return AppImages.runningCar;
+        return AppImages.listRunningCar;
       case 'stopped':
-        return AppImages.stopCar;
+        return AppImages.listStopCar;
       case 'idle':
-        return AppImages.idleCar;
+        return AppImages.listIdleCar;
       case 'not reporting':
-        return AppImages.inactiveCar;
+        return AppImages.listInactiveCar;
       case 'expired':
-        return AppImages.stopCar;
+        return AppImages.listStopCar;
       default:
-        return AppImages.stopCar;
+        return AppImages.listStopCar;
     }
   }
 
@@ -186,7 +187,7 @@ class VehicleCard extends StatelessWidget {
   void _openDetail(BuildContext context) {
     Navigator.push(
       context,
-      MaterialPageRoute<void>(
+      FastMaterialPageRoute<void>(
         builder: (_) => VehicleDetailScreen(
           deviceId: vehicle.id,
           name: vehicle.name,
@@ -202,6 +203,26 @@ class VehicleCard extends StatelessWidget {
           latitude: vehicle.latitude,
           longitude: vehicle.longitude,
           initialTail: vehicle.tail,
+          deviceTime: vehicle.deviceTime,
+          serverTime: vehicle.serverTime,
+          runningDuration: vehicle.runningDuration,
+          stopDuration: vehicle.stopDuration,
+          idleDuration: vehicle.idleDuration,
+          inactiveDuration: vehicle.inactiveDuration,
+          fuelMileage: vehicle.fuelMileage,
+          fuelConsumption: vehicle.fuelConsumption,
+          fuelCost: vehicle.fuelCost,
+          avgSpeed: vehicle.avgSpeed,
+          maxSpeed: vehicle.maxSpeed,
+          devBattery: vehicle.devBattery,
+          engineHours: vehicle.engineHours,
+          carBattery: vehicle.carBattery,
+          satellites: vehicle.satellites,
+          fuelLevel: vehicle.fuelLevel,
+          accuracy: vehicle.accuracy,
+          temperature: vehicle.temperature,
+          movement: vehicle.movement,
+          vehicle: vehicle,
         ),
       ),
     );

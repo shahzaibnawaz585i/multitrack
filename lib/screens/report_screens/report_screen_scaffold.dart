@@ -118,7 +118,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
       reportError = null;
     });
 
-    final Map<String, dynamic>? response = await TrackingApiService.generateReport(
+    final dynamic response = await TrackingApiService.generateReport(
       reportId: widget.reportId,
       deviceId: selectedVehicle!.id!,
       from: _formatApiDate(fromDate),
@@ -130,7 +130,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
       return;
     }
 
-    if (response == null || response.isEmpty) {
+    if (ReportResponseParser.isEmptyReport(response)) {
       setState(() {
         isGenerating = false;
         reportGenerated = false;
@@ -142,7 +142,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
     setState(() {
       isGenerating = false;
       reportGenerated = true;
-      reportData = response;
+      reportData = ReportResponseParser.asReportMap(response);
     });
 
     ScaffoldMessenger.of(context).showSnackBar(

@@ -162,7 +162,6 @@ class _SettingScreenState extends State<SettingScreen> {
     final ThemeData theme = Theme.of(context);
     final Color backgroundColor = theme.scaffoldBackgroundColor;
     final Color textColor = theme.colorScheme.onSurface;
-    final Color pinkColor = theme.colorScheme.primary;
 
     return Scaffold(
       backgroundColor: backgroundColor,
@@ -408,8 +407,6 @@ class _SettingScreenState extends State<SettingScreen> {
                 ),
               ],
             ),
-
-            const SizedBox(height: 10),
 
             SettingItem(
               image: 'assets/app_setting.png',

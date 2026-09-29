@@ -49,7 +49,7 @@
 
         <meta-data
             android:name="io.flutter.embedding.android.EnableImpeller"
-            android:value="true"/>
+            android:value="false"/>
 
         <!-- Flutter -->
         <meta-data
@@ -78,6 +78,11 @@
         <intent>
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="http"/>
+        </intent>
+        <!-- Google Maps navigation intent (for url_launcher) -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="google.navigation"/>
         </intent>
     </queries>
 

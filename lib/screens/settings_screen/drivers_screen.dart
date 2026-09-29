@@ -307,7 +307,7 @@ class _DriversScreenState extends State<DriversScreen> {
           : ListView.separated(
               padding: const EdgeInsets.fromLTRB(16, 10, 12, 90),
               itemCount: visible.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 20),
+              separatorBuilder: (_, _) => const SizedBox(height: 20),
               itemBuilder: (BuildContext context, int index) {
                 final _DriverItem item = visible[index];
                 return _DriverRow(

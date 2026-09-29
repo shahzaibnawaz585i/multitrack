@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../data/vehicle_data.dart';
+import 'vehicle_model.dart';
+import '../utils/coordinate_parser.dart';
+
 enum NotificationCategory { alerts, announcements, reminders }
 
 enum NotificationEventType {
@@ -74,40 +78,75 @@ class AppNotification {
       title = 'Alert';
     }
 
+    final (double lat, double lng)? coords = CoordinateParser.fromMap(json);
+
     // Resolve location / address
     String locationStr = '';
     if (json['address'] != null && json['address'].toString().trim().isNotEmpty) {
       locationStr = json['address'].toString().trim();
     } else if (json['location'] != null && json['location'].toString().trim().isNotEmpty) {
       locationStr = json['location'].toString().trim();
+    } else if (coords != null) {
+      locationStr = '${coords.$1}, ${coords.$2}';
     } else {
-      final dynamic lat = json['latitude'] ?? json['lat'];
-      final dynamic lng = json['longitude'] ?? json['lng'];
-      if (lat != null && lng != null) {
-        locationStr = '$lat, $lng';
-      } else {
-        locationStr = 'Location not available';
-      }
+      locationStr = 'Location not available';
     }
 
     // Resolve timestamp
     DateTime time = DateTime.now();
-    final dynamic rawTime = json['time'] ?? json['created_at'] ?? json['timestamp'] ?? json['date'];
+    final dynamic rawTime =
+        json['time'] ?? json['created_at'] ?? json['timestamp'] ?? json['date'];
     if (rawTime != null) {
-      final DateTime? parsed = DateTime.tryParse(rawTime.toString().replaceAll('/', '-'));
-      if (parsed != null) {
-        time = parsed;
+      if (rawTime is int) {
+        time = rawTime > 9999999999
+            ? DateTime.fromMillisecondsSinceEpoch(rawTime)
+            : DateTime.fromMillisecondsSinceEpoch(rawTime * 1000);
+      } else {
+        final DateTime? parsed =
+            DateTime.tryParse(rawTime.toString().replaceAll('/', '-'));
+        if (parsed != null) {
+          time = parsed;
+        }
       }
     }
 
     // Resolve type
-    final String rawType = (json['type'] ?? json['event_type'] ?? title).toString().toLowerCase();
+    final String alertName = json['alert'] is Map
+        ? (json['alert']['name'] ?? json['alert']['type'] ?? '').toString()
+        : '';
+    final String rawType = <String>[
+      json['type']?.toString() ?? '',
+      json['event_type']?.toString() ?? '',
+      json['alert_type']?.toString() ?? '',
+      alertName,
+      title,
+      json['message']?.toString() ?? '',
+      json['name']?.toString() ?? '',
+    ].join(' ').toLowerCase();
+
     NotificationEventType eventType = NotificationEventType.generic;
-    if (rawType.contains('ignition off') || rawType.contains('acc_off') || rawType.contains('engine_off') || rawType.contains('ignition_off')) {
+    if (rawType.contains('ignition off') ||
+        rawType.contains('ignition_off') ||
+        rawType.contains('acc off') ||
+        rawType.contains('acc_off') ||
+        rawType.contains('engine off') ||
+        rawType.contains('engine_off') ||
+        rawType.contains('power off')) {
       eventType = NotificationEventType.ignitionOff;
-    } else if (rawType.contains('ignition on') || rawType.contains('acc_on') || rawType.contains('engine_on') || rawType.contains('ignition_on')) {
+    } else if (rawType.contains('ignition on') ||
+        rawType.contains('ignition_on') ||
+        rawType.contains('acc on') ||
+        rawType.contains('acc_on') ||
+        rawType.contains('engine on') ||
+        rawType.contains('engine_on') ||
+        rawType.contains('power on')) {
       eventType = NotificationEventType.ignitionOn;
-    } else if (rawType.contains('speed') || rawType.contains('overspeed')) {
+    } else if (rawType.contains('overspeed') ||
+        rawType.contains('over speed') ||
+        rawType.contains('over-speed') ||
+        rawType.contains('speed limit') ||
+        rawType.contains('max speed') ||
+        (rawType.contains('speed') && !rawType.contains('speed limit reset'))) {
       eventType = NotificationEventType.overSpeed;
     } else if (rawType.contains('geofence_in') || rawType.contains('zone_in') || rawType.contains('enter')) {
       eventType = NotificationEventType.geofenceIn;
@@ -119,9 +158,47 @@ class AppNotification {
       eventType = NotificationEventType.movement;
     }
 
-    final double? lat = double.tryParse((json['latitude'] ?? json['lat'])?.toString() ?? '');
-    final double? lng = double.tryParse((json['longitude'] ?? json['lng'])?.toString() ?? '');
-    final double? speed = double.tryParse((json['speed'])?.toString() ?? '');
+    double? lat = coords?.$1;
+    double? lng = coords?.$2;
+
+    if (lat == null || lng == null) {
+      final (double pLat, double pLng)? fromText =
+          CoordinateParser.parsePair(locationStr);
+      lat ??= fromText?.$1;
+      lng ??= fromText?.$2;
+    }
+
+    if ((lat == null || lng == null) && deviceId != null) {
+      for (final VehicleModel vehicle in VehicleData.vehicles) {
+        if (vehicle.id == deviceId) {
+          lat ??= vehicle.latitude;
+          lng ??= vehicle.longitude;
+          if (locationStr == 'Location not available' ||
+              CoordinateParser.looksLikeCoordinatePair(locationStr)) {
+            locationStr = vehicle.location;
+          }
+          break;
+        }
+      }
+    }
+
+    if ((lat == null || lng == null) && vehicleName.isNotEmpty) {
+      for (final VehicleModel vehicle in VehicleData.vehicles) {
+        if (vehicle.name.trim().toLowerCase() ==
+            vehicleName.trim().toLowerCase()) {
+          lat ??= vehicle.latitude;
+          lng ??= vehicle.longitude;
+          if (locationStr == 'Location not available' ||
+              CoordinateParser.looksLikeCoordinatePair(locationStr)) {
+            locationStr = vehicle.location;
+          }
+          break;
+        }
+      }
+    }
+
+    double? speed = double.tryParse((json['speed'])?.toString() ?? '');
+    speed ??= _parseSpeedFromMessage(title) ?? _parseSpeedFromMessage(json['message']?.toString());
 
     return AppNotification(
       id: id,
@@ -135,6 +212,21 @@ class AppNotification {
       longitude: lng,
       speed: speed,
     );
+  }
+
+  static double? _parseSpeedFromMessage(String? text) {
+    if (text == null || text.trim().isEmpty) {
+      return null;
+    }
+    final RegExp match = RegExp(
+      r'(\d+(?:\.\d+)?)\s*(?:km/h|kmph|kmh|kph)',
+      caseSensitive: false,
+    );
+    final RegExpMatch? found = match.firstMatch(text);
+    if (found != null) {
+      return double.tryParse(found.group(1)!);
+    }
+    return null;
   }
 }
 

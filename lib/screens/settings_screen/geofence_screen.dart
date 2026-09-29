@@ -478,7 +478,7 @@ class _GeofenceScreenState extends State<GeofenceScreen> {
                       : ListView.separated(
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
                           itemCount: visible.length,
-                          separatorBuilder: (_, __) =>
+                          separatorBuilder: (_, _) =>
                               const SizedBox(height: 12),
                           itemBuilder: (BuildContext context, int index) {
                             final _GeofenceItem item = visible[index];

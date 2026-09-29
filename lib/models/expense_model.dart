@@ -18,4 +18,5 @@ class ExpenseModel {
     required this.date,
     required this.category,
   });
+
 }

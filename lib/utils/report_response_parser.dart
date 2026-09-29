@@ -6,6 +6,56 @@ import '../screens/report_screens/report_content_widgets.dart';
 class ReportResponseParser {
   ReportResponseParser._();
 
+  /// Normalizes list/map API payloads (tasks, reports, events).
+  static List<Map<String, dynamic>> listFromDynamic(dynamic response) {
+    if (response == null) {
+      return <Map<String, dynamic>>[];
+    }
+    if (response is List) {
+      final List<Map<String, dynamic>> out = <Map<String, dynamic>>[];
+      for (final dynamic item in response) {
+        final Map<String, dynamic>? map = _asStringKeyMap(item);
+        if (map != null) {
+          out.add(map);
+        }
+      }
+      return out;
+    }
+    if (response is Map) {
+      final Map<String, dynamic> root = response.map(
+        (Object? k, Object? v) => MapEntry(k.toString(), v),
+      );
+      for (final String key in <String>[
+        'items',
+        'data',
+        'rows',
+        'table',
+        'results',
+        'report',
+        'tasks',
+        'events',
+      ]) {
+        if (root[key] is List) {
+          return listFromDynamic(root[key]);
+        }
+      }
+      return extractItems(root);
+    }
+    return <Map<String, dynamic>>[];
+  }
+
+  static Map<String, dynamic>? _asStringKeyMap(dynamic value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      return value.map(
+        (Object? k, Object? v) => MapEntry(k.toString(), v),
+      );
+    }
+    return null;
+  }
+
   static List<Map<String, dynamic>> extractItems(Map<String, dynamic>? response) {
     if (response == null || response.isEmpty) {
       return <Map<String, dynamic>>[];
@@ -17,6 +67,43 @@ class ReportResponseParser {
   }
 
   static int itemCount(Map<String, dynamic>? response) => extractItems(response).length;
+
+  static int itemCountDynamic(dynamic response) =>
+      listFromDynamic(response).length;
+
+  static bool isEmptyReport(dynamic response) {
+    if (response == null) {
+      return true;
+    }
+    if (response is List) {
+      return response.isEmpty;
+    }
+    if (response is Map) {
+      return response.isEmpty;
+    }
+    return true;
+  }
+
+  static Map<String, dynamic>? asReportMap(dynamic response) {
+    if (response == null) {
+      return null;
+    }
+    if (response is Map<String, dynamic>) {
+      return response;
+    }
+    if (response is Map) {
+      return response.map(
+        (Object? k, Object? v) => MapEntry(k.toString(), v),
+      );
+    }
+    if (response is List) {
+      if (response.isEmpty) {
+        return null;
+      }
+      return <String, dynamic>{'items': response};
+    }
+    return null;
+  }
 
   static String summaryValue(
     Map<String, dynamic>? response,
@@ -160,7 +247,15 @@ class ReportResponseParser {
       return;
     }
 
-    for (final String key in <String>['items', 'data', 'rows', 'events', 'reports']) {
+    for (final String key in <String>[
+      'items',
+      'data',
+      'rows',
+      'table',
+      'results',
+      'events',
+      'reports',
+    ]) {
       if (map.containsKey(key)) {
         _collectMaps(map[key], target);
       }
@@ -170,9 +265,21 @@ class ReportResponseParser {
   static bool _looksLikeReportRow(Map<String, dynamic> map) {
     return map.containsKey('time') ||
         map.containsKey('timestamp') ||
+        map.containsKey('date') ||
+        map.containsKey('day') ||
         map.containsKey('status') ||
         map.containsKey('type') ||
         map.containsKey('event') ||
+        map.containsKey('distance') ||
+        map.containsKey('total_distance') ||
+        map.containsKey('move_duration') ||
+        map.containsKey('engine_hours') ||
+        map.containsKey('start_time') ||
+        map.containsKey('end_time') ||
+        map.containsKey('title') ||
+        map.containsKey('expires') ||
+        map.containsKey('remind_date') ||
+        map.containsKey('due_date') ||
         (map.containsKey('lat') && map.containsKey('lng'));
   }
 

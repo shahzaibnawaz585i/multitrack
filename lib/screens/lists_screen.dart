@@ -41,7 +41,7 @@ class _ListScreenState extends State<ListScreen> {
   Timer? _searchDebounce;
   Timer? _refreshTimer;
 
-  static const Duration _refreshInterval = Duration(seconds: 15);
+  static const Duration _refreshInterval = Duration(seconds: 20);
 
   static const List<String> _validFilters = <String>[
     'all',
@@ -73,12 +73,30 @@ class _ListScreenState extends State<ListScreen> {
     if (widget.isVisible) {
       _startAutoRefresh();
     }
+    VehicleData.revision.addListener(_onVehicleDataRevision);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         return;
       }
       _precacheVehicleImages();
     });
+  }
+
+  void _onVehicleDataRevision() {
+    if (!mounted) {
+      return;
+    }
+    final List<VehicleModel> next = VehicleData.vehicles;
+    if (next.isEmpty && _isLoading) {
+      return;
+    }
+    if (VehicleRefreshUtils.listDisplayChanged(_vehicles, next)) {
+      setState(() {
+        _vehicles = next;
+        _isLoading = false;
+        _recomputeDerivedLists();
+      });
+    }
   }
 
   void _recomputeDerivedLists() {
@@ -91,15 +109,17 @@ class _ListScreenState extends State<ListScreen> {
   }
 
   Future<void> _fetchVehicles({bool isRefresh = false}) async {
-    if (!isRefresh && _vehicles.isEmpty) {
+    final bool showBlockingLoader = !isRefresh && _vehicles.isEmpty;
+    if (showBlockingLoader) {
       setState(() {
         _isLoading = true;
       });
     }
 
     try {
-      final List<VehicleModel> data =
-          await VehicleService.getDevices(forceRefresh: isRefresh);
+      final List<VehicleModel> data = await VehicleService.getDevices(
+        forceRefresh: isRefresh && _vehicles.isNotEmpty,
+      );
       if (!mounted) return;
 
       final bool changed =
@@ -129,10 +149,10 @@ class _ListScreenState extends State<ListScreen> {
 
   void _precacheVehicleImages() {
     const List<String> assets = <String>[
-      AppImages.runningCar,
-      AppImages.stopCar,
-      AppImages.idleCar,
-      AppImages.inactiveCar,
+      AppImages.listRunningCar,
+      AppImages.listStopCar,
+      AppImages.listIdleCar,
+      AppImages.listInactiveCar,
       AppImages.runningLock,
       AppImages.stopLock,
       AppImages.idleLock,
@@ -160,6 +180,7 @@ class _ListScreenState extends State<ListScreen> {
 
   @override
   void dispose() {
+    VehicleData.revision.removeListener(_onVehicleDataRevision);
     _searchDebounce?.cancel();
     _stopAutoRefresh();
     _searchController.dispose();

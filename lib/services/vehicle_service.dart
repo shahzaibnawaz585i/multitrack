@@ -1,21 +1,100 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:developer' as developer;
+
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants/api_config.dart';
 import '../data/vehicle_data.dart';
+import '../models/notification_model.dart';
 import '../models/vehicle_model.dart';
+import '../utils/coordinate_parser.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
+import 'live_notification_controller.dart';
 import 'reverse_geocoding_service.dart';
+
+class _VehicleStateSnapshot {
+  final String status;
+  final double speed;
+
+  const _VehicleStateSnapshot({
+    required this.status,
+    required this.speed,
+  });
+}
 
 class VehicleService {
   VehicleService._();
 
   static Future<List<VehicleModel>>? _inFlight;
   static DateTime? _lastSuccessfulFetch;
-  static const Duration _cacheTtl = Duration(seconds: 5);
+  static const Duration _cacheTtl = Duration(seconds: 30);
+  static const String _diskCacheKey = 'vehicle_service_get_devices_v1';
+  static const String _diskCacheTimeKey = 'vehicle_service_get_devices_time_v1';
   static bool _geocodingInFlight = false;
-  static const int _maxGeocodePerFetch = 6;
+  static const int _maxGeocodePerFetch = 24;
+  static final Map<String, _VehicleStateSnapshot> _previousStates =
+      <String, _VehicleStateSnapshot>{};
+
+  /// Resets vehicle baseline tracker (call on logout).
+  static void resetBaseline() {
+    _previousStates.clear();
+  }
+
+  /// Clears in-memory + on-disk fleet (logout).
+  static void clearFleetCache() {
+    _inFlight = null;
+    _lastSuccessfulFetch = null;
+    VehicleData.assignVehicles(<VehicleModel>[]);
+    unawaited(_clearPersistedFleet());
+  }
+
+  /// Last successful [get_devices] payload — show list instantly after app restart.
+  static Future<void> restorePersistedFleet() async {
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final String? raw = prefs.getString(_diskCacheKey);
+      if (raw == null || raw.isEmpty) {
+        return;
+      }
+      final dynamic decoded = jsonDecode(raw);
+      final List<VehicleModel> parsed = _parseDevices(decoded);
+      if (parsed.isEmpty) {
+        return;
+      }
+      VehicleData.assignVehicles(parsed);
+      final int? savedMs = prefs.getInt(_diskCacheTimeKey);
+      if (savedMs != null) {
+        _lastSuccessfulFetch = DateTime.fromMillisecondsSinceEpoch(savedMs);
+      }
+    } catch (e, stack) {
+      developer.log(
+        'restorePersistedFleet failed: $e',
+        error: e,
+        stackTrace: stack,
+        name: 'VehicleService',
+      );
+    }
+  }
+
+  static Future<void> _persistFleetResponse(dynamic response) async {
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_diskCacheKey, jsonEncode(response));
+      await prefs.setInt(
+        _diskCacheTimeKey,
+        DateTime.now().millisecondsSinceEpoch,
+      );
+    } catch (_) {}
+  }
+
+  static Future<void> _clearPersistedFleet() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_diskCacheKey);
+    await prefs.remove(_diskCacheTimeKey);
+  }
 
   /// Fetches vehicles/devices from `{baseUrl}/api/get_devices`.
   /// Falls back to local/cached data if remote server is not configured or in case of error.
@@ -65,15 +144,20 @@ class VehicleService {
         print('VehicleService: Response received: $response');
       }
 
+      await _persistFleetResponse(response);
+
       final List<VehicleModel> parsedDevices = _parseDevices(response);
 
       if (kDebugMode) {
         print('VehicleService: Parsed ${parsedDevices.length} devices');
       }
 
-      VehicleData.vehicles = parsedDevices;
+      VehicleData.assignVehicles(parsedDevices);
 
       if (parsedDevices.isNotEmpty) {
+        // Detect live Ignition ON/OFF & OverSpeed transitions
+        _detectVehicleStateChanges(parsedDevices);
+
         // Asynchronously resolve text addresses for devices without street names
         _resolveMissingAddresses(parsedDevices, server: server, token: token);
       }
@@ -94,6 +178,103 @@ class VehicleService {
     }
   }
 
+  static void _detectVehicleStateChanges(List<VehicleModel> vehicles) {
+    if (_previousStates.isEmpty) {
+      // Baseline initialization: store initial status so no false alarms on startup
+      for (final VehicleModel v in vehicles) {
+        final String key = v.id != null ? 'id_${v.id}' : v.name;
+        final double spd = _parseSpeedKmph(v.speed);
+        _previousStates[key] = _VehicleStateSnapshot(
+          status: v.status.toUpperCase(),
+          speed: spd,
+        );
+      }
+      return;
+    }
+
+    final DateTime now = DateTime.now();
+    for (final VehicleModel v in vehicles) {
+      final String key = v.id != null ? 'id_${v.id}' : v.name;
+      final String currentStatus = v.status.toUpperCase();
+      final double currentSpeed = _parseSpeedKmph(v.speed);
+
+      final _VehicleStateSnapshot? prev = _previousStates[key];
+      if (prev != null) {
+        final String prevStatus = prev.status;
+        final double prevSpeed = prev.speed;
+
+        // 1. Ignition ON: Changed from STOPPED / NOT REPORTING to RUNNING or IDLE
+        final bool wasOff = prevStatus == 'STOPPED' ||
+            prevStatus == 'NOT REPORTING' ||
+            prevStatus == 'INACTIVE' ||
+            prevStatus == 'OFFLINE';
+        final bool isNowOn = currentStatus == 'RUNNING' || currentStatus == 'IDLE';
+
+        if (wasOff && isNowOn) {
+          final AppNotification notif = AppNotification(
+            id: v.id,
+            vehicleId: v.name,
+            eventTitle: 'Ignition On',
+            location: v.location,
+            timestamp: now,
+            category: NotificationCategory.alerts,
+            eventType: NotificationEventType.ignitionOn,
+            latitude: v.latitude,
+            longitude: v.longitude,
+            speed: currentSpeed,
+          );
+          LiveNotificationController.instance.push(notif);
+        }
+
+        // 2. Ignition OFF: Changed from RUNNING or IDLE to STOPPED
+        final bool wasOn = prevStatus == 'RUNNING' || prevStatus == 'IDLE';
+        final bool isNowOff = currentStatus == 'STOPPED';
+
+        if (wasOn && isNowOff) {
+          final AppNotification notif = AppNotification(
+            id: v.id,
+            vehicleId: v.name,
+            eventTitle: 'Ignition Off',
+            location: v.location,
+            timestamp: now,
+            category: NotificationCategory.alerts,
+            eventType: NotificationEventType.ignitionOff,
+            latitude: v.latitude,
+            longitude: v.longitude,
+            speed: currentSpeed,
+          );
+          LiveNotificationController.instance.push(notif);
+        }
+
+        // 3. OverSpeed: Speed exceeds 80 km/h
+        if (prevSpeed <= 80 && currentSpeed > 80) {
+          final AppNotification notif = AppNotification(
+            id: v.id,
+            vehicleId: v.name,
+            eventTitle: 'Device OverSpeed',
+            location: v.location,
+            timestamp: now,
+            category: NotificationCategory.alerts,
+            eventType: NotificationEventType.overSpeed,
+            latitude: v.latitude,
+            longitude: v.longitude,
+            speed: currentSpeed,
+          );
+          LiveNotificationController.instance.push(notif);
+        }
+      }
+
+      _previousStates[key] = _VehicleStateSnapshot(
+        status: currentStatus,
+        speed: currentSpeed,
+      );
+    }
+  }
+
+  static double _parseSpeedKmph(String speed) {
+    return double.tryParse(speed.replaceAll(RegExp(r'[^\d.]'), '')) ?? 0.0;
+  }
+
   static void _resolveMissingAddresses(
     List<VehicleModel> devices, {
     required String server,
@@ -109,7 +290,9 @@ class VehicleService {
           if (resolved >= _maxGeocodePerFetch) break;
 
           final VehicleModel dev = devices[i];
-          if (dev.location == 'Location not available' &&
+          final bool needsAddress = dev.location == 'Location not available' ||
+              CoordinateParser.looksLikeCoordinatePair(dev.location);
+          if (needsAddress &&
               dev.latitude != null &&
               dev.longitude != null &&
               (dev.latitude != 0.0 || dev.longitude != 0.0)) {
@@ -125,11 +308,47 @@ class VehicleService {
             }
           }
         }
-        VehicleData.vehicles = devices;
+        VehicleData.assignVehicles(devices);
       } finally {
         _geocodingInFlight = false;
       }
     });
+  }
+
+  /// Resolves street address for [vehicle] when API only sent coordinates.
+  static Future<String?> resolveAddressFor(VehicleModel vehicle) async {
+    if (vehicle.latitude == null ||
+        vehicle.longitude == null ||
+        (vehicle.latitude == 0.0 && vehicle.longitude == 0.0)) {
+      return null;
+    }
+    final String server = await AuthService.server();
+    final String? token = await AuthService.token();
+    final String address = await ReverseGeocodingService.resolveAddress(
+      lat: vehicle.latitude!,
+      lng: vehicle.longitude!,
+      server: server,
+      token: token,
+    );
+    if (address.isEmpty || address == 'Location not available') {
+      return null;
+    }
+    return address;
+  }
+
+  /// Updates one vehicle in [VehicleData.vehicles] after geocode / fast refresh.
+  static void patchCachedDevice(VehicleModel updated) {
+    if (updated.id == null) {
+      return;
+    }
+    final List<VehicleModel> list = List<VehicleModel>.from(VehicleData.vehicles);
+    for (int i = 0; i < list.length; i++) {
+      if (list[i].id == updated.id) {
+        list[i] = updated;
+        VehicleData.assignVehicles(list);
+        return;
+      }
+    }
   }
 
   /// Returns a device from the in-memory cache without triggering a network call.

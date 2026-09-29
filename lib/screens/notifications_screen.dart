@@ -1,10 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../data/notification_data.dart';
+import '../data/vehicle_data.dart';
 import '../l10n/app_l10n.dart';
 import '../models/notification_model.dart';
 import '../services/alert_service.dart';
+import '../services/live_notification_controller.dart';
+import '../services/voice_alert_service.dart';
 import '../theme/app_theme_tokens.dart';
+import '../utils/notification_location_text.dart';
 import 'notification_filter_screen.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -26,16 +32,37 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  late final ScrollController _scrollController;
   bool _isLoading = false;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  int _currentPage = 1;
   List<AppNotification> _alerts = <AppNotification>[];
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _tabController.addListener(_onTabChanged);
+    _scrollController = ScrollController()..addListener(_onScroll);
     _alerts = _getFilteredAlerts(NotificationData.alerts);
+    LiveNotificationController.instance.addListener(_onLiveAlertsChanged);
+    NotificationData.alertsRevision.addListener(_onLiveAlertsChanged);
+    VehicleData.revision.addListener(_onLiveAlertsChanged);
+    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      _loadEvents(isRefresh: true);
+    });
     _loadEvents();
+  }
+
+  void _onLiveAlertsChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _alerts = _getFilteredAlerts(NotificationData.alerts);
+    });
   }
 
   void _onTabChanged() {
@@ -45,14 +72,30 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     setState(() {});
   }
 
+  void _onScroll() {
+    if (_tabController.index != 0 && !widget.showAlertsOnly) return;
+    if (_scrollController.position.pixels >=
+            _scrollController.position.maxScrollExtent - 250 &&
+        !_isLoading &&
+        !_isLoadingMore &&
+        _hasMore) {
+      _loadMoreEvents();
+    }
+  }
+
   Future<void> _loadEvents({bool isRefresh = false}) async {
     if (!isRefresh && _alerts.isEmpty) {
       setState(() => _isLoading = true);
     }
+    if (isRefresh) {
+      _currentPage = 1;
+      _hasMore = true;
+    }
 
-    final List<AppNotification> fetched = await AlertService.getEvents(
+    final List<AppNotification> fetched = await AlertService.getDisplayAlerts(
       deviceId: widget.deviceId,
-      forceRefresh: isRefresh,
+      vehicleName: widget.vehicleName,
+      forceRefresh: isRefresh || _alerts.isEmpty,
     );
 
     if (!mounted) {
@@ -62,22 +105,83 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     setState(() {
       _isLoading = false;
       _alerts = _getFilteredAlerts(fetched);
+      if (fetched.length < 30) {
+        _hasMore = false;
+      }
+    });
+  }
+
+  Future<void> _loadMoreEvents() async {
+    if (_isLoadingMore || !_hasMore) return;
+    setState(() => _isLoadingMore = true);
+
+    final int nextPage = _currentPage + 1;
+    final List<AppNotification> fetched = await AlertService.getEvents(
+      deviceId: widget.deviceId,
+      page: nextPage,
+      limit: 50,
+      forceRefresh: true,
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _isLoadingMore = false;
+      if (fetched.isEmpty) {
+        _hasMore = false;
+      } else {
+        _currentPage = nextPage;
+        final List<AppNotification> filtered = _getFilteredAlerts(fetched);
+        final Set<String> existingKeys = _alerts.map((AppNotification n) => '${n.id}_${n.timestamp}').toSet();
+        for (final AppNotification item in filtered) {
+          final String key = '${item.id}_${item.timestamp}';
+          if (!existingKeys.contains(key)) {
+            _alerts.add(item);
+            existingKeys.add(key);
+          }
+        }
+        if (fetched.length < 20) {
+          _hasMore = false;
+        }
+      }
     });
   }
 
   List<AppNotification> _getFilteredAlerts(List<AppNotification> raw) {
+    Iterable<AppNotification> items = raw.where(
+      (AppNotification n) => n.category == NotificationCategory.alerts,
+    );
+
     if (widget.vehicleName != null && widget.vehicleName!.isNotEmpty) {
       final String filter = widget.vehicleName!.toLowerCase().trim();
-      final List<AppNotification> filtered = raw.where((AppNotification n) {
-        return n.vehicleId.toLowerCase().contains(filter);
-      }).toList();
-      return filtered.isNotEmpty ? filtered : raw;
+      final List<AppNotification> byVehicle = items
+          .where(
+            (AppNotification n) =>
+                n.vehicleId.toLowerCase().contains(filter) ||
+                filter.contains(n.vehicleId.toLowerCase()),
+          )
+          .toList();
+      if (byVehicle.isNotEmpty) {
+        items = byVehicle;
+      }
     }
-    return raw;
+
+    final List<AppNotification> list = items.toList();
+    list.sort(
+      (AppNotification a, AppNotification b) =>
+          b.timestamp.compareTo(a.timestamp),
+    );
+    return list;
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
+    LiveNotificationController.instance.removeListener(_onLiveAlertsChanged);
+    NotificationData.alertsRevision.removeListener(_onLiveAlertsChanged);
+    VehicleData.revision.removeListener(_onLiveAlertsChanged);
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     super.dispose();
@@ -203,16 +307,19 @@ class _NotificationsScreenState extends State<NotificationsScreen>
           : widget.showAlertsOnly
               ? RefreshIndicator(
                   onRefresh: () => _loadEvents(isRefresh: true),
-                  child: _buildNotificationList(_alerts),
+                  child: _buildNotificationList(_alerts, isAlertTab: true),
                 )
               : TabBarView(
                   controller: _tabController,
                   children: [
                     RefreshIndicator(
                       onRefresh: () => _loadEvents(isRefresh: true),
-                      child: _buildNotificationList(_alerts),
+                      child: _buildNotificationList(_alerts, isAlertTab: true),
                     ),
-                    _buildEmptyState(context.tr('No announcements')),
+                    RefreshIndicator(
+                      onRefresh: () => _loadEvents(isRefresh: true),
+                      child: _buildNotificationList(NotificationData.announcements),
+                    ),
                     RefreshIndicator(
                       onRefresh: () => _loadEvents(isRefresh: true),
                       child: _buildNotificationList(NotificationData.reminders),
@@ -222,7 +329,10 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     );
   }
 
-  Widget _buildNotificationList(List<AppNotification> items) {
+  Widget _buildNotificationList(
+    List<AppNotification> items, {
+    bool isAlertTab = false,
+  }) {
     if (items.isEmpty) {
       return Center(
         child: SingleChildScrollView(
@@ -243,28 +353,33 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       );
     }
 
+    final int extraItemCount = (isAlertTab && (_isLoadingMore || _hasMore)) ? 1 : 0;
+
     return ListView.builder(
+      controller: isAlertTab ? _scrollController : null,
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-      itemCount: items.length,
+      itemCount: items.length + extraItemCount,
       itemBuilder: (BuildContext context, int index) {
+        if (index == items.length) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Center(
+              child: _isLoadingMore
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          );
+        }
         return _NotificationCard(
           notification: items[index],
           formattedTime: _formatTimestamp(items[index].timestamp),
         );
       },
-    );
-  }
-
-  Widget _buildEmptyState(String message) {
-    return Center(
-      child: Text(
-        message,
-        style: TextStyle(
-          fontSize: 15,
-          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-        ),
-      ),
     );
   }
 }
@@ -278,15 +393,64 @@ class _NotificationCard extends StatelessWidget {
     required this.formattedTime,
   });
 
+  IconData _getIcon() {
+    if (notification.category == NotificationCategory.announcements) {
+      return Icons.campaign_rounded;
+    }
+    if (notification.category == NotificationCategory.reminders) {
+      return Icons.event_note_rounded;
+    }
+    return notification.eventType.icon;
+  }
+
+  String _eventLabel(BuildContext context, AppNotification notification) {
+    final String title = notification.eventTitle.trim();
+    if (title.isNotEmpty &&
+        title.toLowerCase() != 'alert' &&
+        title.toLowerCase() != 'event') {
+      return context.tr(title);
+    }
+
+    switch (notification.eventType) {
+      case NotificationEventType.ignitionOn:
+        return context.tr('Ignition On');
+      case NotificationEventType.ignitionOff:
+        return context.tr('Ignition Off');
+      case NotificationEventType.overSpeed:
+        return context.tr('Device OverSpeed');
+      case NotificationEventType.geofenceIn:
+        return context.tr('Geofence Entered');
+      case NotificationEventType.geofenceOut:
+        return context.tr('Geofence Exit');
+      case NotificationEventType.offline:
+        return context.tr('Device Offline');
+      case NotificationEventType.movement:
+        return context.tr('Movement Detected');
+      case NotificationEventType.generic:
+        return title.isNotEmpty ? context.tr(title) : context.tr('Alert');
+    }
+  }
+
+  Color _getIconColor() {
+    if (notification.category == NotificationCategory.announcements) {
+      return const Color(0xFF0288D1);
+    }
+    if (notification.category == NotificationCategory.reminders) {
+      return const Color(0xFFF57C00);
+    }
+    return notification.eventType.iconColor;
+  }
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final Color textColor = theme.colorScheme.onSurface;
     final Color mutedColor = textColor.withValues(alpha: 0.65);
+    final Color iconColor = _getIconColor();
+    final IconData icon = _getIcon();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
       decoration: context.containerDecoration(
         borderRadius: BorderRadius.circular(8),
       ).copyWith(
@@ -298,71 +462,117 @@ class _NotificationCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: notification.eventType.iconColor.withValues(alpha: 0.12),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              notification.eventType.icon,
-              color: notification.eventType.iconColor,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () {
+            VoiceAlertService.instance.speak(notification);
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        notification.vehicleId,
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: iconColor.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    icon,
+                    color: iconColor,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              notification.vehicleId,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                                color: textColor,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            formattedTime,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: mutedColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _eventLabel(context, notification),
                         style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                          color: textColor,
+                          fontSize: 14,
+                          color: textColor.withValues(alpha: 0.85),
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ),
-                    Text(
-                      formattedTime,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: mutedColor,
+                      if (notification.eventType ==
+                              NotificationEventType.overSpeed &&
+                          notification.speed != null) ...<Widget>[
+                        const SizedBox(height: 4),
+                        Text(
+                          '${notification.speed!.toStringAsFixed(0)} km/h',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: iconColor,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 4),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Icon(
+                            Icons.location_on_outlined,
+                            size: 14,
+                            color: theme.colorScheme.primary,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              NotificationLocationText.resolve(notification),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: mutedColor,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  notification.eventTitle,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: textColor.withValues(alpha: 0.85),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  notification.location,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: mutedColor,
-                    height: 1.3,
-                  ),
+                const SizedBox(width: 6),
+                Icon(
+                  Icons.volume_up_outlined,
+                  size: 18,
+                  color: theme.colorScheme.primary.withValues(alpha: 0.7),
                 ),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }

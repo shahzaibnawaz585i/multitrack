@@ -1,8 +1,15 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../constants/api_config.dart';
 import '../models/login_result.dart';
+import '../data/notification_data.dart';
+import '../models/notification_model.dart';
+import 'alert_service.dart';
 import 'auth_api.dart';
 import 'fcm_service.dart';
+import 'live_notification_controller.dart';
+import 'vehicle_service.dart';
+import 'voice_alert_service.dart';
 
 class AuthService {
   AuthService._();
@@ -52,7 +59,7 @@ class AuthService {
     if (saved != null && saved.trim().isNotEmpty) {
       return saved.trim();
     }
-    return 'Server 1';
+    return ApiConfig.appServerId;
   }
 
   static Future<LoginResult> login({
@@ -73,7 +80,8 @@ class AuthService {
     await _persistSession(
       userId: result.userId!,
       name: result.name ?? result.userId!,
-      token: result.token ??
+      token:
+          result.token ??
           'mt_${result.userId}_${DateTime.now().millisecondsSinceEpoch}',
       server: server,
     );
@@ -96,6 +104,12 @@ class AuthService {
 
   static Future<void> logout() async {
     await FcmService.unregister();
+    AlertService.resetBaseline();
+    VehicleService.resetBaseline();
+    VehicleService.clearFleetCache();
+    NotificationData.assignAlerts(<AppNotification>[]);
+    LiveNotificationController.instance.clear();
+    await VoiceAlertService.instance.dispose();
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_loggedInKey, false);
     await prefs.remove(_userIdKey);

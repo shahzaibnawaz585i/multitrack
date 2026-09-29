@@ -4,6 +4,9 @@ class ApiConfig {
   static const Duration timeout = Duration(seconds: 45);
   static const String defaultBaseUrl = 'https://gps.m-track.net.pk';
 
+  /// Stored server id for login session (maps to [defaultBaseUrl]).
+  static const String appServerId = 'Server 1';
+
   // Auth & devices
   static const String loginPath = '/api/login';
   static const String getDevicesPath = '/api/get_devices';
@@ -53,31 +56,11 @@ class ApiConfig {
   static const String fcmTokenPath = '/api/fcm_token';
   static const String deleteFcmTokenPath = '/api/delete_fcm_token';
 
-  /// GPS panel base URL for each login-server option.
   static const Map<String, String> serverBaseUrls = <String, String>{
-    'Server 1 (Live)': 'https://gps.m-track.net.pk',
-    'Server 1': 'https://gps.m-track.net.pk',
-    'Server 2': 'http://62.171.139.5',
-    'Nostrum Track': 'http://62.171.139.5',
-    'Fleet Wox': 'http://62.171.139.5',
-    'Fleet Wo': 'http://62.171.139.5',
-    'Server 3': 'https://gps.m-track.net.pk',
+    appServerId: defaultBaseUrl,
   };
 
-  static String baseUrlFor(String server) {
-    final String trimmed = server.trim();
-    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      return trimmed.replaceAll(RegExp(r'/+$'), '');
-    }
-    for (final MapEntry<String, String> entry in serverBaseUrls.entries) {
-      if (entry.key.toLowerCase() == trimmed.toLowerCase() ||
-          trimmed.toLowerCase().startsWith(entry.key.toLowerCase()) ||
-          entry.key.toLowerCase().startsWith(trimmed.toLowerCase())) {
-        return entry.value.replaceAll(RegExp(r'/+$'), '');
-      }
-    }
-    return defaultBaseUrl;
-  }
+  static String baseUrlFor(String server) => defaultBaseUrl;
 
   static Uri apiUri(
     String server,
@@ -110,6 +93,7 @@ class ApiConfig {
     String? token,
     int? deviceId,
     int? page,
+    int? limit,
   }) {
     final Map<String, String> queryParams = <String, String>{};
     if (deviceId != null) {
@@ -117,6 +101,9 @@ class ApiConfig {
     }
     if (page != null) {
       queryParams['page'] = page.toString();
+    }
+    if (limit != null) {
+      queryParams['limit'] = limit.toString();
     }
     return apiUri(server, getEventsPath, token: token, queryParams: queryParams);
   }
@@ -143,22 +130,61 @@ class ApiConfig {
   static Uri addUserDriverUri(String server) =>
       apiUri(server, addUserDriverPath);
 
+  /// GPSWOX `GET /api/get_history` query (lang, device_id, from_date/time, to_date/time).
+  static Map<String, String> getHistoryQueryParams({
+    required DateTime from,
+    required DateTime to,
+    int? deviceId,
+    int? page,
+    int? limit,
+    String lang = 'en',
+  }) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    String date(DateTime d) =>
+        '${d.year}-${two(d.month)}-${two(d.day)}';
+    String time(DateTime d) => '${two(d.hour)}:${two(d.minute)}';
+
+    final Map<String, String> queryParams = <String, String>{
+      'lang': lang,
+      'from_date': date(from),
+      'from_time': time(from),
+      'to_date': date(to),
+      'to_time': time(to),
+    };
+    if (deviceId != null) {
+      queryParams['device_id'] = deviceId.toString();
+    }
+    if (page != null) {
+      queryParams['page'] = page.toString();
+    }
+    if (limit != null) {
+      queryParams['limit'] = limit.toString();
+    }
+    return queryParams;
+  }
+
   static Uri getHistoryUri(
     String server, {
     String? token,
     int? deviceId,
-    String? from,
-    String? to,
+    DateTime? from,
+    DateTime? to,
+    int? page,
+    int? limit,
+    String lang = 'en',
   }) {
-    final Map<String, String> queryParams = <String, String>{};
-    if (deviceId != null) {
+    final Map<String, String> queryParams = from != null && to != null
+        ? getHistoryQueryParams(
+            from: from,
+            to: to,
+            deviceId: deviceId,
+            page: page,
+            limit: limit,
+            lang: lang,
+          )
+        : <String, String>{'lang': lang};
+    if (deviceId != null && !queryParams.containsKey('device_id')) {
       queryParams['device_id'] = deviceId.toString();
-    }
-    if (from != null && from.isNotEmpty) {
-      queryParams['from'] = from;
-    }
-    if (to != null && to.isNotEmpty) {
-      queryParams['to'] = to;
     }
     return apiUri(server, getHistoryPath, token: token, queryParams: queryParams);
   }

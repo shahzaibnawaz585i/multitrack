@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../constants/app_theme.dart';
+import '../../data/expense_local_store.dart';
 import '../../data/vehicle_data.dart';
+import '../../models/expense_model.dart';
 import '../../utils/report_date_picker.dart';
 
 class AddExpenseScreen extends StatefulWidget {
@@ -682,8 +684,36 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                           color: pinkColor,
                           borderRadius: BorderRadius.circular(8),
                           child: InkWell(
-                            onTap: () {
-                              Navigator.pop(context);
+                            onTap: () async {
+                              final double amount = double.tryParse(
+                                    _amountController.text.trim(),
+                                  ) ??
+                                  0;
+                              final double quantity = double.tryParse(
+                                    _quantityController.text.trim(),
+                                  ) ??
+                                  0;
+                              await ExpenseLocalStore.add(
+                                ExpenseModel(
+                                  description:
+                                      _descriptionController.text.trim().isEmpty
+                                          ? '-'
+                                          : _descriptionController.text.trim(),
+                                  deviceName: _vehicleController.text.trim(),
+                                  odometer: '-',
+                                  quantity: quantity,
+                                  amount: amount,
+                                  paymentMode:
+                                      _paymentModeController.text.trim().isEmpty
+                                          ? 'Cash'
+                                          : _paymentModeController.text.trim(),
+                                  date: _formatDateTime(_selectedDate),
+                                  category: _selectedExpenseType ?? 'Other',
+                                ),
+                              );
+                              if (context.mounted) {
+                                Navigator.pop(context);
+                              }
                             },
                             borderRadius: BorderRadius.circular(8),
                             child: const Center(

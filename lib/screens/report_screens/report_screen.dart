@@ -3,15 +3,21 @@ import 'package:intl/intl.dart';
 
 import '../../data/vehicle_data.dart';
 import '../../l10n/app_l10n.dart';
+import '../../models/over_speed_report_event.dart';
 import '../../models/vehicle_model.dart';
+import '../../services/over_speed_report_service.dart';
+import '../../services/vehicle_service.dart';
 import '../../theme/app_theme_tokens.dart';
 import '../../utils/report_date_picker.dart';
+import '../../utils/report_period.dart';
 import '../../widgets/select_vehicle_dialog.dart';
+import 'over_speed_report_map_screen.dart';
+import 'report_content_widgets.dart';
 
 class ReportScreen extends StatefulWidget {
   const ReportScreen({
     super.key,
-    this.title = 'Ignition Report',
+    this.title = 'Over Speed Report',
   });
 
   final String title;
@@ -22,15 +28,18 @@ class ReportScreen extends StatefulWidget {
 
 class _ReportScreenState extends State<ReportScreen> {
   static const Color _accent = Color(0xFFF53D6B);
-  static const Color _lightPinkColor = Color(0xFFFF7A9C);
-  static const Color _fromDateColor = Color(0xFF2E7D32);
-  static const Color _filterSelectedBg = Color(0xFFFFD6DE);
   static const Color _filterUnselectedBg = Color(0xFFFFF0F3);
+  static const Color _fromDateColor = Color.fromARGB(255, 46, 125, 50);
 
   VehicleModel? _selectedVehicle;
-  int _selectedIndex = 0;
+  int _selectedIndex = 3;
   DateTime _fromDate = DateTime.now();
   DateTime _endDate = DateTime.now();
+
+  bool _isLoading = false;
+  String? _loadError;
+  List<OverSpeedReportEvent> _events = <OverSpeedReportEvent>[];
+  List<VehicleModel> _vehicles = VehicleData.vehicles;
 
   final List<String> _filters = <String>[
     'Today',
@@ -42,7 +51,19 @@ class _ReportScreenState extends State<ReportScreen> {
   @override
   void initState() {
     super.initState();
-    _changeFilter(0);
+    _applyPeriod(3);
+    _loadVehicles();
+  }
+
+  Future<void> _loadVehicles() async {
+    final List<VehicleModel> fetched =
+        await VehicleService.getDevices(forceRefresh: false);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _vehicles = fetched.isNotEmpty ? fetched : VehicleData.vehicles;
+    });
   }
 
   Future<void> _showSelectVehicleDialog() async {
@@ -51,7 +72,7 @@ class _ReportScreenState extends State<ReportScreen> {
       builder: (BuildContext context) {
         return SelectVehicleDialog(
           initialSelected: _selectedVehicle,
-          vehicles: VehicleData.vehicles,
+          vehicles: _vehicles,
         );
       },
     );
@@ -60,45 +81,31 @@ class _ReportScreenState extends State<ReportScreen> {
       setState(() {
         _selectedVehicle = result;
       });
+      await _loadReport();
     }
   }
 
   String _formatDate(DateTime date) {
-    return DateFormat('hh:mm a, dd MMM yyyy').format(date);
+    return DateFormat('dd MMM yyyy hh:mm a').format(date);
   }
 
-  void _changeFilter(int index) {
-    final DateTime now = DateTime.now();
+  void _applyPeriod(int index) {
+    final ({DateTime from, DateTime to}) period =
+        ReportPeriod.rangeForChip(index, DateTime.now());
+    _fromDate = period.from;
+    _endDate = period.to;
+    _selectedIndex = index;
+  }
 
+  Future<void> _changeFilter(int index) async {
     setState(() {
-      _selectedIndex = index;
-
-      switch (index) {
-        case 0:
-          _fromDate = DateTime(now.year, now.month, now.day);
-          _endDate = now;
-          break;
-        case 1:
-          final DateTime yesterday = now.subtract(const Duration(days: 1));
-          _fromDate = DateTime(yesterday.year, yesterday.month, yesterday.day);
-          _endDate = DateTime(
-            yesterday.year,
-            yesterday.month,
-            yesterday.day,
-            23,
-            59,
-          );
-          break;
-        case 2:
-          _fromDate = now.subtract(const Duration(days: 7));
-          _endDate = now;
-          break;
-        case 3:
-          _fromDate = DateTime(now.year, now.month, 1);
-          _endDate = now;
-          break;
-      }
+      _applyPeriod(index);
+      _events = <OverSpeedReportEvent>[];
     });
+
+    if (_selectedVehicle != null) {
+      await _loadReport();
+    }
   }
 
   Future<void> _pickFromDate() async {
@@ -112,7 +119,12 @@ class _ReportScreenState extends State<ReportScreen> {
 
     setState(() {
       _fromDate = picked;
+      _selectedIndex = -1;
     });
+
+    if (_selectedVehicle != null) {
+      await _loadReport();
+    }
   }
 
   Future<void> _pickEndDate() async {
@@ -126,7 +138,143 @@ class _ReportScreenState extends State<ReportScreen> {
 
     setState(() {
       _endDate = picked;
+      _selectedIndex = -1;
     });
+
+    if (_selectedVehicle != null) {
+      await _loadReport();
+    }
+  }
+
+  Future<void> _loadReport() async {
+    final VehicleModel? vehicle = _selectedVehicle;
+    if (vehicle == null) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
+
+    try {
+      final DateTime from = ReportPeriod.startOfDay(_fromDate);
+      final DateTime to = _endDate.hour == 0 &&
+              _endDate.minute == 0 &&
+              _endDate.second == 0
+          ? ReportPeriod.endOfDay(_endDate)
+          : _endDate;
+
+      final List<OverSpeedReportEvent> events =
+          await OverSpeedReportService.loadEvents(
+        vehicle: vehicle,
+        from: from,
+        to: to,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _events = events;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isLoading = false;
+        _loadError = context.tr('Could not load report');
+        _events = <OverSpeedReportEvent>[];
+      });
+    }
+  }
+
+  void _openEventOnMap(OverSpeedReportEvent event) {
+    Navigator.push<void>(
+      context,
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => OverSpeedReportMapScreen(event: event),
+      ),
+    );
+  }
+
+  Widget _buildBodyContent({
+    required Color accentColor,
+    required Color mutedColor,
+    required Color contentBg,
+  }) {
+    if (_selectedVehicle == null) {
+      return Center(
+        child: Text(
+          context.tr('Search and select a vehicle to view report'),
+          textAlign: TextAlign.center,
+          style: TextStyle(color: mutedColor, fontSize: 14),
+        ),
+      );
+    }
+
+    if (_isLoading) {
+      return Center(
+        child: CircularProgressIndicator(color: accentColor),
+      );
+    }
+
+    if (_loadError != null) {
+      return Center(
+        child: Text(
+          _loadError!,
+          style: TextStyle(color: Colors.red.shade700),
+        ),
+      );
+    }
+
+    if (_events.isEmpty) {
+      return Center(
+        child: Text(
+          context.tr('No over speed events in this period'),
+          textAlign: TextAlign.center,
+          style: TextStyle(color: mutedColor, fontSize: 14),
+        ),
+      );
+    }
+
+    return ColoredBox(
+      color: contentBg,
+      child: ListView.separated(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+        itemCount: _events.length + 1,
+        separatorBuilder: (BuildContext context, int index) =>
+            const SizedBox(height: 10),
+        itemBuilder: (BuildContext context, int index) {
+          if (index == 0) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
+              child: Text(
+                '${_events.length} ${context.tr('Over Speed Events')}',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  color: accentColor,
+                ),
+              ),
+            );
+          }
+
+          final OverSpeedReportEvent event = _events[index - 1];
+          return OverSpeedReportCard(
+            vehicleName: event.vehicleName,
+            timeLabel: event.timeLabel,
+            speedLabel: event.speedLabel,
+            address: event.address,
+            onTap: () => _openEventOnMap(event),
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -143,8 +291,6 @@ class _ReportScreenState extends State<ReportScreen> {
         ? Colors.transparent
         : const Color(0xFFF3F3F3);
 
-    final Color selectedFilterBg =
-        isHacking ? accentColor.withValues(alpha: 0.28) : _lightPinkColor;
     final Color unselectedFilterBg =
         isHacking ? accentColor.withValues(alpha: 0.10) : _filterUnselectedBg;
     final Color fromValueColor =
@@ -199,7 +345,7 @@ class _ReportScreenState extends State<ReportScreen> {
               color: isHacking ? Colors.transparent : Colors.white,
               boxShadow: isHacking
                   ? null
-                  : [
+                  : <BoxShadow>[
                       BoxShadow(
                         color: const Color(0xFF4A4A4A).withValues(alpha: 0.40),
                         blurRadius: 14,
@@ -239,7 +385,8 @@ class _ReportScreenState extends State<ReportScreen> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              _selectedVehicle?.name ?? 'Search Vehicle',
+                              _selectedVehicle?.name ??
+                                  context.tr('Search Vehicle'),
                               style: TextStyle(
                                 color: mutedColor,
                                 fontSize: 12,
@@ -252,6 +399,8 @@ class _ReportScreenState extends State<ReportScreen> {
                               onTap: () {
                                 setState(() {
                                   _selectedVehicle = null;
+                                  _events = <OverSpeedReportEvent>[];
+                                  _loadError = null;
                                 });
                               },
                               child: Icon(
@@ -279,7 +428,7 @@ class _ReportScreenState extends State<ReportScreen> {
                           ),
                           child: Material(
                             color: selected
-                                ? selectedFilterBg
+                                ? accentColor
                                 : unselectedFilterBg,
                             borderRadius: BorderRadius.circular(22),
                             child: InkWell(
@@ -345,19 +494,10 @@ class _ReportScreenState extends State<ReportScreen> {
             ),
           ),
           Expanded(
-            child: ColoredBox(
-              color: contentBg,
-              child: Center(
-                child: Text(
-                  '${widget.title} is not available',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: accentColor,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
+            child: _buildBodyContent(
+              accentColor: accentColor,
+              mutedColor: mutedColor,
+              contentBg: contentBg,
             ),
           ),
         ],
@@ -417,7 +557,7 @@ class _DateCard extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   value,
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: valueColor,

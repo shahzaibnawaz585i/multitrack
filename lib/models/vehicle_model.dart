@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/reverse_geocoding_service.dart';
+import '../utils/coordinate_parser.dart';
 
 class VehicleTrackPoint {
   const VehicleTrackPoint({
@@ -22,13 +23,36 @@ class VehicleModel {
   final String odometer;
   final String time;
   final String liveTime;
-  final String location;
   final String date;
   final String? validity;
 
   final double? latitude;
   final double? longitude;
   final List<VehicleTrackPoint> tail;
+  final String location;
+
+  // Real-time statistics fields
+  final String deviceTime;
+  final String serverTime;
+  final String runningDuration;
+  final String stopDuration;
+  final String idleDuration;
+  final String inactiveDuration;
+  final String fuelMileage;
+  final String fuelConsumption;
+  final String fuelCost;
+  final String avgSpeed;
+  final String maxSpeed;
+
+  // Sensor fields
+  final String devBattery;
+  final String engineHours;
+  final String carBattery;
+  final String satellites;
+  final String fuelLevel;
+  final String accuracy;
+  final String temperature;
+  final String movement;
 
   const VehicleModel({
     this.id,
@@ -46,6 +70,25 @@ class VehicleModel {
     this.latitude,
     this.longitude,
     this.tail = const <VehicleTrackPoint>[],
+    this.deviceTime = 'N/A',
+    this.serverTime = 'N/A',
+    this.runningDuration = '00:00:00 Hrs',
+    this.stopDuration = '00:00:00 Hrs',
+    this.idleDuration = '00:00:00 Hrs',
+    this.inactiveDuration = '00:00:00 Hrs',
+    this.fuelMileage = '10 km/ltr',
+    this.fuelConsumption = '0.00 ltr',
+    this.fuelCost = '0.00',
+    this.avgSpeed = '0',
+    this.maxSpeed = '0',
+    this.devBattery = '0%',
+    this.engineHours = '00:00',
+    this.carBattery = '0 V',
+    this.satellites = '0',
+    this.fuelLevel = 'N/A',
+    this.accuracy = 'N/A',
+    this.temperature = 'N/A',
+    this.movement = 'false',
   });
 
   VehicleModel copyWith({
@@ -64,6 +107,25 @@ class VehicleModel {
     double? latitude,
     double? longitude,
     List<VehicleTrackPoint>? tail,
+    String? deviceTime,
+    String? serverTime,
+    String? runningDuration,
+    String? stopDuration,
+    String? idleDuration,
+    String? inactiveDuration,
+    String? fuelMileage,
+    String? fuelConsumption,
+    String? fuelCost,
+    String? avgSpeed,
+    String? maxSpeed,
+    String? devBattery,
+    String? engineHours,
+    String? carBattery,
+    String? satellites,
+    String? fuelLevel,
+    String? accuracy,
+    String? temperature,
+    String? movement,
   }) {
     return VehicleModel(
       id: id ?? this.id,
@@ -81,6 +143,25 @@ class VehicleModel {
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       tail: tail ?? this.tail,
+      deviceTime: deviceTime ?? this.deviceTime,
+      serverTime: serverTime ?? this.serverTime,
+      runningDuration: runningDuration ?? this.runningDuration,
+      stopDuration: stopDuration ?? this.stopDuration,
+      idleDuration: idleDuration ?? this.idleDuration,
+      inactiveDuration: inactiveDuration ?? this.inactiveDuration,
+      fuelMileage: fuelMileage ?? this.fuelMileage,
+      fuelConsumption: fuelConsumption ?? this.fuelConsumption,
+      fuelCost: fuelCost ?? this.fuelCost,
+      avgSpeed: avgSpeed ?? this.avgSpeed,
+      maxSpeed: maxSpeed ?? this.maxSpeed,
+      devBattery: devBattery ?? this.devBattery,
+      engineHours: engineHours ?? this.engineHours,
+      carBattery: carBattery ?? this.carBattery,
+      satellites: satellites ?? this.satellites,
+      fuelLevel: fuelLevel ?? this.fuelLevel,
+      accuracy: accuracy ?? this.accuracy,
+      temperature: temperature ?? this.temperature,
+      movement: movement ?? this.movement,
     );
   }
 
@@ -93,7 +174,10 @@ class VehicleModel {
       }
       return 'Expired';
     }
-    return validity ?? '449 Days Validity';
+    if (validity != null && validity!.trim().isNotEmpty) {
+      return validity!.trim();
+    }
+    return '—';
   }
 
   factory VehicleModel.fromJson(Map<String, dynamic> json) {
@@ -156,13 +240,37 @@ class VehicleModel {
     final String location = _resolveLocation(json, deviceData, lat, lng);
     final String date = _resolveDate(json, deviceData);
 
-    final String? validity = (json['validity'] ??
-            json['expiration_date'] ??
-            json['expires_in'] ??
-            deviceData['expiration_date'])
-        ?.toString();
+    final String? validity = _resolveValidityText(json, deviceData);
 
     final int? id = int.tryParse((json['id'] ?? deviceData['id'] ?? '').toString());
+
+    // ─── Real-time Statistics Parsing ───
+    final String deviceTime = _resolveDeviceTime(json, deviceData, liveTime);
+    final String serverTime = _resolveServerTime(json, deviceData, liveTime);
+    
+    final String runningDuration = _resolveRunningDuration(json, deviceData, status);
+    final String stopDuration = _resolveStopDuration(json, deviceData, status);
+    final String idleDuration = _resolveIdleDuration(json, deviceData, status);
+    final String inactiveDuration = _resolveInactiveDuration(json, deviceData, status);
+    
+    final String fuelMileage = _resolveFuelMileage(json, deviceData);
+    final String fuelConsumption = _resolveFuelConsumption(json, deviceData);
+    final String fuelCost = _resolveFuelCost(json, deviceData, fuelConsumption);
+    
+    final String avgSpeed = _resolveAvgSpeed(json, deviceData, rawSpeedDouble, tail);
+    final String maxSpeed = _resolveMaxSpeed(json, deviceData, rawSpeedDouble, tail);
+
+    // ─── Real Sensors Parsing ───
+    final (
+      String devBattery,
+      String engineHours,
+      String carBattery,
+      String satellites,
+      String fuelLevel,
+      String accuracy,
+      String temperature,
+      String movement,
+    ) = _resolveSensors(json, deviceData, status, rawSpeedDouble);
 
     return VehicleModel(
       id: id,
@@ -184,7 +292,432 @@ class VehicleModel {
       latitude: lat,
       longitude: lng,
       tail: tail,
+      deviceTime: deviceTime,
+      serverTime: serverTime,
+      runningDuration: runningDuration,
+      stopDuration: stopDuration,
+      idleDuration: idleDuration,
+      inactiveDuration: inactiveDuration,
+      fuelMileage: fuelMileage,
+      fuelConsumption: fuelConsumption,
+      fuelCost: fuelCost,
+      avgSpeed: avgSpeed,
+      maxSpeed: maxSpeed,
+      devBattery: devBattery,
+      engineHours: engineHours,
+      carBattery: carBattery,
+      satellites: satellites,
+      fuelLevel: fuelLevel,
+      accuracy: accuracy,
+      temperature: temperature,
+      movement: movement,
     );
+  }
+
+  static String _resolveDeviceTime(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+    String fallbackLiveTime,
+  ) {
+    final dynamic val = json['device_time'] ??
+        json['time'] ??
+        deviceData['device_time'] ??
+        deviceData['time'] ??
+        json['latest_position']?['time'] ??
+        json['position']?['time'] ??
+        json['other_arr']?['time'];
+    if (val != null && val.toString().trim().isNotEmpty) {
+      return _formatTimeOnly(val);
+    }
+    return fallbackLiveTime.isNotEmpty ? fallbackLiveTime : 'N/A';
+  }
+
+  static String _resolveServerTime(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+    String fallbackLiveTime,
+  ) {
+    final dynamic val = json['server_time'] ??
+        json['updated_at'] ??
+        json['ack_time'] ??
+        deviceData['server_time'] ??
+        deviceData['updated_at'] ??
+        deviceData['ack_time'] ??
+        json['latest_position']?['server_time'] ??
+        json['latest_position']?['ack_time'];
+    if (val != null && val.toString().trim().isNotEmpty) {
+      return _formatTimeOnly(val);
+    }
+    return fallbackLiveTime.isNotEmpty ? fallbackLiveTime : 'N/A';
+  }
+
+  static String _formatDurationString(dynamic raw) {
+    if (raw == null) return '00:00:00 Hrs';
+    final String str = raw.toString().trim();
+    if (str.isEmpty || str == '0' || str == '00:00:00') return '00:00:00 Hrs';
+
+    // If it is numeric (e.g. seconds)
+    final int? seconds = int.tryParse(str);
+    if (seconds != null) {
+      final int h = seconds ~/ 3600;
+      final int m = (seconds % 3600) ~/ 60;
+      final int s = seconds % 60;
+      final String hh = h.toString().padLeft(2, '0');
+      final String mm = m.toString().padLeft(2, '0');
+      final String ss = s.toString().padLeft(2, '0');
+      return '$hh:$mm:$ss Hrs';
+    }
+
+    if (str.contains('Hrs') || str.contains('hrs') || str.contains('min') || str.contains('m') || str.contains('s')) {
+      return str;
+    }
+    if (str.split(':').length == 3) {
+      return '$str Hrs';
+    }
+    if (str.split(':').length == 2) {
+      return '00:$str Hrs';
+    }
+    return '$str Hrs';
+  }
+
+  static String _resolveRunningDuration(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+    String status,
+  ) {
+    final dynamic val = json['running_duration'] ??
+        json['running_time'] ??
+        deviceData['running_duration'] ??
+        deviceData['running_time'] ??
+        json['engine_hours'] ??
+        deviceData['engine_hours'] ??
+        json['move_duration'] ??
+        deviceData['move_duration'];
+    if (val != null && val.toString().trim().isNotEmpty && val.toString() != '0') {
+      return _formatDurationString(val);
+    }
+    if (status.trim().toLowerCase() == 'running') {
+      final dynamic fallbackTime = json['time'] ?? deviceData['time'];
+      if (fallbackTime != null) {
+        return _formatDurationString(fallbackTime);
+      }
+    }
+    return '00:00:00 Hrs';
+  }
+
+  static String _resolveStopDuration(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+    String status,
+  ) {
+    final dynamic val = json['stop_duration'] ??
+        json['stop_time'] ??
+        deviceData['stop_duration'] ??
+        deviceData['stop_time'] ??
+        json['stopped_duration'] ??
+        deviceData['stopped_duration'];
+    if (val != null && val.toString().trim().isNotEmpty && val.toString() != '0') {
+      return _formatDurationString(val);
+    }
+    if (status.trim().toLowerCase() == 'stopped') {
+      final dynamic fallbackTime = json['time'] ?? deviceData['time'];
+      if (fallbackTime != null) {
+        return _formatDurationString(fallbackTime);
+      }
+    }
+    return '00:00:00 Hrs';
+  }
+
+  static String _resolveIdleDuration(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+    String status,
+  ) {
+    final dynamic val = json['idle_duration'] ??
+        json['idle_time'] ??
+        deviceData['idle_duration'] ??
+        deviceData['idle_time'] ??
+        json['park_duration'] ??
+        deviceData['park_duration'];
+    if (val != null && val.toString().trim().isNotEmpty && val.toString() != '0') {
+      return _formatDurationString(val);
+    }
+    if (status.trim().toLowerCase() == 'idle') {
+      final dynamic fallbackTime = json['time'] ?? deviceData['time'];
+      if (fallbackTime != null) {
+        return _formatDurationString(fallbackTime);
+      }
+    }
+    return '00:00:00 Hrs';
+  }
+
+  static String _resolveInactiveDuration(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+    String status,
+  ) {
+    final dynamic val = json['offline_duration'] ??
+        json['offline_time'] ??
+        json['inactive_duration'] ??
+        deviceData['offline_duration'] ??
+        deviceData['offline_time'] ??
+        deviceData['inactive_duration'] ??
+        json['not_reporting_duration'] ??
+        deviceData['not_reporting_duration'];
+    if (val != null && val.toString().trim().isNotEmpty && val.toString() != '0') {
+      return _formatDurationString(val);
+    }
+    final String lower = status.trim().toLowerCase();
+    if (lower == 'offline' || lower == 'not reporting' || lower == 'inactive') {
+      final dynamic fallbackTime = json['time'] ?? deviceData['time'];
+      if (fallbackTime != null) {
+        return _formatDurationString(fallbackTime);
+      }
+    }
+    return '00:00:00 Hrs';
+  }
+
+  static String _resolveFuelMileage(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+  ) {
+    final dynamic val = json['fuel_mileage'] ??
+        json['mileage'] ??
+        deviceData['fuel_mileage'] ??
+        deviceData['mileage'] ??
+        deviceData['fuel_per_km'] ??
+        json['fuel_per_km'] ??
+        deviceData['fuel_economy'];
+    if (val != null && val.toString().trim().isNotEmpty && val.toString() != '0') {
+      final String str = val.toString().trim();
+      return str.contains('km') ? str : '$str km/ltr';
+    }
+    // Check sensors
+    final dynamic sensors = json['sensors'] ?? deviceData['sensors'];
+    if (sensors is List) {
+      for (final dynamic s in sensors) {
+        if (s is Map) {
+          final String sName = (s['name'] ?? s['type'] ?? '').toString().toLowerCase();
+          if (sName.contains('mileage') || sName.contains('economy')) {
+            final dynamic sVal = s['value'] ?? s['val'] ?? s['text_value'];
+            if (sVal != null && sVal.toString().isNotEmpty) {
+              final String sStr = sVal.toString().trim();
+              return sStr.contains('km') ? sStr : '$sStr km/ltr';
+            }
+          }
+        }
+      }
+    }
+    return '10 km/ltr';
+  }
+
+  static String _resolveFuelConsumption(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+  ) {
+    final dynamic val = json['fuel_consumption'] ??
+        json['fuel_used'] ??
+        deviceData['fuel_consumption'] ??
+        deviceData['fuel_used'] ??
+        deviceData['fuel_quantity'] ??
+        json['fuel_quantity'] ??
+        deviceData['fuel_total'] ??
+        json['fuel_total'];
+    if (val != null && val.toString().trim().isNotEmpty) {
+      final double? d = double.tryParse(val.toString());
+      if (d != null) {
+        return '${d.toStringAsFixed(2)} ltr';
+      }
+      final String str = val.toString().trim();
+      return str.contains('l') ? str : '$str ltr';
+    }
+    // Check sensors
+    final dynamic sensors = json['sensors'] ?? deviceData['sensors'];
+    if (sensors is List) {
+      for (final dynamic s in sensors) {
+        if (s is Map) {
+          final String sType = (s['type'] ?? s['name'] ?? '').toString().toLowerCase();
+          if (sType.contains('consumption') || sType.contains('fuel_tank') || sType == 'fuel') {
+            final dynamic sVal = s['value'] ?? s['val'] ?? s['text_value'];
+            if (sVal != null && sVal.toString().isNotEmpty) {
+              final double? d = double.tryParse(sVal.toString());
+              if (d != null) return '${d.toStringAsFixed(2)} ltr';
+              return '${sVal.toString().trim()} ltr';
+            }
+          }
+        }
+      }
+    }
+    return '0.00 ltr';
+  }
+
+  static String _resolveFuelCost(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+    String resolvedConsumption,
+  ) {
+    final dynamic val = json['fuel_cost'] ??
+        json['cost'] ??
+        deviceData['fuel_cost'] ??
+        deviceData['cost'] ??
+        deviceData['fuel_price'] ??
+        json['fuel_price'];
+    if (val != null && val.toString().trim().isNotEmpty && val.toString() != '0') {
+      final double? d = double.tryParse(val.toString());
+      if (d != null) {
+        return '${d.toStringAsFixed(2)} PKR';
+      }
+      final String str = val.toString().trim();
+      return str.contains('PKR') || str.contains('INR') || str.contains('\$') ? str : '$str PKR';
+    }
+
+    // Try computing consumption * price if fuel_price exists
+    final dynamic priceVal = deviceData['fuel_price'] ?? json['fuel_price'];
+    if (priceVal != null) {
+      final double? price = double.tryParse(priceVal.toString());
+      final double? consumption = double.tryParse(resolvedConsumption.replaceAll(RegExp(r'[^0-9.]'), ''));
+      if (price != null && consumption != null && price > 0 && consumption > 0) {
+        return '${(price * consumption).toStringAsFixed(2)} PKR';
+      }
+    }
+
+    return '0.00 PKR';
+  }
+
+  static String _resolveAvgSpeed(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+    double currentSpeed,
+    List<VehicleTrackPoint> tail,
+  ) {
+    final dynamic val = json['avg_speed'] ??
+        deviceData['avg_speed'] ??
+        json['average_speed'] ??
+        deviceData['average_speed'] ??
+        deviceData['speed_avg'];
+    if (val != null && val.toString().trim().isNotEmpty) {
+      final double? spd = double.tryParse(val.toString());
+      if (spd != null && spd > 0) {
+        return spd.round().toString();
+      }
+    }
+
+    if (currentSpeed > 0) {
+      return currentSpeed.round().toString();
+    }
+    return '0';
+  }
+
+  static String _resolveMaxSpeed(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+    double currentSpeed,
+    List<VehicleTrackPoint> tail,
+  ) {
+    final dynamic val = json['max_speed'] ??
+        deviceData['max_speed'] ??
+        json['top_speed'] ??
+        deviceData['top_speed'] ??
+        deviceData['speed_max'] ??
+        deviceData['maximum_speed'];
+    if (val != null && val.toString().trim().isNotEmpty) {
+      final double? spd = double.tryParse(val.toString());
+      if (spd != null && spd > 0) {
+        return spd.round().toString();
+      }
+    }
+
+    if (currentSpeed > 0) {
+      return currentSpeed.round().toString();
+    }
+    return '0';
+  }
+
+  static (
+    String devBattery,
+    String engineHours,
+    String carBattery,
+    String satellites,
+    String fuelLevel,
+    String accuracy,
+    String temperature,
+    String movement,
+  ) _resolveSensors(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+    String status,
+    double currentSpeed,
+  ) {
+    String devBattery = '0%';
+    String engineHours = '00:00';
+    String carBattery = '0 V';
+    String satellites = '0';
+    String fuelLevel = 'N/A';
+    String accuracy = 'N/A';
+    String temperature = 'N/A';
+    String movement = currentSpeed > 0 || status.toLowerCase() == 'running' ? 'true' : 'false';
+
+    // 1. Direct deviceData / other_arr check
+    final dynamic other = json['other_arr'] ?? deviceData['other_arr'] ?? json['other'] ?? deviceData['other'];
+    if (other is Map) {
+      if (other['battery'] != null) devBattery = '${other['battery']}%';
+      if (other['sat'] != null) satellites = other['sat'].toString();
+      if (other['power'] != null) carBattery = '${other['power']} V';
+      if (other['engine_hours'] != null) engineHours = other['engine_hours'].toString();
+      if (other['temp'] != null) temperature = '${other['temp']} °C';
+      if (other['hdop'] != null) accuracy = '${other['hdop']} m';
+    }
+
+    // 2. Sensors list check
+    final dynamic sensors = json['sensors'] ?? deviceData['sensors'];
+    if (sensors is List) {
+      for (final dynamic s in sensors) {
+        if (s is! Map) continue;
+        final String sType = (s['type'] ?? s['name'] ?? '').toString().toLowerCase();
+        final dynamic rawVal = s['text_value'] ?? s['value'] ?? s['val'] ?? s['scale_value'];
+        if (rawVal == null || rawVal.toString().isEmpty) continue;
+        final String valStr = rawVal.toString().trim();
+
+        if (sType.contains('battery') || sType == 'dev_battery') {
+          devBattery = valStr.contains('%') ? valStr : '$valStr%';
+        } else if (sType.contains('engine_hours') || sType.contains('hours')) {
+          engineHours = valStr;
+        } else if (sType.contains('power') || sType.contains('acc') || sType.contains('car_battery') || sType.contains('battery_saver')) {
+          carBattery = valStr.contains('V') ? valStr : '$valStr V';
+        } else if (sType.contains('sat') || sType.contains('satellite')) {
+          satellites = valStr;
+        } else if (sType.contains('fuel')) {
+          fuelLevel = valStr;
+        } else if (sType.contains('accuracy') || sType.contains('hdop') || sType.contains('gps')) {
+          accuracy = valStr;
+        } else if (sType.contains('temp') || sType.contains('thermostat')) {
+          temperature = valStr.contains('°') ? valStr : '$valStr °C';
+        } else if (sType.contains('movement') || sType.contains('motion')) {
+          movement = valStr;
+        }
+      }
+    }
+
+    return (
+      devBattery,
+      engineHours,
+      carBattery,
+      satellites,
+      fuelLevel,
+      accuracy,
+      temperature,
+      movement,
+    );
+  }
+
+  static String _formatTimeOnly(dynamic val) {
+    if (val == null) return 'N/A';
+    final String str = val.toString().trim();
+    if (str.contains(' ') && str.length >= 11) {
+      final List<String> parts = str.split(' ');
+      return parts.length >= 2 ? parts[1] : str;
+    }
+    return str;
   }
 
   static List<VehicleTrackPoint> _resolveTail(
@@ -223,52 +756,99 @@ class VehicleModel {
     Map<String, dynamic> json,
     Map<String, dynamic> deviceData,
   ) {
-    final dynamic latVal = json['lat'] ??
-        json['latitude'] ??
-        deviceData['lat'] ??
-        deviceData['latitude'] ??
-        json['last_valid_latitude'] ??
-        deviceData['last_valid_latitude'] ??
-        json['latest_position']?['lat'] ??
-        json['latest_position']?['latitude'] ??
-        json['point']?['lat'] ??
-        json['position']?['latitude'] ??
-        json['position']?['lat'];
+    final (double lat, double lng)? parsed =
+        CoordinateParser.fromMaps(json, deviceData);
+    if (parsed != null) {
+      return (parsed.$1, parsed.$2);
+    }
 
-    final dynamic lngVal = json['lng'] ??
-        json['lon'] ??
-        json['longitude'] ??
-        deviceData['lng'] ??
-        deviceData['lon'] ??
-        deviceData['longitude'] ??
-        json['last_valid_longitude'] ??
-        deviceData['last_valid_longitude'] ??
-        json['latest_position']?['lng'] ??
-        json['latest_position']?['longitude'] ??
-        json['point']?['lng'] ??
-        json['position']?['longitude'] ??
-        json['position']?['lng'] ??
-        json['position']?['lon'];
+    double? lat;
+    double? lng;
 
-    double? lat = double.tryParse(latVal?.toString() ?? '');
-    double? lng = double.tryParse(lngVal?.toString() ?? '');
-
-    // Check tail if lat/lng are null or (0,0)
-    if ((lat == null || lng == null || (lat == 0.0 && lng == 0.0)) &&
-        json['tail'] is List &&
-        (json['tail'] as List).isNotEmpty) {
+    if (json['tail'] is List && (json['tail'] as List).isNotEmpty) {
       final dynamic lastTail = (json['tail'] as List).last;
       if (lastTail is Map) {
-        lat ??= double.tryParse(
-            (lastTail['lat'] ?? lastTail['latitude'])?.toString() ?? '');
-        lng ??= double.tryParse(
-            (lastTail['lng'] ?? lastTail['lon'] ?? lastTail['longitude'])
-                    ?.toString() ??
-                '');
+        final Map<String, dynamic> tailMap = lastTail.map(
+          (Object? k, Object? v) => MapEntry(k.toString(), v),
+        );
+        final (double tLat, double tLng)? tailCoords =
+            CoordinateParser.fromMap(tailMap);
+        if (tailCoords != null) {
+          lat = tailCoords.$1;
+          lng = tailCoords.$2;
+        }
+      } else if (lastTail is List && lastTail.length >= 2) {
+        final (double tLat, double tLng)? tailCoords =
+            CoordinateParser.parsePair('${lastTail[0]},${lastTail[1]}');
+        if (tailCoords != null) {
+          lat = tailCoords.$1;
+          lng = tailCoords.$2;
+        }
       }
     }
 
     return (lat, lng);
+  }
+
+  static String? _resolveValidityText(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+  ) {
+    final dynamic raw = json['validity'] ??
+        json['expires_in'] ??
+        json['expiration_days'] ??
+        deviceData['validity'] ??
+        deviceData['expires_in'] ??
+        deviceData['expiration_days'];
+    if (raw != null) {
+      final String str = raw.toString().trim();
+      if (str.isNotEmpty &&
+          str != '-' &&
+          str.toLowerCase() != 'null' &&
+          str.toLowerCase() != 'n/a') {
+        final String lower = str.toLowerCase();
+        if (lower.contains('day') || lower.contains('expire')) {
+          return str;
+        }
+        final int? daysOnly = int.tryParse(str.replaceAll(RegExp(r'[^\d-]'), ''));
+        if (daysOnly != null) {
+          if (daysOnly < 0) {
+            return 'Expired';
+          }
+          if (daysOnly == 0) {
+            return 'Expires today';
+          }
+          return '$daysOnly Days Validity';
+        }
+        return str;
+      }
+    }
+
+    final dynamic expDate = json['expiration_date'] ??
+        json['expires_date'] ??
+        json['validity_date'] ??
+        deviceData['expiration_date'] ??
+        deviceData['expires_date'];
+    if (expDate != null) {
+      final String expStr = expDate.toString().trim();
+      if (expStr.isNotEmpty) {
+        final DateTime? parsed =
+            DateTime.tryParse(expStr.replaceAll('/', '-'));
+        if (parsed != null) {
+          final int days = parsed.difference(DateTime.now()).inDays;
+          if (days < 0) {
+            return 'Expired';
+          }
+          if (days == 0) {
+            return 'Expires today';
+          }
+          return '$days Days Validity';
+        }
+        return expStr;
+      }
+    }
+
+    return null;
   }
 
   static String _resolveLocation(
@@ -282,14 +862,21 @@ class VehicleModel {
         json['address'] ??
         json['formatted_address'] ??
         json['street'] ??
+        json['geocoding'] ??
+        json['last_address'] ??
+        json['addr'] ??
         deviceData['location'] ??
         deviceData['address'] ??
         deviceData['formatted_address'] ??
         deviceData['street'] ??
+        deviceData['geocoding'] ??
+        deviceData['last_address'] ??
         json['other_arr']?['address'] ??
         json['position']?['address'] ??
         json['last_valid_address'] ??
-        deviceData['last_valid_address'];
+        deviceData['last_valid_address'] ??
+        json['traccar']?['address'] ??
+        deviceData['traccar']?['address'];
 
     if (direct != null) {
       final String directStr = direct.toString().trim();
