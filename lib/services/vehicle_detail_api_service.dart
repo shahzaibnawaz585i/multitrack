@@ -8,6 +8,7 @@ import '../models/vehicle_model.dart';
 import '../utils/history_route_utils.dart';
 import '../utils/report_period.dart';
 import '../utils/report_response_parser.dart';
+import 'gpswox_report_api_service.dart';
 import 'history_service.dart';
 import 'tracking_api_service.dart';
 import 'vehicle_service.dart';
@@ -64,7 +65,7 @@ class VehicleDetailApiService {
   static final Map<String, Future<HistoryRoute>> _historyInflight =
       <String, Future<HistoryRoute>>{};
   static const int _maxCache = 24;
-  static const Duration _reportWaitTimeout = Duration(seconds: 22);
+  static const Duration _reportWaitTimeout = Duration(seconds: 45);
 
   static String _key(int deviceId, DateTime from, DateTime to, String kind) {
     return '$kind|$deviceId|${from.millisecondsSinceEpoch}|${to.millisecondsSinceEpoch}';
@@ -181,8 +182,6 @@ class VehicleDetailApiService {
   static const List<String> _statisticsWarmFilters = <String>[
     'Today',
     'Yesterday',
-    'This Week',
-    'This Month',
   ];
 
   /// Preload common ranges in background (Today / Yesterday / Week / Month).
@@ -432,6 +431,42 @@ class VehicleDetailApiService {
         _statsCache[cacheKey] = deviceFallback;
         _trimCache(_statsCache);
         return deviceFallback;
+      }
+
+      final VehicleModel? vehicle =
+          VehicleService.findCachedDevice(deviceId);
+      if (vehicle != null) {
+        final List<DailyReportDay> fallbackDays =
+            await GpswoxReportApiService.fetchDailyFallbackDays(
+          vehicle: vehicle,
+          from: from,
+          to: to,
+        );
+        if (fallbackDays.isNotEmpty) {
+          final VehiclePeriodStats fromDays = _statsFromDailyDays(
+            fallbackDays,
+            ReportResponseParser.asReportMap(summary),
+          );
+          if (!_isEmptyStats(fromDays)) {
+            _statsCache[cacheKey] = fromDays;
+            _trimCache(_statsCache);
+            return fromDays;
+          }
+        }
+      }
+
+      final HistoryRoute historyRoute = await loadHistory(
+        deviceId: deviceId,
+        from: from,
+        to: to,
+        forceRefresh: false,
+      );
+      if (!historyRoute.isEmpty) {
+        final VehiclePeriodStats fromHistory =
+            statsFromHistoryRoute(historyRoute);
+        _statsCache[cacheKey] = fromHistory;
+        _trimCache(_statsCache);
+        return fromHistory;
       }
 
       final VehiclePeriodStats empty = VehiclePeriodStats(

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../constants/app_fonts.dart';
 import '../constants/app_images.dart';
 import '../models/vehicle_model.dart';
+import '../utils/live_location_text.dart';
 import '../screens/vehicle_detail_screen.dart';
 import '../theme/app_theme_tokens.dart';
 import '../theme/fast_page_transitions.dart';
@@ -198,7 +199,7 @@ class VehicleCard extends StatelessWidget {
           odometer: vehicle.odometer,
           time: vehicle.time,
           livetime: vehicle.liveTime,
-          location: vehicle.location,
+          location: LiveLocationText.forVehicle(vehicle),
           date: vehicle.date,
           latitude: vehicle.latitude,
           longitude: vehicle.longitude,
@@ -428,7 +429,9 @@ class VehicleCard extends StatelessWidget {
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: _TimelineText(
-                                        text: vehicle.location,
+                                        text: LiveLocationText.forVehicle(
+                                          vehicle,
+                                        ),
                                         maxLines: 2,
                                       ),
                                     ),

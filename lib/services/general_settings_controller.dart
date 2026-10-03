@@ -25,6 +25,7 @@ class GeneralSettingsController extends ChangeNotifier {
     'Notification': 'ON',
     'Fuel Reading': 'Device',
     'History Route Color': 'Default Color',
+    'History Stoppage Minutes': '5',
     'App Color': 'Default Color',
     'Relay Password': 'Set Password',
   };
@@ -67,6 +68,19 @@ class GeneralSettingsController extends ChangeNotifier {
       get('Fuel Reading', defaultValue: 'Device');
   String get historyRouteColorName =>
       get('History Route Color', defaultValue: 'Default Color');
+
+  int get historyStoppageMinutes {
+    final int parsed =
+        int.tryParse(get('History Stoppage Minutes', defaultValue: '5')) ?? 5;
+    return parsed.clamp(1, 120);
+  }
+
+  Future<void> setHistoryStoppageMinutes(int minutes) async {
+    await setSetting(
+      'History Stoppage Minutes',
+      minutes.clamp(1, 120).toString(),
+    );
+  }
 
   /// Dashboard bottom nav: 0 home, 1 map, 2 list, 3 reports, 4 settings.
   int get defaultDashboardTabIndex {

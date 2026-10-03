@@ -15,6 +15,7 @@ import '../services/app_bootstrap_service.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme_tokens.dart';
 import '../utils/map_car_icon.dart';
+import '../utils/vehicle_category_map_icon.dart';
 import 'notification_filter_screen.dart';
 import 'notifications_screen.dart';
 
@@ -362,8 +363,12 @@ class _MapScreenState extends State<MapScreen> {
     for (final VehicleModel vehicle in _mappedVehicles) {
       final String markerKey = _markerIdFor(vehicle);
       final LatLng position = LatLng(vehicle.latitude!, vehicle.longitude!);
-      final BitmapDescriptor icon =
-          await MapCarIcon.forStatus(vehicle.status);
+      final BitmapDescriptor icon = vehicle.mapIcon.trim().isNotEmpty
+          ? await VehicleCategoryMapIcon.forSlug(
+              vehicle.mapIcon,
+              tint: vehicle.color,
+            )
+          : await MapCarIcon.forStatus(vehicle.status);
       if (!mounted || generation != _markerSyncGeneration) {
         return;
       }

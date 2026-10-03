@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 
 import '../constants/app_fonts.dart';
 import '../services/auth_service.dart';
@@ -18,6 +19,9 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FlutterNativeSplash.remove();
+    });
     _startNavigation();
   }
 
@@ -67,14 +71,14 @@ class _SplashScreenState extends State<SplashScreen> {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(60),
+                  borderRadius: BorderRadius.circular(36),
                   child: Image.asset(
                     'assets/appicon.png',
-                    height: 110,
-                    width: 110,
+                    height: 72,
+                    width: 72,
                     fit: BoxFit.cover,
-                    cacheWidth: 220,
-                    cacheHeight: 220,
+                    cacheWidth: 144,
+                    cacheHeight: 144,
                     filterQuality: FilterQuality.low,
                   ),
                 ),

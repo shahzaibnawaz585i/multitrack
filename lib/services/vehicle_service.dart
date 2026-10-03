@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:developer' as developer;
 
 import 'package:flutter/foundation.dart';
@@ -9,11 +10,12 @@ import '../constants/api_config.dart';
 import '../data/vehicle_data.dart';
 import '../models/notification_model.dart';
 import '../models/vehicle_model.dart';
-import '../utils/coordinate_parser.dart';
+import '../utils/live_location_text.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
 import 'live_notification_controller.dart';
 import 'reverse_geocoding_service.dart';
+import 'vehicle_group_service.dart';
 
 class _VehicleStateSnapshot {
   final String status;
@@ -30,10 +32,11 @@ class VehicleService {
 
   static Future<List<VehicleModel>>? _inFlight;
   static DateTime? _lastSuccessfulFetch;
-  static const Duration _cacheTtl = Duration(seconds: 30);
+  static const Duration _cacheTtl = Duration(seconds: 45);
   static const String _diskCacheKey = 'vehicle_service_get_devices_v1';
   static const String _diskCacheTimeKey = 'vehicle_service_get_devices_time_v1';
-  static bool _geocodingInFlight = false;
+  static int _geocodeGeneration = 0;
+  static const int _geocodeConcurrency = 2;
   static const int _maxGeocodePerFetch = 24;
   static final Map<String, _VehicleStateSnapshot> _previousStates =
       <String, _VehicleStateSnapshot>{};
@@ -68,6 +71,11 @@ class VehicleService {
       final int? savedMs = prefs.getInt(_diskCacheTimeKey);
       if (savedMs != null) {
         _lastSuccessfulFetch = DateTime.fromMillisecondsSinceEpoch(savedMs);
+      }
+      final String server = await AuthService.server();
+      final String? token = await AuthService.token();
+      if (ApiConfig.usesRemoteApi(server) && token != null && token.isNotEmpty) {
+        _resolveMissingAddresses(parsed, server: server, token: token);
       }
     } catch (e, stack) {
       developer.log(
@@ -145,6 +153,7 @@ class VehicleService {
       }
 
       await _persistFleetResponse(response);
+      VehicleGroupService.cacheGroupsFromFleetResponse(response);
 
       final List<VehicleModel> parsedDevices = _parseDevices(response);
 
@@ -280,39 +289,110 @@ class VehicleService {
     required String server,
     String? token,
   }) {
-    if (_geocodingInFlight) return;
-    _geocodingInFlight = true;
+    final int generation = ++_geocodeGeneration;
+    Future.microtask(
+      () => _runFleetGeocoding(
+        generation: generation,
+        server: server,
+        token: token,
+      ),
+    );
+  }
 
-    Future.microtask(() async {
-      try {
-        int resolved = 0;
-        for (int i = 0; i < devices.length; i++) {
-          if (resolved >= _maxGeocodePerFetch) break;
+  static bool _needsStreetGeocode(VehicleModel vehicle) {
+    if (LiveLocationText.isUsableAddress(vehicle.location)) {
+      return false;
+    }
+    final double? lat = vehicle.latitude;
+    final double? lng = vehicle.longitude;
+    return lat != null && lng != null && (lat != 0.0 || lng != 0.0);
+  }
 
-          final VehicleModel dev = devices[i];
-          final bool needsAddress = dev.location == 'Location not available' ||
-              CoordinateParser.looksLikeCoordinatePair(dev.location);
-          if (needsAddress &&
-              dev.latitude != null &&
-              dev.longitude != null &&
-              (dev.latitude != 0.0 || dev.longitude != 0.0)) {
-            final String address = await ReverseGeocodingService.resolveAddress(
-              lat: dev.latitude!,
-              lng: dev.longitude!,
-              server: server,
-              token: token,
-            );
-            resolved++;
-            if (address.isNotEmpty && address != 'Location not available') {
-              devices[i] = dev.copyWith(location: address);
-            }
-          }
-        }
-        VehicleData.assignVehicles(devices);
-      } finally {
-        _geocodingInFlight = false;
+  static Future<String> _resolveDisplayLocation(
+    VehicleModel vehicle, {
+    required String server,
+    String? token,
+  }) async {
+    if (LiveLocationText.isUsableAddress(vehicle.location)) {
+      return vehicle.location.trim();
+    }
+
+    final double lat = vehicle.latitude!;
+    final double lng = vehicle.longitude!;
+    final String geocoded = await ReverseGeocodingService.resolveAddress(
+      lat: lat,
+      lng: lng,
+      server: server,
+      token: token,
+    );
+    if (LiveLocationText.isUsableAddress(geocoded)) {
+      return geocoded.trim();
+    }
+    return LiveLocationText.formatCoordinates(lat, lng);
+  }
+
+  static Future<void> _runFleetGeocoding({
+    required int generation,
+    required String server,
+    String? token,
+  }) async {
+    if (generation != _geocodeGeneration) {
+      return;
+    }
+
+    List<VehicleModel> working =
+        List<VehicleModel>.from(VehicleData.vehicles);
+    if (working.isEmpty) {
+      return;
+    }
+
+    final List<int> pending = <int>[];
+    for (int i = 0; i < working.length; i++) {
+      if (_needsStreetGeocode(working[i])) {
+        pending.add(i);
       }
-    });
+    }
+    if (pending.isEmpty) {
+      return;
+    }
+
+    if (pending.length > _maxGeocodePerFetch) {
+      pending.removeRange(_maxGeocodePerFetch, pending.length);
+    }
+
+    for (int start = 0; start < pending.length; start += _geocodeConcurrency) {
+      if (generation != _geocodeGeneration) {
+        return;
+      }
+
+      final int end = math.min(start + _geocodeConcurrency, pending.length);
+      final List<int> batch = pending.sublist(start, end);
+      bool batchUpdated = false;
+
+      await Future.wait(
+        batch.map((int index) async {
+          if (generation != _geocodeGeneration) {
+            return;
+          }
+          final VehicleModel dev = working[index];
+          final String label = await _resolveDisplayLocation(
+            dev,
+            server: server,
+            token: token,
+          );
+          if (label != dev.location) {
+            working[index] = dev.copyWith(location: label);
+            batchUpdated = true;
+          }
+        }),
+      );
+
+      if (batchUpdated && generation == _geocodeGeneration) {
+        VehicleData.assignVehicles(
+          List<VehicleModel>.from(working),
+        );
+      }
+    }
   }
 
   /// Resolves street address for [vehicle] when API only sent coordinates.
@@ -330,10 +410,10 @@ class VehicleService {
       server: server,
       token: token,
     );
-    if (address.isEmpty || address == 'Location not available') {
-      return null;
+    if (LiveLocationText.isUsableAddress(address)) {
+      return address;
     }
-    return address;
+    return LiveLocationText.formatCoordinates(vehicle.latitude!, vehicle.longitude!);
   }
 
   /// Updates one vehicle in [VehicleData.vehicles] after geocode / fast refresh.
@@ -359,6 +439,22 @@ class VehicleService {
       }
     }
     return null;
+  }
+
+  static String? mapIconSlugForDevice(int deviceId) {
+    final VehicleModel? device = findCachedDevice(deviceId);
+    if (device == null || device.mapIcon.isEmpty) {
+      return null;
+    }
+    return device.mapIcon;
+  }
+
+  static void patchDeviceMapIcon(int deviceId, String slug) {
+    final VehicleModel? device = findCachedDevice(deviceId);
+    if (device == null) {
+      return;
+    }
+    patchCachedDevice(device.copyWith(mapIcon: slug.trim().toLowerCase()));
   }
 
   static List<VehicleModel> _parseDevices(dynamic response) {

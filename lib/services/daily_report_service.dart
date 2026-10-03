@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:intl/intl.dart';
 
@@ -8,7 +9,9 @@ import '../models/vehicle_model.dart';
 import '../utils/report_period.dart';
 import '../utils/report_response_parser.dart';
 import 'dashboard_chart_service.dart';
+import 'gpswox_report_api_service.dart';
 import 'tracking_api_service.dart';
+import 'vehicle_service.dart';
 
 class _ChartCacheEntry {
   _ChartCacheEntry(this.days, this.at);
@@ -72,11 +75,11 @@ class DailyReportService {
     }
 
     try {
-      final dynamic response = await TrackingApiService.generateReport(
+      final dynamic response = await GpswoxReportApiService.fetchBestResponse(
         reportId: ReportIds.daily,
         deviceId: vehicle.id!,
-        from: _apiFormat.format(rangeFrom),
-        to: _apiFormat.format(rangeTo),
+        from: rangeFrom,
+        to: rangeTo,
       ).timeout(const Duration(milliseconds: 4000));
 
       List<DailyReportDay> days = _parseResponse(
@@ -189,12 +192,72 @@ class DailyReportService {
     return false;
   }
 
+  static Future<VehicleModel> _resolveVehicle(VehicleModel vehicle) async {
+    if (vehicle.id != null) {
+      return vehicle;
+    }
+
+    final List<VehicleModel> devices =
+        await VehicleService.getDevices(forceRefresh: false);
+    for (final VehicleModel item in devices) {
+      if (item.name.trim().toLowerCase() == vehicle.name.trim().toLowerCase()) {
+        return item;
+      }
+    }
+    return vehicle;
+  }
+
+  /// Daily rows for every device (matches multi-vehicle report list UI).
+  static Future<List<DailyReportDay>> loadDaysForFleet({
+    required List<VehicleModel> vehicles,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final List<VehicleModel> resolved = await Future.wait(
+      vehicles.map(_resolveVehicle),
+    );
+
+    final List<VehicleModel> withIds = resolved
+        .where((VehicleModel v) => v.id != null)
+        .toList(growable: false);
+
+    if (withIds.isEmpty) {
+      return <DailyReportDay>[];
+    }
+
+    const int maxConcurrent = 8;
+    final List<DailyReportDay> merged = <DailyReportDay>[];
+
+    for (int i = 0; i < withIds.length; i += maxConcurrent) {
+      final int end = math.min(i + maxConcurrent, withIds.length);
+      final List<VehicleModel> batch = withIds.sublist(i, end);
+      final List<List<DailyReportDay>> chunks = await Future.wait(
+        batch.map(
+          (VehicleModel vehicle) => loadDays(
+            vehicle: vehicle,
+            from: from,
+            to: to,
+          ),
+        ),
+      );
+      for (final List<DailyReportDay> chunk in chunks) {
+        merged.addAll(chunk);
+      }
+    }
+
+    merged.sort(
+      (DailyReportDay a, DailyReportDay b) => b.dayDate.compareTo(a.dayDate),
+    );
+    return merged;
+  }
+
   static Future<List<DailyReportDay>> loadDays({
     required VehicleModel vehicle,
     required DateTime from,
     required DateTime to,
   }) async {
-    if (vehicle.id == null) {
+    final VehicleModel resolved = await _resolveVehicle(vehicle);
+    if (resolved.id == null) {
       return <DailyReportDay>[];
     }
 
@@ -204,16 +267,16 @@ class DailyReportService {
         .difference(ReportPeriod.startOfDay(rangeFrom))
         .inDays;
 
-    final dynamic response = await TrackingApiService.generateReport(
+    final dynamic response = await GpswoxReportApiService.fetchBestResponse(
       reportId: ReportIds.daily,
-      deviceId: vehicle.id!,
-      from: _apiFormat.format(rangeFrom),
-      to: _apiFormat.format(rangeTo),
+      deviceId: resolved.id!,
+      from: rangeFrom,
+      to: rangeTo,
     );
 
     List<DailyReportDay> days = _parseResponse(
       response,
-      vehicle: vehicle,
+      vehicle: resolved,
       rangeFrom: rangeFrom,
       rangeTo: rangeTo,
     );
@@ -223,9 +286,17 @@ class DailyReportService {
 
     if (needsPerDayFetch) {
       days = await _loadPerDay(
-        vehicle: vehicle,
+        vehicle: resolved,
         rangeFrom: rangeFrom,
         rangeTo: rangeTo,
+      );
+    }
+
+    if (days.where((DailyReportDay d) => d.hasMeaningfulData).isEmpty) {
+      days = await GpswoxReportApiService.fetchDailyFallbackDays(
+        vehicle: resolved,
+        from: rangeFrom,
+        to: rangeTo,
       );
     }
 
@@ -270,10 +341,11 @@ class DailyReportService {
 
     final List<DailyReportDay> days = <DailyReportDay>[];
     for (final Map<String, dynamic> item in items) {
-      final DateTime dayDate = _resolveDayDate(item, rangeFrom);
+      final Map<String, dynamic> row = _normalizeDailyRow(item);
+      final DateTime dayDate = _resolveDayDate(row, rangeFrom);
       days.add(
         DailyReportDay.fromApiMap(
-          item,
+          row,
           vehicle.name,
           dayDate: dayDate,
           fallbackLocation: vehicle.location,
@@ -281,6 +353,50 @@ class DailyReportService {
       );
     }
     return days;
+  }
+
+  /// Maps HTML table aliases and GPSWOX column labels to [DailyReportDay] keys.
+  static Map<String, dynamic> _normalizeDailyRow(Map<String, dynamic> item) {
+    final Map<String, dynamic> row = Map<String, dynamic>.from(item);
+
+    void copyIfMissing(String target, List<String> sources) {
+      if (row[target] != null && row[target].toString().trim().isNotEmpty) {
+        return;
+      }
+      for (final String key in sources) {
+        final dynamic v = row[key];
+        if (v != null && v.toString().trim().isNotEmpty) {
+          row[target] = v;
+          return;
+        }
+      }
+    }
+
+    copyIfMissing('distance', <String>[
+      'route_length',
+      'total_distance',
+      'distance_km',
+      'route_km',
+      'mileage',
+      'km',
+      'total',
+    ]);
+    copyIfMissing('running', <String>[
+      'move_duration',
+      'run_time',
+      'drive_duration',
+      'moving_duration',
+      'moving',
+    ]);
+    copyIfMissing('engine_hours', <String>[
+      'engine_hour',
+      'work_time',
+      'duration',
+    ]);
+    copyIfMissing('start_time', <String>['time', 'date', 'day', 'from']);
+    copyIfMissing('end_time', <String>['time_to', 'end']);
+
+    return row;
   }
 
   static DateTime _resolveDayDate(Map<String, dynamic> item, DateTime fallback) {
@@ -316,9 +432,11 @@ class DailyReportService {
     final List<String> patterns = <String>[
       'yyyy-MM-dd HH:mm:ss',
       'dd-MM-yyyy HH:mm:ss',
+      'dd-MM-yyyy hh:mm:ss a',
       'yyyy-MM-dd',
       'dd-MM-yyyy',
       'dd MMM yyyy hh:mm a',
+      'MMM dd yyyy hh:mm a',
     ];
     for (final String pattern in patterns) {
       try {
@@ -357,11 +475,11 @@ class DailyReportService {
   }) async {
     final DateTime dayEnd = ReportPeriod.endOfDay(dayStart);
 
-    final dynamic response = await TrackingApiService.generateReport(
+    final dynamic response = await GpswoxReportApiService.fetchBestResponse(
       reportId: ReportIds.daily,
       deviceId: vehicle.id!,
-      from: _apiFormat.format(dayStart),
-      to: _apiFormat.format(dayEnd),
+      from: dayStart,
+      to: dayEnd,
     );
 
     final List<DailyReportDay> parsed = _parseResponse(
@@ -408,25 +526,7 @@ class DailyReportService {
   }
 
   static List<Map<String, dynamic>> _rowsFromResponse(dynamic response) {
-    if (response == null) {
-      return <Map<String, dynamic>>[];
-    }
-    final List<Map<String, dynamic>> items =
-        ReportResponseParser.listFromDynamic(response);
-    if (items.isNotEmpty) {
-      return items;
-    }
-    if (response is Map<String, dynamic> && response.isNotEmpty) {
-      return <Map<String, dynamic>>[response];
-    }
-    if (response is Map && response.isNotEmpty) {
-      return <Map<String, dynamic>>[
-        response.map(
-          (Object? k, Object? v) => MapEntry(k.toString(), v),
-        ),
-      ];
-    }
-    return <Map<String, dynamic>>[];
+    return ReportResponseParser.rowsFromResponse(response);
   }
 
   static Future<List<DailyReportDay>> _loadChartDaysFromTripReport({

@@ -4,10 +4,10 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
 
 import '../constants/report_ids.dart';
-import '../data/notification_data.dart';
 import '../models/notification_model.dart';
 import '../models/over_speed_report_event.dart';
 import '../models/vehicle_model.dart';
+import '../utils/coordinate_parser.dart';
 import '../utils/report_period.dart';
 import '../utils/report_response_parser.dart';
 import 'alert_service.dart';
@@ -71,7 +71,20 @@ class OverSpeedReportService {
       return bd.compareTo(ad);
     });
 
-    return filtered;
+    return filtered
+        .where(
+          (OverSpeedReportEvent e) =>
+              _hasValidCoords(e.latitude, e.longitude),
+        )
+        .toList();
+  }
+
+  static bool _hasValidCoords(double lat, double lng) {
+    return CoordinateParser.fromMap(<String, dynamic>{
+          'lat': lat,
+          'lng': lng,
+        }) !=
+        null;
   }
 
   static Future<VehicleModel> _resolveVehicle(VehicleModel vehicle) async {
@@ -106,14 +119,18 @@ class OverSpeedReportService {
       to: HistoryService.formatForApi(to),
     );
 
-    if (ReportResponseParser.isEmptyReport(response)) {
+    if (response == null) {
+      return <OverSpeedReportEvent>[];
+    }
+
+    final List<Map<String, dynamic>> items =
+        ReportResponseParser.rowsFromResponse(response);
+    if (items.isEmpty) {
       return <OverSpeedReportEvent>[];
     }
 
     final List<OverSpeedReportEvent> events = <OverSpeedReportEvent>[];
 
-    final List<Map<String, dynamic>> items =
-        ReportResponseParser.listFromDynamic(response);
     for (final Map<String, dynamic> item in items) {
       final OverSpeedReportEvent? event = _mapRow(
         vehicle,
@@ -240,6 +257,17 @@ class OverSpeedReportService {
         return;
       }
 
+      if (!_hasValidCoords(
+        sessionPeak!.position.latitude,
+        sessionPeak!.position.longitude,
+      )) {
+        sessionPeak = null;
+        sessionPeakSpeed = 0;
+        sessionPeakTime = null;
+        lastOverSpeedTime = null;
+        return;
+      }
+
       events.add(
         OverSpeedReportEvent(
           vehicleName: vehicle.name,
@@ -298,6 +326,8 @@ class OverSpeedReportService {
     required double speedLimitKmph,
   }) async {
     final List<AppNotification> alerts = await AlertService.getEvents(
+      deviceId: vehicle.id,
+      limit: 200,
       forceRefresh: true,
     );
 
@@ -325,9 +355,8 @@ class OverSpeedReportService {
         continue;
       }
 
-      final double? lat = alert.latitude ?? vehicle.latitude;
-      final double? lng = alert.longitude ?? vehicle.longitude;
-      if (lat == null || lng == null) {
+      final (double lat, double lng)? coords = _coordsFromAlert(alert);
+      if (coords == null) {
         continue;
       }
 
@@ -339,42 +368,28 @@ class OverSpeedReportService {
           speedKmph: speedKmph,
           speedLabel: '${speedKmph.toStringAsFixed(1)} kmph',
           address: alert.location,
-          latitude: lat,
-          longitude: lng,
+          latitude: coords.$1,
+          longitude: coords.$2,
         ),
       );
     }
 
-    if (events.isEmpty) {
-      for (final AppNotification alert in NotificationData.alerts) {
-        if (!_matchesVehicle(alert, vehicle)) {
-          continue;
-        }
-        if (alert.eventType != NotificationEventType.overSpeed) {
-          continue;
-        }
-        if (!_inRange(alert.timestamp, from, to)) {
-          continue;
-        }
+    return events;
+  }
 
-        final double speedKmph =
-            alert.speed ?? _parseSpeedFromText(alert.eventTitle) ?? 64;
-        events.add(
-          OverSpeedReportEvent(
-            vehicleName: vehicle.name,
-            dateTime: alert.timestamp,
-            timeLabel: _displayFormat.format(alert.timestamp),
-            speedKmph: speedKmph,
-            speedLabel: '${speedKmph.toStringAsFixed(1)} kmph',
-            address: alert.location,
-            latitude: alert.latitude ?? vehicle.latitude ?? 31.5204,
-            longitude: alert.longitude ?? vehicle.longitude ?? 74.3587,
-          ),
-        );
+  static (double lat, double lng)? _coordsFromAlert(AppNotification alert) {
+    if (alert.latitude != null && alert.longitude != null) {
+      final (double lat, double lng)? fromFields = CoordinateParser.fromMap(
+        <String, dynamic>{
+          'lat': alert.latitude,
+          'lng': alert.longitude,
+        },
+      );
+      if (fromFields != null) {
+        return fromFields;
       }
     }
-
-    return events;
+    return CoordinateParser.parsePair(alert.location);
   }
 
   static OverSpeedReportEvent? _mapRow(
@@ -417,13 +432,8 @@ class OverSpeedReportService {
           item['created_at'],
     );
 
-    final double? lat = _parseDouble(item['lat'] ?? item['latitude']) ??
-        vehicle.latitude;
-    final double? lng =
-        _parseDouble(item['lng'] ?? item['longitude'] ?? item['lon']) ??
-            vehicle.longitude;
-
-    if (lat == null || lng == null) {
+    final (double lat, double lng)? coords = CoordinateParser.fromMap(item);
+    if (coords == null) {
       return null;
     }
 
@@ -441,8 +451,8 @@ class OverSpeedReportService {
       speedKmph: speed,
       speedLabel: '${speed.toStringAsFixed(1)} kmph',
       address: address.isNotEmpty ? address : vehicle.location,
-      latitude: lat,
-      longitude: lng,
+      latitude: coords.$1,
+      longitude: coords.$2,
     );
   }
 
@@ -522,6 +532,10 @@ class OverSpeedReportService {
   }
 
   static bool _matchesVehicle(AppNotification alert, VehicleModel vehicle) {
+    if (vehicle.id != null &&
+        alert.vehicleId.trim() == vehicle.id.toString()) {
+      return true;
+    }
     final String alertName = alert.vehicleId.trim().toLowerCase();
     final String vehicleName = vehicle.name.trim().toLowerCase();
     if (alertName == vehicleName) {

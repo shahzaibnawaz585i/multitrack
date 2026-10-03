@@ -38,7 +38,7 @@ class _SendCommandScreenState extends State<SendCommandScreen> {
             ),
           ),
           content: Text(
-            'Do you want to Stop/Resume Engine?',
+            context.tr('Do you want to Stop/Resume Engine?'),
             style: TextStyle(
               fontSize: 14,
               color: context.textColor,
@@ -48,9 +48,9 @@ class _SendCommandScreenState extends State<SendCommandScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text(
-                'CANCEL',
-                style: TextStyle(
+              child: Text(
+                context.tr('CANCEL'),
+                style: const TextStyle(
                   color: Color(0xFF1F2937),
                   fontWeight: FontWeight.bold,
                 ),
@@ -61,9 +61,9 @@ class _SendCommandScreenState extends State<SendCommandScreen> {
                 Navigator.pop(ctx);
                 _executeCommand(commandType, actionTitle);
               },
-              child: const Text(
-                'OK',
-                style: TextStyle(
+              child: Text(
+                context.tr('OK'),
+                style: const TextStyle(
                   color: Color(0xFF1F2937),
                   fontWeight: FontWeight.bold,
                 ),
@@ -148,7 +148,7 @@ class _SendCommandScreenState extends State<SendCommandScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
-          'Send Command - ${widget.vehicleName}',
+          '${context.tr('Send Command')} - ${widget.vehicleName}',
           style: TextStyle(
             color: textColor,
             fontSize: 18,
@@ -204,14 +204,29 @@ class _SendCommandScreenState extends State<SendCommandScreen> {
                         ],
                       ),
                       const SizedBox(height: 20),
-                      Text(
-                        'Note: Only Emergency case.Please do no use where gsm network connectivity is poor',
+                      RichText(
                         textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: context.mutedTextColor,
-                          fontWeight: FontWeight.w500,
-                          height: 1.4,
+                        text: TextSpan(
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: context.mutedTextColor,
+                            fontWeight: FontWeight.w500,
+                            height: 1.4,
+                          ),
+                          children: <TextSpan>[
+                            TextSpan(
+                              text: '${context.tr('Note')}: ',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: textColor,
+                              ),
+                            ),
+                            TextSpan(
+                              text: context.tr(
+                                'Only Emergency case. Please do no use where gsm network connectivity is poor',
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],

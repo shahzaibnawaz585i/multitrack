@@ -8,6 +8,7 @@ import '../../models/vehicle_model.dart';
 import '../../services/over_speed_report_service.dart';
 import '../../services/vehicle_service.dart';
 import '../../theme/app_theme_tokens.dart';
+import '../../utils/coordinate_parser.dart';
 import '../../utils/report_date_picker.dart';
 import '../../utils/report_period.dart';
 import '../../widgets/select_vehicle_dialog.dart';
@@ -193,6 +194,18 @@ class _ReportScreenState extends State<ReportScreen> {
   }
 
   void _openEventOnMap(OverSpeedReportEvent event) {
+    final (double lat, double lng)? coords = CoordinateParser.fromMap(
+      <String, dynamic>{'lat': event.latitude, 'lng': event.longitude},
+    );
+    if (coords == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(context.tr('Location not available for this event')),
+        ),
+      );
+      return;
+    }
+
     Navigator.push<void>(
       context,
       MaterialPageRoute<void>(

@@ -43,6 +43,7 @@ class ReportPeriod {
         return (from: startOfDay(now), to: endOfDay(now));
       case 'today':
       default:
+        // Server returns today's track when `to` is current time (not end-of-day).
         return (from: startOfDay(now), to: now);
     }
   }

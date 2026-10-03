@@ -10,6 +10,7 @@ import '../../services/geofence_service.dart';
 import '../../theme/app_theme_tokens.dart';
 
 import '../../services/location_service.dart';
+import '../../widgets/geofence_report_panel.dart';
 import 'add_geofence_screen.dart';
 import 'edit_geofence_screen.dart';
 
@@ -330,51 +331,73 @@ class _GeofenceScreenState extends State<GeofenceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Theme.of(context).cardColor,
-      appBar: AppBar(
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
         backgroundColor: Theme.of(context).cardColor,
-        surfaceTintColor: Theme.of(context).cardColor,
-        elevation: 0,
-        centerTitle: false,
-        leading: IconButton(
-          onPressed: () => Navigator.pop(context),
-          icon: Icon(
-            Icons.arrow_back_ios_new,
-            color: _pinkColor,
-            size: 20,
-          ),
-        ),
-        titleSpacing: 0,
-        title: Text(
-          context.tr('Geofence'),
-          style: TextStyle(
-            color: context.textColor,
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 14),
-            child: Material(
+        appBar: AppBar(
+          backgroundColor: Theme.of(context).cardColor,
+          surfaceTintColor: Theme.of(context).cardColor,
+          elevation: 0,
+          centerTitle: false,
+          leading: IconButton(
+            onPressed: () => Navigator.pop(context),
+            icon: Icon(
+              Icons.arrow_back_ios_new,
               color: _pinkColor,
-              shape: const CircleBorder(),
-              elevation: 2,
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: _onAddPressed,
-                child: const SizedBox(
-                  width: 42,
-                  height: 42,
-                  child: Icon(Icons.add, color: Colors.white, size: 26),
+              size: 20,
+            ),
+          ),
+          titleSpacing: 0,
+          title: Text(
+            context.tr('Geofence'),
+            style: TextStyle(
+              color: context.textColor,
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 14),
+              child: Material(
+                color: _pinkColor,
+                shape: const CircleBorder(),
+                elevation: 2,
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: _onAddPressed,
+                  child: const SizedBox(
+                    width: 42,
+                    height: 42,
+                    child: Icon(Icons.add, color: Colors.white, size: 26),
+                  ),
                 ),
               ),
             ),
+          ],
+          bottom: TabBar(
+            labelColor: _pinkColor,
+            unselectedLabelColor: context.mutedTextColor,
+            indicatorColor: _pinkColor,
+            indicatorWeight: 3,
+            labelStyle: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+            tabs: <Widget>[
+              Tab(text: context.tr('Manage')),
+              Tab(text: context.tr('Geofence Report')),
+            ],
           ),
-        ],
+        ),
+        body: TabBarView(
+          children: <Widget>[
+            _isLoading ? _buildLoadingBody() : _buildContentBody(),
+            const GeofenceReportPanel(),
+          ],
+        ),
       ),
-      body: _isLoading ? _buildLoadingBody() : _buildContentBody(),
     );
   }
 

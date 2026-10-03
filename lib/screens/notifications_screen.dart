@@ -50,7 +50,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     LiveNotificationController.instance.addListener(_onLiveAlertsChanged);
     NotificationData.alertsRevision.addListener(_onLiveAlertsChanged);
     VehicleData.revision.addListener(_onLiveAlertsChanged);
-    _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 45), (_) {
       _loadEvents(isRefresh: true);
     });
     _loadEvents();
@@ -97,6 +97,17 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       vehicleName: widget.vehicleName,
       forceRefresh: isRefresh || _alerts.isEmpty,
     );
+
+    if (mounted && fetched.isNotEmpty) {
+      LiveNotificationController.instance.enqueueBatch(
+        fetched.where(
+          (AppNotification n) =>
+              n.category == NotificationCategory.alerts &&
+              n.eventType != NotificationEventType.generic,
+        ),
+        maxCount: 100,
+      );
+    }
 
     if (!mounted) {
       return;

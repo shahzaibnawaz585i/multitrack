@@ -6,7 +6,12 @@ import 'package:flutter/foundation.dart';
 import '../data/notification_data.dart';
 import '../models/notification_model.dart';
 import '../widgets/live_alert_banner.dart';
+import 'app_lifecycle_gate.dart';
+import 'local_notification_service.dart';
+import 'notification_location_resolver.dart';
 import 'voice_alert_service.dart';
+import '../utils/live_location_text.dart';
+import '../utils/notification_location_text.dart';
 
 /// Singleton [ChangeNotifier] that drives the live in-app alert banner.
 class LiveNotificationController extends ChangeNotifier {
@@ -20,9 +25,14 @@ class LiveNotificationController extends ChangeNotifier {
   final Queue<AppNotification> _queue = Queue<AppNotification>();
   LiveAlertItem? _current;
   Timer? _advanceTimer;
+  Future<void>? _pushChain;
+  static const int _maxQueue = 100;
 
   /// The alert currently being shown (null = banner hidden).
   LiveAlertItem? get currentAlert => _current;
+
+  /// Alerts already placed in the banner queue this session (avoid repeats).
+  final Set<String> _queuedBannerKeys = <String>{};
 
   // ─── Deduplication ────────────────────────────────────────────────────────
 
@@ -34,29 +44,97 @@ class LiveNotificationController extends ChangeNotifier {
 
   /// Push an [AppNotification] from any screen / service.
   void push(AppNotification notification) {
-    final String key = _dedupKey(notification);
+    _pushChain = (_pushChain ?? Future<void>.value())
+        .then((_) => _pushResolved(notification));
+    unawaited(_pushChain);
+  }
+
+  /// Queue many alerts for the banner (e.g. after API load). Newest shown first.
+  void enqueueBatch(
+    Iterable<AppNotification> notifications, {
+    int maxCount = 100,
+  }) {
+    final List<AppNotification> sorted = notifications.toList()
+      ..sort(
+        (AppNotification a, AppNotification b) =>
+            b.timestamp.compareTo(a.timestamp),
+      );
+    int added = 0;
+    for (final AppNotification raw in sorted) {
+      if (added >= maxCount) {
+        break;
+      }
+      final String key = _dedupKey(raw);
+      if (_queuedBannerKeys.contains(key)) {
+        continue;
+      }
+      _queuedBannerKeys.add(key);
+      _enqueueForBanner(raw);
+      added++;
+    }
+    if (_current == null && _queue.isNotEmpty) {
+      _showNext();
+    }
+  }
+
+  Future<void> _pushResolved(AppNotification notification) async {
+    AppNotification enriched = notification.copyWith(
+      location: NotificationLocationResolver.resolveSync(notification),
+    );
+
+    final String key = _dedupKey(enriched);
     final DateTime now = DateTime.now();
 
-    // Clean stale entries
     _seen.removeWhere((_, DateTime exp) => now.isAfter(exp));
 
-    if (_seen.containsKey(key)) return; // duplicate
+    if (_seen.containsKey(key)) {
+      return;
+    }
     _seen[key] = now.add(_dedupWindow);
-
-    // ── Keep Alerts list in sync with all live alerts ──────────────────────
-    final bool alreadyInList = NotificationData.alerts.any((AppNotification a) =>
-        a.id == notification.id &&
-        a.vehicleId == notification.vehicleId &&
-        a.timestamp.difference(notification.timestamp).abs().inSeconds < 5);
-    if (!alreadyInList) {
-      NotificationData.alerts.insert(0, notification);
-      NotificationData.alertsRevision.value++;
+    if (_seen.length > 64) {
+      _seen.remove(_seen.keys.first);
     }
 
-    _queue.addLast(notification);
+    _commitAlert(enriched);
+    _queuedBannerKeys.add(key);
+    _enqueueForBanner(enriched);
 
-    if (_current == null) {
-      _showNext();
+    if (!AppLifecycleGate.instance.isForeground) {
+      unawaited(LocalNotificationService.showAlert(enriched));
+    }
+
+    if (!LiveLocationText.isUsableAddress(enriched.location)) {
+      try {
+        final AppNotification resolved =
+            await NotificationLocationResolver.withLiveAddress(notification);
+        if (!LiveLocationText.isUsableAddress(resolved.location)) {
+          return;
+        }
+        _commitAlert(resolved);
+        if (_current != null &&
+            _current!.vehicleName == resolved.vehicleId &&
+            _current!.timestamp == resolved.timestamp) {
+          _current = _toAlertItem(resolved);
+          notifyListeners();
+        }
+        if (!AppLifecycleGate.instance.isForeground) {
+          unawaited(LocalNotificationService.showAlert(resolved));
+        }
+      } catch (_) {}
+    }
+  }
+
+  void _commitAlert(AppNotification enriched) {
+    final bool alreadyInList = NotificationData.alerts.any((AppNotification a) =>
+        a.id == enriched.id &&
+        a.vehicleId == enriched.vehicleId &&
+        a.timestamp.difference(enriched.timestamp).abs().inSeconds < 5);
+    if (!alreadyInList) {
+      NotificationData.alerts.insert(0, enriched);
+      if (NotificationData.alerts.length > 200) {
+        NotificationData.alerts.removeRange(200, NotificationData.alerts.length);
+      }
+      NotificationData.alertsRevision.value++;
     }
   }
 
@@ -78,8 +156,20 @@ class LiveNotificationController extends ChangeNotifier {
     _queue.clear();
     _current = null;
     _seen.clear();
+    _queuedBannerKeys.clear();
     VoiceAlertService.instance.stop();
     notifyListeners();
+  }
+
+  void _enqueueForBanner(AppNotification enriched) {
+    while (_queue.length >= _maxQueue) {
+      _queue.removeFirst();
+    }
+    _queue.addLast(enriched);
+
+    if (_current == null) {
+      _showNext();
+    }
   }
 
   // ─── Internal ─────────────────────────────────────────────────────────────
@@ -89,8 +179,9 @@ class LiveNotificationController extends ChangeNotifier {
     final AppNotification notif = _queue.removeFirst();
     _current = _toAlertItem(notif);
 
-    // Speak aloud when the banner actually shows on screen
-    VoiceAlertService.instance.speak(notif);
+    if (_queue.isEmpty) {
+      VoiceAlertService.instance.speak(notif);
+    }
 
     notifyListeners();
   }
@@ -137,10 +228,7 @@ class LiveNotificationController extends ChangeNotifier {
   }
 
   String _message(AppNotification n) {
-    final String loc = n.location.isNotEmpty &&
-            n.location != 'Location not available'
-        ? n.location
-        : 'Location not available';
+    final String loc = NotificationLocationText.resolve(n);
 
     switch (n.eventType) {
       case NotificationEventType.ignitionOn:

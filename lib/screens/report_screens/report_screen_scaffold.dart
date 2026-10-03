@@ -8,6 +8,7 @@ import '../../data/vehicle_data.dart';
 import '../../models/vehicle_model.dart';
 import '../../services/tracking_api_service.dart';
 import '../../services/vehicle_service.dart';
+import '../../utils/live_location_text.dart';
 import '../../utils/report_date_picker.dart';
 import '../../utils/report_response_parser.dart';
 import '../../widgets/report_export_dialog.dart';
@@ -22,8 +23,9 @@ class ReportScreenScaffold extends StatefulWidget {
   final String? detailsTitle;
   final String? foundLabel;
   final bool showResultsHeader;
-  final bool showGenerateButton;
   final int reportId;
+  /// Shown when a vehicle is selected but the API returned no rows.
+  final String? noDataMessage;
   final Map<String, dynamic>? reportExtra;
   final Widget Function(
     BuildContext context,
@@ -41,9 +43,9 @@ class ReportScreenScaffold extends StatefulWidget {
     this.detailsTitle,
     this.foundLabel,
     this.showResultsHeader = true,
-    this.showGenerateButton = false,
     required this.reportId,
     this.reportExtra,
+    this.noDataMessage,
     required this.buildGeneratedContent,
   });
 
@@ -54,6 +56,8 @@ class ReportScreenScaffold extends StatefulWidget {
 class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
   static const Color _pinkColor = Color(0xfff53d6b);
   static const Color _lightPinkColor = Color(0xffff7a9c);
+  static const Color _filterUnselectedBg = Color(0xFFFFF0F3);
+  static const Color _fromDateColor = Color.fromARGB(255, 46, 125, 50);
     
   int selectedIndex = 0;
   DateTime fromDate = DateTime.now();
@@ -130,11 +134,12 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
       return;
     }
 
-    if (ReportResponseParser.isEmptyReport(response)) {
+    if (response == null) {
       setState(() {
         isGenerating = false;
         reportGenerated = false;
-        reportError = context.tr('Could not generate report');
+        reportData = null;
+        reportError = context.tr('Could not load report');
       });
       return;
     }
@@ -143,16 +148,8 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
       isGenerating = false;
       reportGenerated = true;
       reportData = ReportResponseParser.asReportMap(response);
+      reportError = null;
     });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '${widget.generatedSnackMessage} ${selectedVehicle!.name}',
-        ),
-        backgroundColor: _pinkColor,
-      ),
-    );
   }
 
   String _formatApiDate(DateTime date) {
@@ -169,7 +166,16 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
       return;
     }
 
-    setState(() => fromDate = picked);
+    setState(() {
+      fromDate = picked;
+      selectedIndex = -1;
+      reportGenerated = false;
+      reportData = null;
+      reportError = null;
+    });
+    if (selectedVehicle != null) {
+      await _generateReport();
+    }
   }
 
   Future<void> _pickEndDate() async {
@@ -182,7 +188,16 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
       return;
     }
 
-    setState(() => endDate = picked);
+    setState(() {
+      endDate = picked;
+      selectedIndex = -1;
+      reportGenerated = false;
+      reportData = null;
+      reportError = null;
+    });
+    if (selectedVehicle != null) {
+      await _generateReport();
+    }
   }
 
   void _setFilterDates(int index) {
@@ -217,12 +232,20 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
     }
   }
 
-  void _changeFilter(int index) {
-    setState(() => _setFilterDates(index));
+  Future<void> _changeFilter(int index) async {
+    setState(() {
+      _setFilterDates(index);
+      reportGenerated = false;
+      reportData = null;
+      reportError = null;
+    });
+    if (selectedVehicle != null) {
+      await _generateReport();
+    }
   }
 
   String formatDate(DateTime date) {
-    return DateFormat('hh:mm a, dd MMM yyyy').format(date);
+    return DateFormat('dd MMM yyyy hh:mm a').format(date);
   }
 
   Future<void> _showExportDialog() async {
@@ -266,9 +289,7 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                   height: 28,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: selected
-                        ? _lightPinkColor
-                        : const Color(0xffffd8df),
+                    color: selected ? _pinkColor : _filterUnselectedBg,
                     borderRadius: BorderRadius.circular(30),
                     boxShadow: [
                       BoxShadow(
@@ -310,12 +331,71 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
       },
     );
 
-    if (result != null) {
+    if (result != null && mounted) {
       setState(() {
         selectedVehicle = result;
         reportGenerated = false;
+        reportData = null;
+        reportError = null;
       });
+      await _generateReport();
     }
+  }
+
+  Widget _buildBodyContent() {
+    final Color accentColor = _pinkColor;
+    final Color mutedColor = context.mutedTextColor;
+
+    if (selectedVehicle == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Text(
+            context.tr('Search and select a vehicle to view report'),
+            textAlign: TextAlign.center,
+            style: TextStyle(color: mutedColor, fontSize: 14),
+          ),
+        ),
+      );
+    }
+
+    if (isGenerating) {
+      return Center(
+        child: CircularProgressIndicator(color: accentColor),
+      );
+    }
+
+    if (reportError != null) {
+      return Center(
+        child: Text(
+          reportError!,
+          style: TextStyle(color: Colors.red.shade700),
+        ),
+      );
+    }
+
+    if (!reportGenerated) {
+      return Center(
+        child: CircularProgressIndicator(color: accentColor),
+      );
+    }
+
+    final bool hasApiItems =
+        ReportResponseParser.rowsFromResponse(reportData).isNotEmpty;
+    if (!hasApiItems && widget.noDataMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Text(
+            context.tr(widget.noDataMessage!),
+            textAlign: TextAlign.center,
+            style: TextStyle(color: mutedColor, fontSize: 14),
+          ),
+        ),
+      );
+    }
+
+    return _buildGeneratedResults();
   }
 
   Widget _buildEmptyContent() {
@@ -400,11 +480,18 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isHacking = context.isHackingTheme;
+    final Color surfaceColor = context.containerColor;
+    final Color contentBg = isHacking
+        ? Colors.transparent
+        : const Color(0xFFF3F3F3);
+
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Theme.of(context).cardColor,
+        scrolledUnderElevation: 0,
+        backgroundColor: isHacking ? Colors.transparent : Colors.white,
         surfaceTintColor: Colors.transparent,
         leading: IconButton(
           icon: Icon(
@@ -432,12 +519,24 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
       ),
       body: Column(
         children: [
-          Material(
-            color: context.containerColor,
-            elevation: 0,
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: isHacking ? Colors.transparent : Colors.white,
+              boxShadow: isHacking
+                  ? null
+                  : <BoxShadow>[
+                      BoxShadow(
+                        color: const Color(0xFF4A4A4A).withValues(alpha: 0.40),
+                        blurRadius: 14,
+                        spreadRadius: 0,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+            ),
             child: Column(
               children: [
-                const SizedBox(height: 15),
+                const SizedBox(height: 8),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   child: GestureDetector(
@@ -446,9 +545,15 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                       height: 30,
                       padding: const EdgeInsets.symmetric(horizontal: 10),
                       decoration: BoxDecoration(
-                        color: context.containerColor,
+                        color: surfaceColor,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: context.textColor, width: 1),
+                        border: Border.all(
+                          color: isHacking
+                              ? (context.appTokens.containerBorderColor ??
+                                  _pinkColor.withValues(alpha: 0.45))
+                              : const Color(0xFF555555),
+                          width: 1,
+                        ),
                       ),
                       child: Row(
                         children: [
@@ -474,6 +579,9 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                                 setState(() {
                                   selectedVehicle = null;
                                   reportGenerated = false;
+                                  reportData = null;
+                                  reportError = null;
+                                  isGenerating = false;
                                 });
                               },
                               child: Icon(
@@ -487,18 +595,11 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                     ),
                   ),
                 ),
-                if (selectedVehicle != null) ...[
-                  const SizedBox(height: 15),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: _SelectedVehicleCard(vehicle: selectedVehicle!),
-                  ),
-                ],
-                const SizedBox(height: 10),
+                const SizedBox(height: 14),
                 _buildFilterChips(),
                 const SizedBox(height: 4),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
                   child: Row(
                     children: [
                       Expanded(
@@ -506,24 +607,25 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
                           label: context.tr('From Date'),
                           labelFontSize: 12,
                           value: formatDate(fromDate),
-                          valueColor: Colors.green,
+                          valueColor: isHacking
+                              ? const Color(0xFF00E676)
+                              : _fromDateColor,
                           onTap: _pickFromDate,
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: _DatePickerCard(
                           label: context.tr('End Date'),
                           labelFontSize: 12,
                           value: formatDate(endDate),
-                          valueColor: Colors.red,
+                          valueColor: _pinkColor,
                           onTap: _pickEndDate,
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 12),
               ],
             ),
           ),
@@ -548,68 +650,8 @@ class _ReportScreenScaffoldState extends State<ReportScreenScaffold> {
           ),
           Expanded(
             child: ColoredBox(
-              color: Theme.of(context).scaffoldBackgroundColor,
-              child: widget.showGenerateButton
-                  ? Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                          child: SizedBox(
-                            width: double.infinity,
-                            height: 55,
-                            child: ElevatedButton.icon(
-                              onPressed: isGenerating ? null : _generateReport,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: _pinkColor,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                              ),
-                              icon: isGenerating
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Icon(
-                                      Icons.description,
-                                      color: Colors.white,
-                                    ),
-                              label: Text(
-                                context.tr(
-                                  isGenerating
-                                      ? 'Generating...'
-                                      : 'Generate Report',
-                                ),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: reportError != null
-                              ? Center(
-                                  child: Text(
-                                    reportError!,
-                                    style: TextStyle(color: Colors.red.shade700),
-                                  ),
-                                )
-                              : (reportGenerated && selectedVehicle != null
-                                  ? _buildGeneratedResults()
-                                  : _buildEmptyContent()),
-                        ),
-                      ],
-                    )
-                  : (reportGenerated && selectedVehicle != null
-                      ? _buildGeneratedResults()
-                      : _buildEmptyContent()),
+              color: contentBg,
+              child: _buildBodyContent(),
             ),
           ),
         ],
@@ -706,7 +748,7 @@ class _SelectedVehicleCard extends StatelessWidget {
               const SizedBox(width: 4),
               Expanded(
                 child: Text(
-                  vehicle.location,
+                  LiveLocationText.forVehicle(vehicle),
                   style: TextStyle(color: Colors.grey, fontSize: 13),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,

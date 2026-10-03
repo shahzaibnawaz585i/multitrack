@@ -16,22 +16,18 @@ import '../models/daily_report_day.dart';
 import '../utils/report_period.dart';
 import '../models/expense_model.dart';
 import '../models/vehicle_model.dart';
-import '../services/alert_service.dart';
 import '../services/daily_report_service.dart';
 import '../services/dashboard_chart_service.dart';
 import '../services/vehicle_detail_api_service.dart';
 import '../services/pakistan_fuel_rate_service.dart';
-import '../services/live_notification_controller.dart';
 import '../services/tracking_api_service.dart';
 import '../services/general_settings_controller.dart';
 import '../services/vehicle_service.dart';
 import '../services/voice_alert_service.dart';
 import '../theme/app_theme_tokens.dart';
-import '../widgets/live_alert_banner.dart';
 import '../widgets/select_vehicle_dialog.dart';
 import 'lists_screen.dart';
 import 'map_screen.dart';
-import 'notifications_screen.dart';
 import 'settings_screen/add_expense_screen.dart';
 import 'settings_screen/reminders_screen.dart';
 import 'settings_screen/setting_screen.dart';
@@ -58,10 +54,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   late final Set<int> _loadedTabs = <int>{_selectedIndex};
 
-  /// Polls alert events globally (map screen adds its own poll).
-  Timer? _alertPollTimer;
-  int _backgroundPollTick = 0;
-
   @override
   void initState() {
     super.initState();
@@ -70,16 +62,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // already logged in and skips the login screen (prewarm in bootstrap
     // is only called after a fresh login).
     unawaited(VoiceAlertService.instance.prewarm());
-
-    // Light background sync — avoid stacking with list/map timers (OOM/crash).
-    _alertPollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      _backgroundPollTick++;
-      final bool forceNetwork = _backgroundPollTick % 4 == 0;
-      VehicleService.getDevices(forceRefresh: forceNetwork).ignore();
-      if (forceNetwork) {
-        AlertService.getEvents(forceRefresh: true).ignore();
-      }
-    });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
@@ -93,12 +75,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     });
 
-    unawaited(VehicleService.getDevices(forceRefresh: false));
   }
 
   @override
   void dispose() {
-    _alertPollTimer?.cancel();
     super.dispose();
   }
 
@@ -150,9 +130,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
 
-    return ChangeNotifierProvider<LiveNotificationController>.value(
-      value: LiveNotificationController.instance,
-      child: Scaffold(
+    return Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
         body: Stack(
           children: <Widget>[
@@ -196,33 +174,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ],
               ),
             ),
-            // ── Global live alert banner overlay ─────────────────────────
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: SafeArea(
-                bottom: false,
-                child: Consumer<LiveNotificationController>(
-                  builder:
-                      (BuildContext ctx, LiveNotificationController ctrl, _) {
-                        return LiveAlertBanner(
-                          alert: ctrl.currentAlert,
-                          onDismiss: ctrl.dismiss,
-                          onTap: () {
-                            ctrl.dismiss();
-                            Navigator.push<void>(
-                              context,
-                              MaterialPageRoute<void>(
-                                builder: (_) => const NotificationsScreen(),
-                              ),
-                            );
-                          },
-                        );
-                      },
-                ),
-              ),
-            ),
           ],
         ),
         bottomNavigationBar: CurvedNavigationBar(
@@ -245,7 +196,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
           onTap: _onNavigationTap,
         ),
-      ),
     );
   }
 }

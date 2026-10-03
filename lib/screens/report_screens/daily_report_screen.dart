@@ -26,6 +26,7 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
   static const Color _fromDateColor = Color.fromARGB(255, 46, 125, 50);
 
   VehicleModel? _selectedVehicle;
+  bool _loadAllVehicles = false;
   int _selectedIndex = 3;
   DateTime _fromDate = DateTime.now();
   DateTime _endDate = DateTime.now();
@@ -74,9 +75,29 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
     if (result != null && mounted) {
       setState(() {
         _selectedVehicle = result;
+        _loadAllVehicles = false;
       });
       await _loadReport();
     }
+  }
+
+  String get _searchFieldLabel {
+    if (_loadAllVehicles) {
+      final List<String> names = _vehicles
+          .map((VehicleModel v) => v.name)
+          .where((String n) => n.trim().isNotEmpty)
+          .take(4)
+          .toList();
+      if (names.isEmpty) {
+        return context.tr('All vehicles');
+      }
+      final String joined = names.join(', ');
+      if (_vehicles.length > names.length) {
+        return '$joined, …';
+      }
+      return joined;
+    }
+    return _selectedVehicle?.name ?? context.tr('Search Vehicle');
   }
 
   String _formatDate(DateTime date) {
@@ -97,7 +118,7 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
       _days = <DailyReportDay>[];
     });
 
-    if (_selectedVehicle != null) {
+    if (_selectedVehicle != null || _loadAllVehicles) {
       await _loadReport();
     }
   }
@@ -116,7 +137,7 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
       _selectedIndex = -1;
     });
 
-    if (_selectedVehicle != null) {
+    if (_selectedVehicle != null || _loadAllVehicles) {
       await _loadReport();
     }
   }
@@ -135,14 +156,21 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
       _selectedIndex = -1;
     });
 
-    if (_selectedVehicle != null) {
+    if (_selectedVehicle != null || _loadAllVehicles) {
       await _loadReport();
     }
   }
 
+  Future<void> _loadAllVehiclesReport() async {
+    setState(() {
+      _loadAllVehicles = true;
+      _selectedVehicle = null;
+    });
+    await _loadReport();
+  }
+
   Future<void> _loadReport() async {
-    final VehicleModel? vehicle = _selectedVehicle;
-    if (vehicle == null) {
+    if (!_loadAllVehicles && _selectedVehicle == null) {
       return;
     }
 
@@ -152,11 +180,24 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
     });
 
     try {
-      final List<DailyReportDay> days = await DailyReportService.loadDays(
-        vehicle: vehicle,
-        from: _fromDate,
-        to: _endDate,
-      );
+      final DateTime from = ReportPeriod.startOfDay(_fromDate);
+      final DateTime to = _endDate.hour == 0 &&
+              _endDate.minute == 0 &&
+              _endDate.second == 0
+          ? ReportPeriod.endOfDay(_endDate)
+          : _endDate;
+
+      final List<DailyReportDay> days = _loadAllVehicles
+          ? await DailyReportService.loadDaysForFleet(
+              vehicles: _vehicles,
+              from: from,
+              to: to,
+            )
+          : await DailyReportService.loadDays(
+              vehicle: _selectedVehicle!,
+              from: from,
+              to: to,
+            );
 
       if (!mounted) {
         return;
@@ -193,7 +234,7 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
     required Color mutedColor,
     required Color contentBg,
   }) {
-    if (_selectedVehicle == null) {
+    if (_selectedVehicle == null && !_loadAllVehicles) {
       return Center(
         child: Text(
           context.tr('Search and select a vehicle to view report'),
@@ -308,7 +349,16 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
           PopupMenuButton<String>(
             icon: Icon(Icons.more_vert, color: accentColor),
             color: surfaceColor,
+            onSelected: (String value) async {
+              if (value == 'all_vehicles') {
+                await _loadAllVehiclesReport();
+              }
+            },
             itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+              PopupMenuItem<String>(
+                value: 'all_vehicles',
+                child: Text(context.tr('All vehicles')),
+              ),
               PopupMenuItem<String>(
                 value: 'export',
                 child: Text(context.tr('Export')),
@@ -365,8 +415,9 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              _selectedVehicle?.name ??
-                                  context.tr('Search Vehicle'),
+                              _searchFieldLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: mutedColor,
                                 fontSize: 12,
@@ -374,11 +425,12 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
                               ),
                             ),
                           ),
-                          if (_selectedVehicle != null)
+                          if (_selectedVehicle != null || _loadAllVehicles)
                             GestureDetector(
                               onTap: () {
                                 setState(() {
                                   _selectedVehicle = null;
+                                  _loadAllVehicles = false;
                                   _days = <DailyReportDay>[];
                                   _loadError = null;
                                 });

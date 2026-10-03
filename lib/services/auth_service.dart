@@ -7,6 +7,7 @@ import '../models/notification_model.dart';
 import 'alert_service.dart';
 import 'auth_api.dart';
 import 'fcm_service.dart';
+import 'alert_polling_service.dart';
 import 'live_notification_controller.dart';
 import 'vehicle_service.dart';
 import 'voice_alert_service.dart';
@@ -109,6 +110,7 @@ class AuthService {
     VehicleService.clearFleetCache();
     NotificationData.assignAlerts(<AppNotification>[]);
     LiveNotificationController.instance.clear();
+    AlertPollingService.instance.stop();
     await VoiceAlertService.instance.dispose();
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_loggedInKey, false);

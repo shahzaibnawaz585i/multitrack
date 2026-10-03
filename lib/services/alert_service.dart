@@ -90,16 +90,10 @@ class AlertService {
       if (parsed.isNotEmpty) {
         if (!_hasBaseline) {
           _hasBaseline = true;
-          // On initial launch, push up to the 2 most recent alerts so banners & voice play
-          for (final AppNotification n in parsed.take(5)) {
-            final String key = _notifKey(n);
-            _knownEventKeys.add(key);
-            LiveNotificationController.instance.push(n);
-          }
-          // Mark remaining as known
           for (final AppNotification n in parsed) {
             _knownEventKeys.add(_notifKey(n));
           }
+          _enqueueRecentAlertsForBanner(parsed);
         } else if (page == null || page == 1) {
           // On polling, push all new events
           _diffAndPushNew(parsed);
@@ -570,6 +564,19 @@ class AlertService {
   }
 
   // ─── Live banner diff ─────────────────────────────────────────────────────
+
+  static void _enqueueRecentAlertsForBanner(
+    List<AppNotification> parsed, {
+    int maxBanner = 100,
+  }) {
+    final Iterable<AppNotification> operational = parsed.where(
+      _isOperationalAlert,
+    );
+    LiveNotificationController.instance.enqueueBatch(
+      operational,
+      maxCount: maxBanner,
+    );
+  }
 
   /// Compares [fresh] against [_knownEventKeys]. Any new notification is pushed.
   static void _diffAndPushNew(List<AppNotification> fresh) {

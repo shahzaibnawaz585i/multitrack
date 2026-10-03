@@ -203,6 +203,11 @@ dependencies:
   # Text-to-Speech (voice notifications)
   flutter_tts: ^4.2.0
 
+  # Status bar notifications (foreground + background)
+  flutter_local_notifications: ^19.0.0
+
+  # Keeps native launch screen until Flutter splash is ready
+  flutter_native_splash: ^2.4.6
 
 dev_dependencies:
   flutter_test:
@@ -210,7 +215,6 @@ dev_dependencies:
 
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.13.1
-  flutter_native_splash: ^2.4.6
 
 flutter_launcher_icons:
   android: true
@@ -219,12 +223,11 @@ flutter_launcher_icons:
   adaptive_icon_background: "#FFFFFF"
   adaptive_icon_foreground: "assets/appicon.png"
 
+# Plain white native launch — branded icon + multiTrack text only on Flutter SplashScreen.
 flutter_native_splash:
   color: "#FFFFFF"
-  image: assets/appicon.png
   android_12:
     color: "#FFFFFF"
-    image: assets/appicon.png
   android: true
   ios: true
   web: false

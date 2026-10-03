@@ -1,11 +1,42 @@
 import 'package:flutter/material.dart';
 
 import '../../constants/report_ids.dart';
+import '../../models/vehicle_model.dart';
 import '../../utils/report_response_parser.dart';
+import 'report_content_widgets.dart';
 import 'report_screen_scaffold.dart';
 
 class AcReportScreen extends StatelessWidget {
   const AcReportScreen({super.key});
+
+  static Widget _demoTimeline(VehicleModel vehicle) {
+    return Column(
+      children: [
+        ReportTimelineEvent(
+          time: '08:30 AM',
+          duration: 'Duration: 1 hr 15 min',
+          status: 'AC ON',
+          statusColor: Colors.teal,
+          location: vehicle.location,
+        ),
+        const ReportTimelineEvent(
+          time: '09:45 AM',
+          duration: 'Duration: 2 hrs 35 min',
+          status: 'AC OFF',
+          statusColor: Colors.redAccent,
+          location: 'Kalma Chowk Flyover, Lahore',
+        ),
+        ReportTimelineEvent(
+          time: '12:20 PM',
+          duration: 'Duration: Ongoing',
+          status: 'AC ON',
+          statusColor: Colors.teal,
+          location: 'M.M. Alam Road, Gulberg, Lahore',
+          isLast: true,
+        ),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -15,10 +46,12 @@ class AcReportScreen extends StatelessWidget {
       generatedSnackMessage: 'Generated AC Report for',
       detailsTitle: 'AC Events',
       foundLabel: 'Events Found',
-      showGenerateButton: true,
       reportId: ReportIds.ac,
       buildGeneratedContent: (context, vehicle, reportData) {
-        return ReportResponseParser.buildTimeline(reportData, vehicle);
+        if (ReportResponseParser.rowsFromResponse(reportData).isNotEmpty) {
+          return ReportResponseParser.buildTimeline(reportData, vehicle);
+        }
+        return _demoTimeline(vehicle);
       },
     );
   }

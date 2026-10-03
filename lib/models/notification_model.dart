@@ -42,6 +42,32 @@ class AppNotification {
     this.speed,
   });
 
+  AppNotification copyWith({
+    int? id,
+    String? vehicleId,
+    String? eventTitle,
+    String? location,
+    DateTime? timestamp,
+    NotificationCategory? category,
+    NotificationEventType? eventType,
+    double? latitude,
+    double? longitude,
+    double? speed,
+  }) {
+    return AppNotification(
+      id: id ?? this.id,
+      vehicleId: vehicleId ?? this.vehicleId,
+      eventTitle: eventTitle ?? this.eventTitle,
+      location: location ?? this.location,
+      timestamp: timestamp ?? this.timestamp,
+      category: category ?? this.category,
+      eventType: eventType ?? this.eventType,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      speed: speed ?? this.speed,
+    );
+  }
+
   factory AppNotification.fromJson(
     Map<String, dynamic> json, {
     Map<int, String>? deviceNamesById,

@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 
+import 'package:intl/intl.dart';
+
 import '../constants/api_config.dart';
 import '../utils/report_response_parser.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
+import 'gpswox_report_api_service.dart';
 
 class GetHistoryResult {
   const GetHistoryResult({required this.statusCode, this.body});
@@ -95,10 +98,35 @@ class TrackingApiService {
     required String to,
     Map<String, dynamic>? extra,
   }) async {
-    final String server = await AuthService.server();
     final String? token = await AuthService.token();
-    if (token == null || token.isEmpty) return null;
+    if (token == null || token.isEmpty) {
+      return null;
+    }
+
+    DateTime? rangeFrom = DateTime.tryParse(from.replaceAll('/', '-'));
+    DateTime? rangeTo = DateTime.tryParse(to.replaceAll('/', '-'));
+    rangeFrom ??= _parseReportDateTime(from);
+    rangeTo ??= _parseReportDateTime(to);
+    if (rangeFrom == null || rangeTo == null) {
+      return null;
+    }
+
     try {
+      final dynamic best = await GpswoxReportApiService.fetchBestResponse(
+        reportId: reportId,
+        deviceId: deviceId,
+        from: rangeFrom,
+        to: rangeTo,
+      );
+      if (best != null && !ReportResponseParser.isEmptyReport(best)) {
+        return best;
+      }
+
+      if (extra == null || extra.isEmpty) {
+        return best;
+      }
+
+      final String server = await AuthService.server();
       return await ApiClient.postFormRaw(
         ApiConfig.generateReportUri(server),
         body: <String, dynamic>{
@@ -107,7 +135,7 @@ class TrackingApiService {
           'device_id': deviceId.toString(),
           'from': from,
           'to': to,
-          if (extra != null) ...extra,
+          ...extra,
         },
         token: token,
       );
@@ -115,6 +143,20 @@ class TrackingApiService {
       developer.log('generateReport failed: $e', error: e, stackTrace: stack);
       return null;
     }
+  }
+
+  static DateTime? _parseReportDateTime(String raw) {
+    final List<String> patterns = <String>[
+      'yyyy-MM-dd HH:mm:ss',
+      'dd-MM-yyyy HH:mm:ss',
+      'yyyy-MM-dd',
+    ];
+    for (final String pattern in patterns) {
+      try {
+        return DateFormat(pattern).parse(raw.trim());
+      } catch (_) {}
+    }
+    return null;
   }
 
   static Future<Map<String, dynamic>?> getUserData() async {

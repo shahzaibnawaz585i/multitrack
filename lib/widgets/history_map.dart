@@ -6,6 +6,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../services/history_service.dart';
 import '../services/live_route_service.dart';
 import '../theme/app_theme_tokens.dart';
+import '../utils/history_numbered_stop_icon.dart';
 import '../utils/history_route_utils.dart';
 import '../utils/map_arrow_icon.dart';
 
@@ -22,9 +23,13 @@ class HistoryMap extends StatefulWidget {
     required this.playbackTotal,
     required this.arrowColor,
     required this.routeColor,
+    this.stopSessions = const <HistoryStopSession>[],
+    this.onStopSelected,
   });
 
   final HistoryRoute route;
+  final List<HistoryStopSession> stopSessions;
+  final ValueChanged<HistoryStopSession>? onStopSelected;
   final ValueListenable<double> fractionListenable;
   final ValueListenable<bool> playingListenable;
   final bool isActive;
@@ -54,6 +59,8 @@ class HistoryMapState extends State<HistoryMap>
   double _smoothedBearing = 0;
   Ticker? _playbackTicker;
   BitmapDescriptor? _arrowIcon;
+  Map<int, BitmapDescriptor> _stopNumberIcons = <int, BitmapDescriptor>{};
+  String _stopIconsSessionKey = '';
   int _lastCameraMoveMs = 0;
   LatLng? _lastCameraTarget;
   Duration _lastFrameAt = Duration.zero;
@@ -200,9 +207,20 @@ class HistoryMapState extends State<HistoryMap>
       _syncTickerWithVisibility(widget.isActive);
     }
     final String nextKey =
-        '${widget.route.points.length}_${widget.route.startTime?.millisecondsSinceEpoch}';
+        '${widget.route.points.length}_${widget.route.startTime?.millisecondsSinceEpoch}_'
+        '${widget.route.endTime?.millisecondsSinceEpoch}_${widget.stopSessions.length}';
     if (nextKey != _routeKey) {
       _deferApplyRoute(widget.route, _targetFraction);
+    } else {
+      if (oldWidget.stopSessions != widget.stopSessions) {
+        _loadStopNumberIcons();
+      }
+      if (oldWidget.playWallClockStart != widget.playWallClockStart ||
+          oldWidget.playFractionStart != widget.playFractionStart ||
+          oldWidget.playbackSpeed != widget.playbackSpeed ||
+          oldWidget.playbackTotal != widget.playbackTotal) {
+        _onExternalPlaybackTick();
+      }
     }
   }
 
@@ -234,14 +252,51 @@ class HistoryMapState extends State<HistoryMap>
         ? HistoryRouteUtils.simplifyForMap(_fullPoints)
         : _fullPoints;
     _routeKey =
-        '${_fullPoints.length}_${route.startTime?.millisecondsSinceEpoch}';
+        '${_fullPoints.length}_${route.startTime?.millisecondsSinceEpoch}_'
+        '${route.endTime?.millisecondsSinceEpoch}';
     _timeFractions = HistoryRouteUtils.buildPointTimeFractions(_sortedPoints);
     _displayFraction = playbackFraction;
-    _circles = _sortedPoints.length > 350
+    _circles = widget.stopSessions.isNotEmpty || _sortedPoints.length > 350
         ? const <Circle>{}
         : HistoryRouteUtils.eventCircles(_sortedPoints);
     _rebuildMarkers(playbackFraction);
     _rebuildPolylines(playbackFraction);
+    _loadStopNumberIcons();
+  }
+
+  Future<void> _loadStopNumberIcons() async {
+    if (widget.stopSessions.isEmpty) {
+      if (_stopNumberIcons.isNotEmpty) {
+        _stopNumberIcons = <int, BitmapDescriptor>{};
+        _stopIconsSessionKey = '';
+      }
+      return;
+    }
+    final String key = widget.stopSessions
+        .map((HistoryStopSession s) => '${s.index}_${s.arrival.millisecondsSinceEpoch}')
+        .join('|');
+    if (key == _stopIconsSessionKey && _stopNumberIcons.length == widget.stopSessions.length) {
+      return;
+    }
+    _stopIconsSessionKey = key;
+    final List<MapEntry<int, BitmapDescriptor>> entries =
+        await Future.wait<MapEntry<int, BitmapDescriptor>>(
+      widget.stopSessions.map((HistoryStopSession session) async {
+        final BitmapDescriptor icon =
+            await HistoryNumberedStopIcon.forNumber(session.index);
+        return MapEntry<int, BitmapDescriptor>(session.index, icon);
+      }),
+    );
+    final Map<int, BitmapDescriptor> loaded =
+        Map<int, BitmapDescriptor>.fromEntries(entries);
+    if (!mounted || key != _stopIconsSessionKey) {
+      return;
+    }
+    _stopNumberIcons = loaded;
+    _rebuildMarkers(_displayFraction);
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   void _applyPlaybackVisuals(
@@ -263,7 +318,7 @@ class HistoryMapState extends State<HistoryMap>
       if (followCamera) {
         _maybeFollowPlayback(playbackFraction);
       }
-      final int uiThrottleMs = _isPlaying ? 80 : 50;
+      final int uiThrottleMs = _isPlaying ? 120 : 50;
       if (nowMs - _lastUiFrameMs >= uiThrottleMs || !_isPlaying) {
         _lastUiFrameMs = nowMs;
         if (mounted && widget.isActive) {
@@ -361,14 +416,16 @@ class HistoryMapState extends State<HistoryMap>
       return;
     }
 
+    final bool numberedStops = widget.stopSessions.isNotEmpty;
     final Set<Marker> next = <Marker>{
       Marker(
         markerId: const MarkerId('history_start'),
         position: _fullPoints.first,
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+        zIndexInt: 5,
         infoWindow: const InfoWindow(title: 'Start'),
       ),
-      if (_fullPoints.length > 1)
+      if (_fullPoints.length > 1 && !numberedStops)
         Marker(
           markerId: const MarkerId('history_end'),
           position: _fullPoints.last,
@@ -376,6 +433,22 @@ class HistoryMapState extends State<HistoryMap>
           infoWindow: const InfoWindow(title: 'End'),
         ),
     };
+
+    for (final HistoryStopSession session in widget.stopSessions) {
+      final BitmapDescriptor stopIcon = _stopNumberIcons[session.index] ??
+          BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
+      next.add(
+        Marker(
+          markerId: MarkerId('history_stop_${session.index}'),
+          position: session.position,
+          icon: stopIcon,
+          anchor: HistoryNumberedStopIcon.markerAnchor,
+          zIndexInt: 4,
+          infoWindow: InfoWindow.noText,
+          onTap: () => widget.onStopSelected?.call(session),
+        ),
+      );
+    }
 
     final HistoryPlaybackSample sample = HistoryRouteUtils.sampleAtFraction(
       _sortedPoints,
@@ -496,6 +569,18 @@ class HistoryMapState extends State<HistoryMap>
       polylines: _polylines,
       markers: _markers,
       circles: _circles,
+      onTap: (LatLng position) {
+        if (widget.onStopSelected == null || widget.stopSessions.isEmpty) {
+          return;
+        }
+        final HistoryStopSession? hit = HistoryRouteUtils.nearestStopSession(
+          position,
+          widget.stopSessions,
+        );
+        if (hit != null) {
+          widget.onStopSelected!(hit);
+        }
+      },
       onMapCreated: (GoogleMapController controller) {
         if (!mounted) {
           return;

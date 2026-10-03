@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/app_l10n.dart';
 import '../../theme/app_theme_tokens.dart';
+import 'add_reminder_picker_screen.dart';
+import 'add_new_reminder_screen.dart';
 
 class RemindersScreen extends StatefulWidget {
   const RemindersScreen({super.key});
@@ -56,16 +58,26 @@ class _RemindersScreenState extends State<RemindersScreen> {
   }
 
   Future<void> _openAddReminder() async {
-    final _ReminderItem? created = await Navigator.push<_ReminderItem>(
-      context,
-      MaterialPageRoute<_ReminderItem>(
-        builder: (_) => const _AddNewReminderScreen(),
-      ),
-    );
-
-    if (created == null || !mounted) {
+    final List<String>? types = await AddReminderPickerScreen.open(context);
+    if (types == null || types.isEmpty || !mounted) {
       return;
     }
+
+    final bool? saved = await AddNewReminderScreen.open(
+      context,
+      initialType: types.first,
+    );
+
+    if (saved != true || !mounted) {
+      return;
+    }
+
+    final _ReminderItem created = _ReminderItem(
+      title: types.first,
+      type: 'odometer',
+      period: 10000,
+      previousValue: 0,
+    );
 
     setState(() {
       _isLoading = false;
@@ -385,20 +397,14 @@ class _AddNewReminderScreenState extends State<_AddNewReminderScreen> {
   }
 
   Future<void> _pickReminderType() async {
-    final String? type = await Navigator.push<String>(
-      context,
-      MaterialPageRoute<String>(
-        builder: (_) => const _AddReminderTypeScreen(),
-      ),
-    );
-
-    if (type == null || !mounted) {
+    final List<String>? types = await AddReminderPickerScreen.open(context);
+    if (types == null || types.isEmpty || !mounted) {
       return;
     }
 
     setState(() {
-      _selectedType = type;
-      _typeController.text = type;
+      _selectedType = types.first;
+      _typeController.text = types.first;
     });
   }
 

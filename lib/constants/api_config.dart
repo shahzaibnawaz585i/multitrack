@@ -28,6 +28,9 @@ class ApiConfig {
   static const String getUserDriversPath = '/api/get_user_drivers';
   static const String addUserDriverPath = '/api/add_user_driver';
 
+  // Device groups
+  static const String getGroupsPath = '/api/get_groups';
+
   // History & geocoding
   static const String getHistoryPath = '/api/get_history';
   static const String geoAddressPath = '/api/geo_address';
@@ -45,6 +48,16 @@ class ApiConfig {
   static const String editSensorPath = '/api/edit_sensor';
   static const String editSensorDataPath = '/api/edit_sensor_data';
   static const String destroySensorPath = '/api/destroy_sensor';
+
+  // Maintenance / reminders (services)
+  static const String getServicesPath = '/api/get_services';
+  static const String addServicePath = '/api/add_service';
+
+  // Device documents
+  static const String getDeviceDocumentsPath = '/api/get_device_documents';
+  static const String addDeviceDocumentPath = '/api/add_device_document';
+  static const String editDeviceDocumentPath = '/api/edit_device_document';
+  static const String destroyDeviceDocumentPath = '/api/destroy_device_document';
 
   // Tasks & sharing
   static const String getTasksPath = '/api/get_tasks';
@@ -142,7 +155,8 @@ class ApiConfig {
     String two(int n) => n.toString().padLeft(2, '0');
     String date(DateTime d) =>
         '${d.year}-${two(d.month)}-${two(d.day)}';
-    String time(DateTime d) => '${two(d.hour)}:${two(d.minute)}';
+    String time(DateTime d) =>
+        '${two(d.hour)}:${two(d.minute)}:${two(d.second)}';
 
     final Map<String, String> queryParams = <String, String>{
       'lang': lang,
@@ -203,6 +217,7 @@ class ApiConfig {
         queryParams: <String, String>{
           'lat': lat.toString(),
           'lon': lng.toString(),
+          'lng': lng.toString(),
           'lang': lang,
         },
       );
@@ -212,6 +227,9 @@ class ApiConfig {
 
   static Uri getUserDataUri(String server, {String? token}) =>
       apiUri(server, getUserDataPath, token: token);
+
+  static Uri getGroupsUri(String server, {String? token}) =>
+      apiUri(server, getGroupsPath, token: token);
 
   static Uri fcmTokenUri(String server, {String? token, required String fcmToken}) =>
       apiUri(
@@ -253,6 +271,29 @@ class ApiConfig {
 
   static Uri sharingUri(String server) => apiUri(server, sharingPath);
 
+  static Uri getDeviceDocumentsUri(
+    String server, {
+    String? token,
+    int? deviceId,
+  }) {
+    final Map<String, String> queryParams = <String, String>{};
+    if (deviceId != null) {
+      queryParams['device_id'] = deviceId.toString();
+    }
+    return apiUri(
+      server,
+      getDeviceDocumentsPath,
+      token: token,
+      queryParams: queryParams,
+    );
+  }
+
+  static Uri addDeviceDocumentUri(String server) =>
+      apiUri(server, addDeviceDocumentPath);
+
+  static Uri destroyDeviceDocumentUri(String server) =>
+      apiUri(server, destroyDeviceDocumentPath);
+
   static Uri addSensorUri(String server) => apiUri(server, addSensorPath);
 
   static Uri editSensorUri(String server) => apiUri(server, editSensorPath);
@@ -262,6 +303,16 @@ class ApiConfig {
 
   static Uri destroySensorUri(String server) =>
       apiUri(server, destroySensorPath);
+
+  static Uri addServiceUri(String server) => apiUri(server, addServicePath);
+
+  static Uri getServicesUri(String server, {String? token, int? deviceId}) {
+    final Map<String, String> queryParams = <String, String>{};
+    if (deviceId != null) {
+      queryParams['device_id'] = deviceId.toString();
+    }
+    return apiUri(server, getServicesPath, token: token, queryParams: queryParams);
+  }
 
   static bool usesRemoteApi(String server) => baseUrlFor(server).isNotEmpty;
 }

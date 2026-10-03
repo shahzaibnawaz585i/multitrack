@@ -9,6 +9,50 @@ import '../services/live_route_service.dart';
 
 enum HistoryDriveState { stop, idle, running }
 
+enum HistoryTimelineKind { trip, stop }
+
+class HistoryTimelineSegment {
+  const HistoryTimelineSegment({
+    required this.kind,
+    required this.start,
+    required this.end,
+    this.distanceKm = 0,
+    this.maxSpeedKmph = 0,
+  });
+
+  final HistoryTimelineKind kind;
+  final DateTime start;
+  final DateTime end;
+  final double distanceKm;
+  final double maxSpeedKmph;
+
+  Duration get duration {
+    final Duration d = end.difference(start);
+    return d.isNegative ? Duration.zero : d;
+  }
+}
+
+class HistoryStopSession {
+  const HistoryStopSession({
+    required this.index,
+    required this.arrival,
+    required this.departure,
+    required this.position,
+    this.address,
+  });
+
+  final int index;
+  final DateTime arrival;
+  final DateTime departure;
+  final LatLng position;
+  final String? address;
+
+  Duration get duration {
+    final Duration d = departure.difference(arrival);
+    return d.isNegative ? Duration.zero : d;
+  }
+}
+
 class HistoryPlaybackSample {
   const HistoryPlaybackSample({
     required this.position,
@@ -32,6 +76,12 @@ class HistoryRouteUtils {
 
   static final DateFormat _displayFormat = DateFormat('dd MMM yyyy HH:mm:ss');
   static final DateFormat _displayFormatShort = DateFormat('dd MMM yyyy HH:mm');
+  static final DateFormat _timelineCardFormat =
+      DateFormat('hh:mm:ss a - dd MMM, yyyy');
+
+  static const Duration _minStopSegment = Duration(minutes: 2);
+  static const Duration _minTripSegment = Duration(seconds: 45);
+  static const double _stopSpeedKmph = 3;
 
   static String formatDateTime(DateTime? value, {bool short = false}) {
     if (value == null) {
@@ -355,6 +405,486 @@ class HistoryRouteUtils {
       return HistoryDriveState.idle;
     }
     return HistoryDriveState.running;
+  }
+
+  static bool pointIsStopped(HistoryPoint point) {
+    if (point.isStop) {
+      return true;
+    }
+    final String? type = point.eventType?.toLowerCase();
+    if (type != null &&
+        (type.contains('stop') ||
+            type.contains('park') ||
+            type.contains('idle'))) {
+      return true;
+    }
+    return (point.speed ?? 0) <= _stopSpeedKmph;
+  }
+
+  static String formatHumanDuration(Duration duration) {
+    final int hours = duration.inHours;
+    final int minutes = duration.inMinutes.remainder(60);
+    final int seconds = duration.inSeconds.remainder(60);
+    return '$hours hr $minutes min ${seconds}s';
+  }
+
+  static String formatTimelineCardTime(DateTime? value) {
+    if (value == null) {
+      return '—';
+    }
+    return _timelineCardFormat.format(value);
+  }
+
+  /// Best route order for map markers (time when available, else API order).
+  static List<HistoryPoint> orderPointsForRoute(List<HistoryPoint> raw) {
+    if (raw.isEmpty) {
+      return raw;
+    }
+    final int withTime = raw.where((HistoryPoint p) => p.time != null).length;
+    if (withTime >= raw.length * 0.45) {
+      return sortByTime(List<HistoryPoint>.from(raw));
+    }
+    return List<HistoryPoint>.from(raw);
+  }
+
+  /// Fills missing timestamps so stop detection works on polyline-heavy routes.
+  static List<HistoryPoint> withInterpolatedTimes(
+    List<HistoryPoint> points, {
+    DateTime? rangeFrom,
+    DateTime? rangeTo,
+  }) {
+    if (points.isEmpty) {
+      return points;
+    }
+    DateTime? start;
+    DateTime? end;
+    for (final HistoryPoint p in points) {
+      final DateTime? t = p.time;
+      if (t == null) {
+        continue;
+      }
+      start ??= t;
+      end = t;
+    }
+    start ??= rangeFrom;
+    end ??= rangeTo;
+    if (start == null) {
+      start = DateTime.now().subtract(Duration(seconds: points.length));
+    }
+    if (end == null || !end.isAfter(start)) {
+      end = start.add(Duration(seconds: math.max(2, points.length)));
+    }
+
+    final int n = points.length;
+    return List<HistoryPoint>.generate(n, (int i) {
+      final HistoryPoint p = points[i];
+      if (p.time != null) {
+        return p;
+      }
+      final double w = n <= 1 ? 0.0 : i / (n - 1);
+      final int ms = start!.millisecondsSinceEpoch +
+          ((end!.millisecondsSinceEpoch - start.millisecondsSinceEpoch) * w)
+              .round();
+      return HistoryPoint(
+        position: p.position,
+        time: DateTime.fromMillisecondsSinceEpoch(ms),
+        speed: p.speed,
+        course: p.course,
+        address: p.address,
+        eventType: p.eventType,
+        isStop: p.isStop,
+      );
+    });
+  }
+
+  static bool _looksLikeStopEvent(HistoryPoint point) {
+    if (point.isStop) {
+      return true;
+    }
+    final String? type = point.eventType?.toLowerCase();
+    return type != null &&
+        (type.contains('stop') ||
+            type.contains('park') ||
+            type.contains('idle'));
+  }
+
+  static List<HistoryStopSession> _stopSessionsFromExplicitEvents(
+    List<HistoryPoint> ordered,
+    int maxSessions,
+  ) {
+    final List<HistoryStopSession> sessions = <HistoryStopSession>[];
+    for (final HistoryPoint p in ordered) {
+      if (!_looksLikeStopEvent(p)) {
+        continue;
+      }
+      final DateTime? arrival = p.time;
+      if (arrival == null) {
+        continue;
+      }
+      sessions.add(
+        HistoryStopSession(
+          index: 0,
+          arrival: arrival,
+          departure: arrival.add(const Duration(minutes: 1)),
+          position: p.position,
+          address: p.address,
+        ),
+      );
+      if (sessions.length >= maxSessions) {
+        break;
+      }
+    }
+    sessions.sort(
+      (HistoryStopSession a, HistoryStopSession b) =>
+          a.arrival.compareTo(b.arrival),
+    );
+    return _dedupeStopSessionsByLocation(sessions, mergeRadiusMeters: 90);
+  }
+
+  static List<HistoryStopSession> _routeWaypointStopSessions(
+    List<HistoryPoint> ordered, {
+    required int maxSessions,
+  }) {
+    if (ordered.length < 3) {
+      return const <HistoryStopSession>[];
+    }
+    final List<HistoryPoint> inner =
+        ordered.sublist(1, ordered.length - 1);
+    if (inner.isEmpty) {
+      return const <HistoryStopSession>[];
+    }
+
+    double pathMeters = 0;
+    for (int i = 1; i < ordered.length; i++) {
+      pathMeters += LiveRouteService.haversineMeters(
+        ordered[i - 1].position,
+        ordered[i].position,
+      );
+    }
+    final int target = math.min(
+      maxSessions,
+      math.max(8, (pathMeters / 4500).ceil()),
+    );
+    final double stepMeters = pathMeters / (target + 1);
+
+    final List<HistoryStopSession> sessions = <HistoryStopSession>[];
+    double walked = 0;
+    double nextMark = stepMeters;
+    DateTime? routeStart = ordered.first.time;
+    DateTime? routeEnd = ordered.last.time;
+    routeStart ??= DateTime.now().subtract(const Duration(hours: 1));
+    routeEnd ??= routeStart.add(const Duration(hours: 1));
+
+    for (int i = 1; i < ordered.length; i++) {
+      final double seg = LiveRouteService.haversineMeters(
+        ordered[i - 1].position,
+        ordered[i].position,
+      );
+      walked += seg;
+      while (sessions.length < target && walked >= nextMark) {
+        final HistoryPoint p = ordered[i];
+        final DateTime markTime = DateTime.fromMillisecondsSinceEpoch(
+          (routeStart.millisecondsSinceEpoch +
+                  (routeEnd.millisecondsSinceEpoch -
+                          routeStart.millisecondsSinceEpoch) *
+                      (sessions.length + 1) /
+                      (target + 1))
+              .round(),
+        );
+        sessions.add(
+          HistoryStopSession(
+            index: 0,
+            arrival: p.time ?? markTime,
+            departure: (p.time ?? markTime).add(const Duration(minutes: 1)),
+            position: p.position,
+            address: p.address,
+          ),
+        );
+        nextMark += stepMeters;
+      }
+    }
+
+    return _dedupeStopSessionsByLocation(sessions, mergeRadiusMeters: 120);
+  }
+
+  static List<HistoryStopSession> _dedupeStopSessionsByLocation(
+    List<HistoryStopSession> sessions, {
+    required double mergeRadiusMeters,
+  }) {
+    if (sessions.length < 2) {
+      return sessions;
+    }
+    final List<HistoryStopSession> out = <HistoryStopSession>[];
+    for (final HistoryStopSession s in sessions) {
+      final bool dup = out.any(
+        (HistoryStopSession o) =>
+            LiveRouteService.haversineMeters(o.position, s.position) <
+            mergeRadiusMeters,
+      );
+      if (!dup) {
+        out.add(s);
+      }
+    }
+    return out;
+  }
+
+  static List<HistoryStopSession> _mergeStopSessions(
+    List<HistoryStopSession> primary,
+    List<HistoryStopSession> secondary,
+    int maxSessions,
+  ) {
+    final List<HistoryStopSession> merged = <HistoryStopSession>[
+      ...primary,
+      ...secondary,
+    ];
+    merged.sort(
+      (HistoryStopSession a, HistoryStopSession b) =>
+          a.arrival.compareTo(b.arrival),
+    );
+    final List<HistoryStopSession> deduped =
+        _dedupeStopSessionsByLocation(merged, mergeRadiusMeters: 100);
+    return _capAndRenumber(deduped, maxSessions);
+  }
+
+  static List<HistoryStopSession> _capAndRenumber(
+    List<HistoryStopSession> sessions,
+    int maxSessions,
+  ) {
+    final List<HistoryStopSession> capped = sessions.length <= maxSessions
+        ? sessions
+        : _sampleStopSessionsEvenly(sessions, maxSessions);
+    return _renumberStopSessions(capped);
+  }
+
+  /// Numbered red squares between route start/end (reference playback map).
+  static List<HistoryStopSession> buildStopSessionsForMap(
+    List<HistoryPoint> raw, {
+    Duration minStopDuration = const Duration(minutes: 5),
+    int maxSessions = 250,
+    DateTime? rangeFrom,
+    DateTime? rangeTo,
+  }) {
+    if (raw.length < 2) {
+      return const <HistoryStopSession>[];
+    }
+
+    final List<HistoryPoint> ordered = orderPointsForRoute(raw);
+    final List<HistoryPoint> timed = withInterpolatedTimes(
+      ordered,
+      rangeFrom: rangeFrom,
+      rangeTo: rangeTo,
+    );
+    final List<HistoryStopSession> fromEvents =
+        _stopSessionsFromExplicitEvents(timed, maxSessions);
+    if (fromEvents.length >= 3) {
+      return _capAndRenumber(fromEvents, maxSessions);
+    }
+    final Duration mapMin = minStopDuration < const Duration(minutes: 1)
+        ? minStopDuration
+        : const Duration(minutes: 1);
+
+    List<HistoryStopSession> sessions = buildStopSessions(
+      timed,
+      minStopDuration: mapMin,
+      maxSessions: maxSessions,
+    );
+
+    if (sessions.length < 3) {
+      final List<HistoryStopSession> waypoints = _routeWaypointStopSessions(
+        timed,
+        maxSessions: maxSessions,
+      );
+      if (waypoints.length > sessions.length) {
+        sessions = waypoints;
+      }
+    }
+
+    if (fromEvents.isNotEmpty) {
+      sessions = _mergeStopSessions(fromEvents, sessions, maxSessions);
+    }
+
+    return _capAndRenumber(sessions, maxSessions);
+  }
+
+  /// Park/stop sessions for map markers and info popups.
+  static List<HistoryStopSession> buildStopSessions(
+    List<HistoryPoint> raw, {
+    Duration minStopDuration = const Duration(minutes: 5),
+    int maxSessions = 250,
+  }) {
+    final List<HistoryPoint> points = sortByTime(
+      raw.where((HistoryPoint p) => p.time != null).toList(),
+    );
+    if (points.length < 2) {
+      return const <HistoryStopSession>[];
+    }
+
+    final List<HistoryStopSession> sessions = <HistoryStopSession>[];
+    int index = 0;
+    while (index < points.length) {
+      if (!pointIsStopped(points[index])) {
+        index++;
+        continue;
+      }
+      int end = index + 1;
+      while (end < points.length && pointIsStopped(points[end])) {
+        end++;
+      }
+      final List<HistoryPoint> slice = points.sublist(index, end);
+      final DateTime arrival = slice.first.time!;
+      final DateTime departure = slice.last.time!;
+      final Duration span = departure.difference(arrival);
+      if (!departure.isBefore(arrival) && span >= minStopDuration) {
+        String? address;
+        for (final HistoryPoint p in slice) {
+          final String? a = p.address?.trim();
+          if (a != null && a.isNotEmpty && a != '-') {
+            address = a;
+            break;
+          }
+        }
+        sessions.add(
+          HistoryStopSession(
+            index: 0,
+            arrival: arrival,
+            departure: departure,
+            position: slice.first.position,
+            address: address,
+          ),
+        );
+      }
+      index = end;
+    }
+
+    sessions.sort(
+      (HistoryStopSession a, HistoryStopSession b) =>
+          a.arrival.compareTo(b.arrival),
+    );
+    final List<HistoryStopSession> capped = sessions.length <= maxSessions
+        ? sessions
+        : _sampleStopSessionsEvenly(sessions, maxSessions);
+    return _renumberStopSessions(capped);
+  }
+
+  static List<HistoryStopSession> _renumberStopSessions(
+    List<HistoryStopSession> sessions,
+  ) {
+    final List<HistoryStopSession> out = <HistoryStopSession>[];
+    for (int i = 0; i < sessions.length; i++) {
+      final HistoryStopSession s = sessions[i];
+      out.add(
+        HistoryStopSession(
+          index: i + 1,
+          arrival: s.arrival,
+          departure: s.departure,
+          position: s.position,
+          address: s.address,
+        ),
+      );
+    }
+    return out;
+  }
+
+  /// Keeps stops spread across the whole date range when capping map markers.
+  static List<HistoryStopSession> _sampleStopSessionsEvenly(
+    List<HistoryStopSession> sessions,
+    int max,
+  ) {
+    if (sessions.length <= max) {
+      return sessions;
+    }
+    final List<HistoryStopSession> out = <HistoryStopSession>[];
+    for (int i = 0; i < max; i++) {
+      final int idx =
+          ((i + 0.5) * sessions.length / max).floor().clamp(
+            0,
+            sessions.length - 1,
+          );
+      out.add(sessions[idx]);
+    }
+    return out;
+  }
+
+  static HistoryStopSession? nearestStopSession(
+    LatLng tap,
+    List<HistoryStopSession> sessions, {
+    double maxMeters = 220,
+  }) {
+    HistoryStopSession? best;
+    double bestM = maxMeters;
+    for (final HistoryStopSession session in sessions) {
+      final double m = LiveRouteService.haversineMeters(tap, session.position);
+      if (m <= bestM) {
+        bestM = m;
+        best = session;
+      }
+    }
+    return best;
+  }
+
+  /// Trip / stop cards for history playback list (newest first).
+  static List<HistoryTimelineSegment> buildTimelineSegments(
+    List<HistoryPoint> raw, {
+    Duration minStopDuration = _minStopSegment,
+  }) {
+    final List<HistoryPoint> points = sortByTime(
+      raw.where((HistoryPoint p) => p.time != null).toList(),
+    );
+    if (points.length < 2) {
+      return const <HistoryTimelineSegment>[];
+    }
+
+    final List<HistoryTimelineSegment> segments = <HistoryTimelineSegment>[];
+    int index = 0;
+    while (index < points.length) {
+      final bool stopped = pointIsStopped(points[index]);
+      int end = index + 1;
+      while (end < points.length &&
+          pointIsStopped(points[end]) == stopped) {
+        end++;
+      }
+      final List<HistoryPoint> slice = points.sublist(index, end);
+      final DateTime start = slice.first.time!;
+      final DateTime endTime = slice.last.time!;
+      final Duration span = endTime.difference(start);
+      if (!endTime.isBefore(start)) {
+        if (stopped) {
+          if (span >= minStopDuration) {
+            segments.add(
+              HistoryTimelineSegment(
+                kind: HistoryTimelineKind.stop,
+                start: start,
+                end: endTime,
+              ),
+            );
+          }
+        } else if (span >= _minTripSegment || slice.length >= 3) {
+          double maxSpeed = 0;
+          for (final HistoryPoint p in slice) {
+            final double s = p.speed ?? 0;
+            if (s > maxSpeed) {
+              maxSpeed = s;
+            }
+          }
+          segments.add(
+            HistoryTimelineSegment(
+              kind: HistoryTimelineKind.trip,
+              start: start,
+              end: endTime,
+              distanceKm: totalDistanceKm(slice),
+              maxSpeedKmph: maxSpeed,
+            ),
+          );
+        }
+      }
+      index = end;
+    }
+
+    segments.sort(
+      (HistoryTimelineSegment a, HistoryTimelineSegment b) =>
+          b.start.compareTo(a.start),
+    );
+    return segments;
   }
 
   /// Smooth arrow position + heading between GPS samples ([fraction] = timeline 0..1).

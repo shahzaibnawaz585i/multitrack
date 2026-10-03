@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../constants/api_config.dart';
 import '../models/vehicle_model.dart';
+import 'alert_polling_service.dart';
 import 'alert_service.dart';
 import 'auth_service.dart';
 import 'vehicle_service.dart';
@@ -31,6 +32,7 @@ class AppBootstrapService {
 
     final String server = await AuthService.server();
     if (ApiConfig.usesRemoteApi(server)) {
+      AlertPollingService.instance.start();
       unawaited(AlertService.getEvents(forceRefresh: true));
     }
   }

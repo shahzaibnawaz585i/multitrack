@@ -1,5 +1,5 @@
-import 'dart:io';
-
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -28,7 +28,7 @@ class LocationService {
       return false;
     }
 
-    if (Platform.isAndroid) {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       final PermissionStatus whenInUse = await Permission.location.request();
       if (!whenInUse.isGranted) {
         return false;
@@ -42,7 +42,7 @@ class LocationService {
       return whenInUse.isGranted;
     }
 
-    if (Platform.isIOS) {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
       final PermissionStatus whenInUse =
           await Permission.locationWhenInUse.request();
       if (!whenInUse.isGranted) {

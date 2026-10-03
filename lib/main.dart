@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
@@ -17,12 +19,19 @@ import 'theme/app_themes.dart';
 import 'theme/fast_page_transitions.dart';
 import 'widgets/aurora_backdrop.dart';
 import 'widgets/screen_hack_overlay.dart';
+import 'screens/notifications_screen.dart';
+import 'services/alert_polling_service.dart';
+import 'services/app_lifecycle_gate.dart';
+import 'services/local_notification_service.dart';
+import 'navigation/root_navigator.dart';
+import 'widgets/global_live_alert_overlay.dart';
 
 AppThemeController? appThemeController;
 
 Future<void> main() async {
   runZonedGuarded(() async {
-    WidgetsFlutterBinding.ensureInitialized();
+    final WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+    FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
     ErrorWidget.builder = (FlutterErrorDetails details) {
       return Material(
@@ -50,9 +59,10 @@ Future<void> main() async {
       return true;
     };
 
+    AppLifecycleGate.instance.ensureBound();
     GestureBinding.instance.resamplingEnabled = true;
-    PaintingBinding.instance.imageCache.maximumSize = 300;
-    PaintingBinding.instance.imageCache.maximumSizeBytes = 120 << 20;
+    PaintingBinding.instance.imageCache.maximumSize = 200;
+    PaintingBinding.instance.imageCache.maximumSizeBytes = 80 << 20;
 
     final AppThemeController themeController = AppThemeController();
     final AppLocaleController localeController = AppLocaleController();
@@ -70,13 +80,6 @@ Future<void> main() async {
       final bool isLoggedIn = await AuthService.isLoggedIn();
       if (isLoggedIn) {
         await VehicleService.restorePersistedFleet();
-        unawaited(VehicleService.getDevices(forceRefresh: false));
-        unawaited(
-          Future<void>.delayed(
-            const Duration(milliseconds: 400),
-            () => VehicleService.getDevices(forceRefresh: true),
-          ),
-        );
       }
     } catch (error, stackTrace) {
       debugPrint('Startup init error: $error');
@@ -101,9 +104,90 @@ Future<void> main() async {
         ),
       ),
     );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!kIsWeb) {
+        unawaited(
+          LocalNotificationService.initialize(
+            onNotificationTap: (_) {
+              rootNavigatorKey.currentState?.push<void>(
+                MaterialPageRoute<void>(
+                  builder: (_) => const NotificationsScreen(),
+                ),
+              );
+            },
+          ).then((_) => LocalNotificationService.warmUpPermissions()),
+        );
+      }
+      AuthService.isLoggedIn().then((bool loggedIn) {
+        if (loggedIn) {
+          AlertPollingService.instance.start();
+        }
+      });
+    });
   }, (Object error, StackTrace stack) {
     debugPrint('Uncaught zone error: $error\n$stack');
   });
+}
+
+class _AppRootWithAlertBanner extends StatelessWidget {
+  const _AppRootWithAlertBanner({
+    required this.isHacking,
+    required this.isAurora,
+    required this.child,
+  });
+
+  final bool isHacking;
+  final bool isAurora;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget content = child;
+
+    if (isHacking) {
+      content = AppThemes.wrapHackingContent(
+        background: const Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            ColoredBox(color: AppThemes.hackBackground),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ScreenHackOverlay(
+                  child: SizedBox.shrink(),
+                ),
+              ),
+            ),
+          ],
+        ),
+        child: content,
+      );
+    } else if (isAurora) {
+      content = Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          const IgnorePointer(child: AuroraBackdrop()),
+          content,
+        ],
+      );
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        content,
+        const Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: SafeArea(
+            bottom: false,
+            child: GlobalLiveAlertOverlay(),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class MultiTrackApp extends StatelessWidget {
@@ -135,6 +219,7 @@ class MultiTrackApp extends StatelessWidget {
       ),
       builder: (BuildContext context, Widget? child) {
         return MaterialApp(
+          navigatorKey: rootNavigatorKey,
           title: 'MultiTrack',
           debugShowCheckedModeBanner: false,
           locale: localeController.materialLocale,
@@ -163,38 +248,11 @@ class MultiTrackApp extends StatelessWidget {
             ),
           ),
           builder: (BuildContext context, Widget? child) {
-            final Widget navigator = child ?? const SizedBox.shrink();
-
-            if (themeController.isHacking) {
-              return AppThemes.wrapHackingContent(
-                background: const Stack(
-                  fit: StackFit.expand,
-                  children: <Widget>[
-                    ColoredBox(color: AppThemes.hackBackground),
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: ScreenHackOverlay(
-                          child: SizedBox.shrink(),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                child: navigator,
-              );
-            }
-
-            if (themeController.mode == AppThemeMode.aurora) {
-              return Stack(
-                fit: StackFit.expand,
-                children: <Widget>[
-                  const IgnorePointer(child: AuroraBackdrop()),
-                  navigator,
-                ],
-              );
-            }
-
-            return navigator;
+            return _AppRootWithAlertBanner(
+              isHacking: themeController.isHacking,
+              isAurora: themeController.mode == AppThemeMode.aurora,
+              child: child ?? const SizedBox.shrink(),
+            );
           },
           home: home,
         );

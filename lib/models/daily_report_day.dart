@@ -1,3 +1,5 @@
+import 'package:intl/intl.dart';
+
 import '../utils/report_response_parser.dart';
 
 class DailyReportDay {
@@ -79,7 +81,7 @@ class DailyReportDay {
     String formatSpeed(String raw, {required String prefix}) {
       final String trimmed = raw.trim();
       if (trimmed.isEmpty || trimmed == '-') {
-        return '$prefix -';
+        return '$prefix 0.00 kmph';
       }
       if (trimmed.toLowerCase().contains('km')) {
         return '$prefix ${trimmed.replaceAll(RegExp(r'^(avg\.?|max\.?)\s*', caseSensitive: false), '').trim()}';
@@ -91,6 +93,63 @@ class DailyReportDay {
       return '$prefix ${n.toStringAsFixed(2)} kmph';
     }
 
+    String formatTimeLabel(String raw) {
+      final String trimmed = raw.trim();
+      if (trimmed.isEmpty || trimmed == '-') {
+        return '-';
+      }
+      final List<String> patterns = <String>[
+        'yyyy-MM-dd HH:mm:ss',
+        'dd-MM-yyyy HH:mm:ss',
+        'yyyy-MM-dd HH:mm',
+        'dd MMM yyyy hh:mm a',
+        'MMM dd yyyy hh:mm a',
+      ];
+      for (final String pattern in patterns) {
+        try {
+          final DateTime parsed = DateFormat(pattern).parse(trimmed);
+          return DateFormat('dd MMM yyyy hh:mm a').format(parsed);
+        } catch (_) {}
+      }
+      final DateTime? iso = DateTime.tryParse(trimmed.replaceAll('/', '-'));
+      if (iso != null) {
+        return DateFormat('dd MMM yyyy hh:mm a').format(iso);
+      }
+      return trimmed;
+    }
+
+    String formatDuration(String raw) {
+      final String trimmed = raw.trim();
+      if (trimmed.isEmpty || trimmed == '-') {
+        return '-';
+      }
+      if (RegExp(r'^\d{1,2}:\d{2}(:\d{2})?$').hasMatch(trimmed)) {
+        final List<String> parts = trimmed.split(':');
+        if (parts.length == 2) {
+          return '${parts[0].padLeft(2, '0')}:${parts[1].padLeft(2, '0')}:00';
+        }
+        return '${parts[0].padLeft(2, '0')}:${parts[1].padLeft(2, '0')}:${parts[2].padLeft(2, '0')}';
+      }
+      return trimmed;
+    }
+
+    String formatOdometer(String raw) {
+      final String trimmed = raw.trim();
+      if (trimmed.isEmpty || trimmed == '-') {
+        return '-';
+      }
+      final String digits = trimmed.replaceAll(RegExp(r'[^\d]'), '');
+      if (digits.isEmpty) {
+        return trimmed;
+      }
+      return digits.padLeft(9, '0');
+    }
+
+    final String resolvedVehicleName = pick(
+      <String>['device_name', 'vehicle_name', 'vehicle', 'name'],
+      fallback: vehicleName,
+    );
+
     final String distanceRaw = pickOrDeep(
       <String>[
         'distance',
@@ -100,42 +159,64 @@ class DailyReportDay {
         'distance_km',
         'total_km',
         'route_km',
+        'mileage',
+        'route',
+        'km',
+        'total',
       ],
     );
 
     return DailyReportDay(
       dayDate: dayDate,
-      vehicleName: vehicleName,
+      vehicleName: resolvedVehicleName,
       distanceLabel: formatDistance(distanceRaw),
-      startTimeLabel: pick(
-        <String>['start_time', 'time_from', 'date_from', 'from_time', 'start'],
+      startTimeLabel: formatTimeLabel(
+        pick(
+          <String>[
+            'start_time',
+            'time_from',
+            'date_from',
+            'from_time',
+            'start',
+          ],
+        ),
       ),
-      endTimeLabel: pick(
-        <String>['end_time', 'time_to', 'date_to', 'to_time', 'end'],
+      endTimeLabel: formatTimeLabel(
+        pick(
+          <String>['end_time', 'time_to', 'date_to', 'to_time', 'end'],
+        ),
       ),
-      engineHours: pickOrDeep(
-        <String>[
-          'engine_hours',
-          'engine_hour',
-          'work_time',
-          'duration',
-          'engine_work',
-        ],
+      engineHours: formatDuration(
+        pickOrDeep(
+          <String>[
+            'engine_hours',
+            'engine_hour',
+            'work_time',
+            'duration',
+            'engine_work',
+          ],
+        ),
       ),
-      runningTime: pickOrDeep(
-        <String>[
-          'running',
-          'run_time',
-          'drive_duration',
-          'moving_duration',
-          'move_duration',
-        ],
+      runningTime: formatDuration(
+        pickOrDeep(
+          <String>[
+            'running',
+            'run_time',
+            'drive_duration',
+            'moving_duration',
+            'move_duration',
+          ],
+        ),
       ),
-      stopTime: pick(
-        <String>['stop', 'stop_time', 'stop_duration', 'stops_duration'],
+      stopTime: formatDuration(
+        pick(
+          <String>['stop', 'stop_time', 'stop_duration', 'stops_duration'],
+        ),
       ),
-      idleTime: pick(
-        <String>['idle', 'idle_time', 'idle_duration'],
+      idleTime: formatDuration(
+        pick(
+          <String>['idle', 'idle_time', 'idle_duration'],
+        ),
       ),
       startLocation: pick(
         <String>[
@@ -157,11 +238,15 @@ class DailyReportDay {
         ],
         fallback: fallbackLocation,
       ),
-      startOdometer: pick(
-        <String>['start_odometer', 'odometer_start', 'odo_start'],
+      startOdometer: formatOdometer(
+        pick(
+          <String>['start_odometer', 'odometer_start', 'odo_start'],
+        ),
       ),
-      endOdometer: pick(
-        <String>['end_odometer', 'odometer_end', 'odo_end'],
+      endOdometer: formatOdometer(
+        pick(
+          <String>['end_odometer', 'odometer_end', 'odo_end'],
+        ),
       ),
       avgSpeedLabel: formatSpeed(
         pick(<String>['average_speed', 'avg_speed', 'speed_avg']),
@@ -175,10 +260,36 @@ class DailyReportDay {
   }
 
   bool get hasMeaningfulData {
-    return distanceLabel != '-' ||
-        engineHours != '-' ||
-        runningTime != '-' ||
-        startTimeLabel != '-' ||
-        endTimeLabel != '-';
+    if (_numericKm(distanceLabel) > 0) {
+      return true;
+    }
+    if (_durationPositive(engineHours) || _durationPositive(runningTime)) {
+      return true;
+    }
+    return startTimeLabel != '-' || endTimeLabel != '-';
+  }
+
+  static double _numericKm(String label) {
+    final String s = label.trim().toLowerCase();
+    if (s.isEmpty || s == '-') {
+      return 0;
+    }
+    final RegExp reg = RegExp(r'([0-9]+(?:\.[0-9]+)?)');
+    final Match? m = reg.firstMatch(s);
+    if (m == null) {
+      return 0;
+    }
+    return double.tryParse(m.group(1) ?? '') ?? 0;
+  }
+
+  static bool _durationPositive(String value) {
+    final String s = value.trim();
+    if (s.isEmpty || s == '-') {
+      return false;
+    }
+    if (RegExp(r'[1-9]').hasMatch(s)) {
+      return true;
+    }
+    return false;
   }
 }

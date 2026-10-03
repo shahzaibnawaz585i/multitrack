@@ -108,6 +108,585 @@ class OverSpeedReportCard extends StatelessWidget {
   }
 }
 
+class IgnitionReportCard extends StatelessWidget {
+  const IgnitionReportCard({
+    super.key,
+    required this.vehicleName,
+    required this.timeLabel,
+    required this.statusLabel,
+    required this.isOn,
+    required this.address,
+    required this.onTap,
+  });
+
+  final String vehicleName;
+  final String timeLabel;
+  final String statusLabel;
+  final bool isOn;
+  final String address;
+  final VoidCallback onTap;
+
+  static const Color _accent = Color(0xFFF53D6B);
+
+  @override
+  Widget build(BuildContext context) {
+    final Color statusColor =
+        isOn ? const Color(0xFF43A047) : _accent;
+
+    return Material(
+      color: Theme.of(context).cardColor,
+      borderRadius: BorderRadius.circular(14),
+      elevation: 2,
+      shadowColor: Colors.black.withValues(alpha: 0.08),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Icon(Icons.directions_car, color: _accent, size: 22),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      vehicleName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        color: Color(0xFF292B32),
+                      ),
+                    ),
+                  ),
+                  Column(
+                    children: <Widget>[
+                      Icon(Icons.power_settings_new, color: statusColor, size: 32),
+                      const SizedBox(height: 4),
+                      Text(
+                        context.tr(statusLabel),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: statusColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: <Widget>[
+                  const Icon(Icons.access_time, color: _accent, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      timeLabel,
+                      style: TextStyle(
+                        color: Colors.grey.shade800,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Icon(Icons.location_on, color: _accent, size: 18),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      address,
+                      style: TextStyle(
+                        color: Colors.grey.shade800,
+                        fontSize: 12,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class TripReportCard extends StatelessWidget {
+  const TripReportCard({
+    super.key,
+    required this.vehicleName,
+    required this.durationLabel,
+    required this.distanceLabel,
+    required this.startTimeLabel,
+    required this.endTimeLabel,
+    required this.startLocation,
+    required this.endLocation,
+    required this.onTap,
+  });
+
+  final String vehicleName;
+  final String durationLabel;
+  final String distanceLabel;
+  final String startTimeLabel;
+  final String endTimeLabel;
+  final String startLocation;
+  final String endLocation;
+  final VoidCallback onTap;
+
+  static const Color _accent = Color(0xFFF53D6B);
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Theme.of(context).cardColor,
+      borderRadius: BorderRadius.circular(14),
+      elevation: 2,
+      shadowColor: Colors.black.withValues(alpha: 0.08),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  const Icon(Icons.directions_car, color: _accent, size: 22),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      vehicleName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        color: Color(0xFF292B32),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      '${context.tr('Duration')}: $durationLabel',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: Color(0xFF292B32),
+                      ),
+                    ),
+                  ),
+                  const Icon(Icons.alt_route, color: Colors.blueAccent, size: 20),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${context.tr('Distance')}: $distanceLabel',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: Color(0xFF292B32),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Icon(Icons.access_time, color: Colors.green, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      startTimeLabel,
+                      style: TextStyle(
+                        color: Colors.grey.shade800,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Icon(Icons.circle, color: Colors.green, size: 10),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      startLocation,
+                      style: TextStyle(
+                        color: Colors.grey.shade800,
+                        fontSize: 12,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Icon(Icons.access_time, color: _accent, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      endTimeLabel,
+                      style: TextStyle(
+                        color: Colors.grey.shade800,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Icon(Icons.circle, color: _accent, size: 10),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      endLocation,
+                      style: TextStyle(
+                        color: Colors.grey.shade800,
+                        fontSize: 12,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class StoppageReportCard extends StatelessWidget {
+  const StoppageReportCard({
+    super.key,
+    required this.vehicleName,
+    required this.startTimeLabel,
+    required this.endTimeLabel,
+    required this.durationLabel,
+    required this.address,
+    required this.onTap,
+  });
+
+  final String vehicleName;
+  final String startTimeLabel;
+  final String endTimeLabel;
+  final String durationLabel;
+  final String address;
+  final VoidCallback onTap;
+
+  static const Color _accent = Color(0xFFF53D6B);
+  static const Color _startClock = Color(0xFF2E7D32);
+  static const Color _bodyText = Color(0xFF292B32);
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      elevation: 2,
+      shadowColor: Colors.black.withValues(alpha: 0.10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Icon(Icons.directions_car, color: _accent, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      vehicleName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                        color: _bodyText,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      '${context.tr('Duration')} : $durationLabel',
+                      maxLines: 2,
+                      textAlign: TextAlign.end,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                        color: _bodyText,
+                        height: 1.25,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        const Icon(
+                          Icons.access_time,
+                          color: _startClock,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            startTimeLabel,
+                            style: const TextStyle(
+                              color: _bodyText,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              height: 1.3,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        const Icon(Icons.access_time, color: _accent, size: 16),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            endTimeLabel,
+                            style: const TextStyle(
+                              color: _bodyText,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              height: 1.3,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Icon(Icons.location_on, color: _accent, size: 18),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      address,
+                      style: const TextStyle(
+                        color: _bodyText,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w400,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class GeofenceReportCard extends StatelessWidget {
+  const GeofenceReportCard({
+    super.key,
+    required this.vehicleName,
+    required this.timeLabel,
+    required this.statusLabel,
+    required this.isEnter,
+    required this.address,
+    required this.onTap,
+  });
+
+  final String vehicleName;
+  final String timeLabel;
+  final String statusLabel;
+  final bool isEnter;
+  final String address;
+  final VoidCallback onTap;
+
+  static const Color _accent = Color(0xFFF53D6B);
+
+  @override
+  Widget build(BuildContext context) {
+    final Color statusColor =
+        isEnter ? const Color(0xFF43A047) : _accent;
+
+    return Material(
+      color: Theme.of(context).cardColor,
+      borderRadius: BorderRadius.circular(14),
+      elevation: 2,
+      shadowColor: Colors.black.withValues(alpha: 0.08),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Icon(Icons.directions_car, color: _accent, size: 22),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      vehicleName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        color: Color(0xFF292B32),
+                      ),
+                    ),
+                  ),
+                  Column(
+                    children: <Widget>[
+                      _GeofencePentagonIcon(color: statusColor, size: 34),
+                      const SizedBox(height: 4),
+                      Text(
+                        context.tr(statusLabel),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: statusColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: <Widget>[
+                  const Icon(Icons.access_time, color: _accent, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      timeLabel,
+                      style: TextStyle(
+                        color: Colors.grey.shade800,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Icon(Icons.location_on, color: _accent, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      address,
+                      style: TextStyle(
+                        color: Colors.grey.shade700,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GeofencePentagonIcon extends StatelessWidget {
+  const _GeofencePentagonIcon({
+    required this.color,
+    required this.size,
+  });
+
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(
+        painter: _GeofencePentagonPainter(color: color),
+      ),
+    );
+  }
+}
+
+class _GeofencePentagonPainter extends CustomPainter {
+  _GeofencePentagonPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Path path = Path();
+    final double w = size.width;
+    final double h = size.height;
+    path.moveTo(w * 0.5, h * 0.05);
+    path.lineTo(w * 0.95, h * 0.38);
+    path.lineTo(w * 0.78, h * 0.95);
+    path.lineTo(w * 0.22, h * 0.95);
+    path.lineTo(w * 0.05, h * 0.38);
+    path.close();
+    final Paint stroke = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2;
+    canvas.drawPath(path, stroke);
+  }
+
+  @override
+  bool shouldRepaint(covariant _GeofencePentagonPainter oldDelegate) {
+    return oldDelegate.color != color;
+  }
+}
+
 class ReportTimelineEvent extends StatelessWidget {
   final String time;
   final String duration;
@@ -662,17 +1241,30 @@ class DailyReportCard extends StatelessWidget {
                   Expanded(
                     child: _MetricCol(
                       label: 'Engine hours',
+                      labelColor: const Color(0xFFE53935),
                       value: report.engineHours,
                     ),
                   ),
                   Expanded(
-                    child: _MetricCol(label: 'Running', value: report.runningTime),
+                    child: _MetricCol(
+                      label: 'Running',
+                      labelColor: const Color(0xFF43A047),
+                      value: report.runningTime,
+                    ),
                   ),
                   Expanded(
-                    child: _MetricCol(label: 'Stop', value: report.stopTime),
+                    child: _MetricCol(
+                      label: 'Stop',
+                      labelColor: _accent,
+                      value: report.stopTime,
+                    ),
                   ),
                   Expanded(
-                    child: _MetricCol(label: 'Idle', value: report.idleTime),
+                    child: _MetricCol(
+                      label: 'Idle',
+                      labelColor: const Color(0xFFF9A825),
+                      value: report.idleTime,
+                    ),
                   ),
                 ],
               ),
@@ -839,26 +1431,41 @@ class SummaryReportCard extends StatelessWidget {
 }
 
 class _MetricCol extends StatelessWidget {
+  const _MetricCol({
+    required this.label,
+    required this.value,
+    this.labelColor,
+  });
+
   final String label;
   final String value;
-
-  const _MetricCol({required this.label, required this.value});
+  final Color? labelColor;
 
   @override
   Widget build(BuildContext context) {
     return Column(
-      children: [
+      children: <Widget>[
         Text(
           context.tr(label),
-          style: const TextStyle(
-            color: Colors.grey,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: labelColor ?? Colors.grey,
             fontSize: 11,
-            fontWeight: FontWeight.w500,
+            fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: 6),
+        Container(
+          margin: const EdgeInsets.symmetric(vertical: 6),
+          height: 1,
+          color: Colors.black12,
+        ),
         Text(
           value,
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 13,
@@ -884,9 +1491,9 @@ class _BottomStat extends StatelessWidget {
         const SizedBox(width: 6),
         Text(
           label,
-          style: TextStyle(
-            color: Colors.grey.shade800,
-            fontWeight: FontWeight.w600,
+          style: const TextStyle(
+            color: Color(0xFF292B32),
+            fontWeight: FontWeight.w700,
             fontSize: 13,
           ),
         ),

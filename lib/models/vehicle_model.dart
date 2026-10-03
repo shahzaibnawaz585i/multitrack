@@ -41,6 +41,9 @@ class VehicleModel {
   final String fuelMileage;
   final String fuelConsumption;
   final String fuelCost;
+  final String fuelPricePerLiter;
+  final String speedLimitKmph;
+  final String engineWorkCost;
   final String avgSpeed;
   final String maxSpeed;
 
@@ -53,6 +56,12 @@ class VehicleModel {
   final String accuracy;
   final String temperature;
   final String movement;
+  final String mapIcon;
+  final String driverPhone;
+  final int? driverId;
+  final String engineNumber;
+  final int? groupId;
+  final String groupName;
 
   const VehicleModel({
     this.id,
@@ -76,9 +85,12 @@ class VehicleModel {
     this.stopDuration = '00:00:00 Hrs',
     this.idleDuration = '00:00:00 Hrs',
     this.inactiveDuration = '00:00:00 Hrs',
-    this.fuelMileage = '10 km/ltr',
+    this.fuelMileage = 'N/A',
     this.fuelConsumption = '0.00 ltr',
     this.fuelCost = '0.00',
+    this.fuelPricePerLiter = '',
+    this.speedLimitKmph = '',
+    this.engineWorkCost = '',
     this.avgSpeed = '0',
     this.maxSpeed = '0',
     this.devBattery = '0%',
@@ -89,6 +101,12 @@ class VehicleModel {
     this.accuracy = 'N/A',
     this.temperature = 'N/A',
     this.movement = 'false',
+    this.mapIcon = '',
+    this.driverPhone = '',
+    this.driverId,
+    this.engineNumber = '',
+    this.groupId,
+    this.groupName = '',
   });
 
   VehicleModel copyWith({
@@ -116,6 +134,9 @@ class VehicleModel {
     String? fuelMileage,
     String? fuelConsumption,
     String? fuelCost,
+    String? fuelPricePerLiter,
+    String? speedLimitKmph,
+    String? engineWorkCost,
     String? avgSpeed,
     String? maxSpeed,
     String? devBattery,
@@ -126,6 +147,12 @@ class VehicleModel {
     String? accuracy,
     String? temperature,
     String? movement,
+    String? mapIcon,
+    String? driverPhone,
+    int? driverId,
+    String? engineNumber,
+    int? groupId,
+    String? groupName,
   }) {
     return VehicleModel(
       id: id ?? this.id,
@@ -152,6 +179,9 @@ class VehicleModel {
       fuelMileage: fuelMileage ?? this.fuelMileage,
       fuelConsumption: fuelConsumption ?? this.fuelConsumption,
       fuelCost: fuelCost ?? this.fuelCost,
+      fuelPricePerLiter: fuelPricePerLiter ?? this.fuelPricePerLiter,
+      speedLimitKmph: speedLimitKmph ?? this.speedLimitKmph,
+      engineWorkCost: engineWorkCost ?? this.engineWorkCost,
       avgSpeed: avgSpeed ?? this.avgSpeed,
       maxSpeed: maxSpeed ?? this.maxSpeed,
       devBattery: devBattery ?? this.devBattery,
@@ -162,6 +192,12 @@ class VehicleModel {
       accuracy: accuracy ?? this.accuracy,
       temperature: temperature ?? this.temperature,
       movement: movement ?? this.movement,
+      mapIcon: mapIcon ?? this.mapIcon,
+      driverPhone: driverPhone ?? this.driverPhone,
+      driverId: driverId ?? this.driverId,
+      engineNumber: engineNumber ?? this.engineNumber,
+      groupId: groupId ?? this.groupId,
+      groupName: groupName ?? this.groupName,
     );
   }
 
@@ -243,6 +279,12 @@ class VehicleModel {
     final String? validity = _resolveValidityText(json, deviceData);
 
     final int? id = int.tryParse((json['id'] ?? deviceData['id'] ?? '').toString());
+    final String mapIcon = _resolveMapIcon(json, deviceData);
+    final ({String phone, int? driverId}) driverInfo =
+        _resolveDriverInfo(json, deviceData);
+    final String engineNumber = _resolveEngineNumber(json, deviceData);
+    final ({int? id, String name}) groupInfo =
+        _resolveGroupInfo(json, deviceData);
 
     // ─── Real-time Statistics Parsing ───
     final String deviceTime = _resolveDeviceTime(json, deviceData, liveTime);
@@ -256,6 +298,10 @@ class VehicleModel {
     final String fuelMileage = _resolveFuelMileage(json, deviceData);
     final String fuelConsumption = _resolveFuelConsumption(json, deviceData);
     final String fuelCost = _resolveFuelCost(json, deviceData, fuelConsumption);
+    final String fuelPricePerLiter =
+        _resolveFuelPricePerLiter(json, deviceData);
+    final String speedLimitKmph = _resolveSpeedLimitKmph(json, deviceData);
+    final String engineWorkCost = _resolveEngineWorkCost(json, deviceData);
     
     final String avgSpeed = _resolveAvgSpeed(json, deviceData, rawSpeedDouble, tail);
     final String maxSpeed = _resolveMaxSpeed(json, deviceData, rawSpeedDouble, tail);
@@ -301,6 +347,9 @@ class VehicleModel {
       fuelMileage: fuelMileage,
       fuelConsumption: fuelConsumption,
       fuelCost: fuelCost,
+      fuelPricePerLiter: fuelPricePerLiter,
+      speedLimitKmph: speedLimitKmph,
+      engineWorkCost: engineWorkCost,
       avgSpeed: avgSpeed,
       maxSpeed: maxSpeed,
       devBattery: devBattery,
@@ -311,7 +360,141 @@ class VehicleModel {
       accuracy: accuracy,
       temperature: temperature,
       movement: movement,
+      mapIcon: mapIcon,
+      driverPhone: driverInfo.phone,
+      driverId: driverInfo.driverId,
+      engineNumber: engineNumber,
+      groupId: groupInfo.id,
+      groupName: groupInfo.name,
     );
+  }
+
+  static String _resolveEngineNumber(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+  ) {
+    final dynamic raw = json['engine_number'] ??
+        deviceData['engine_number'] ??
+        json['engine_no'] ??
+        deviceData['engine_no'] ??
+        json['object_engine'] ??
+        deviceData['object_engine'] ??
+        json['engine_num'] ??
+        deviceData['engine_num'];
+    return raw?.toString().trim() ?? '';
+  }
+
+  static ({int? id, String name}) _resolveGroupInfo(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+  ) {
+    int? groupId = int.tryParse(
+      (json['group_id'] ??
+              deviceData['group_id'] ??
+              json['p_group_id'] ??
+              deviceData['p_group_id'] ??
+              '')
+          .toString(),
+    );
+
+    String groupName = (json['group_name'] ??
+            deviceData['group_name'] ??
+            json['group_title'] ??
+            deviceData['group_title'] ??
+            '')
+        .toString()
+        .trim();
+
+    final dynamic groupNode = json['group'] ?? deviceData['group'];
+    if (groupNode is Map) {
+      final Map<String, dynamic> g = groupNode.map(
+        (Object? k, Object? v) => MapEntry(k.toString(), v),
+      );
+      groupId ??= int.tryParse((g['id'] ?? g['group_id'] ?? '').toString());
+      if (groupName.isEmpty) {
+        groupName = (g['title'] ?? g['name'] ?? '').toString().trim();
+      }
+    }
+
+    final dynamic groupsList = json['groups'] ?? deviceData['groups'];
+    if (groupId == null && groupsList is List && groupsList.isNotEmpty) {
+      final dynamic first = groupsList.first;
+      if (first is int) {
+        groupId = first;
+      } else if (first is Map) {
+        groupId = int.tryParse((first['id'] ?? first['group_id'] ?? '').toString());
+        if (groupName.isEmpty) {
+          groupName = (first['title'] ?? first['name'] ?? '').toString().trim();
+        }
+      } else {
+        groupId = int.tryParse(first.toString());
+      }
+    }
+
+    return (id: groupId, name: groupName);
+  }
+
+  static ({String phone, int? driverId}) _resolveDriverInfo(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+  ) {
+    int? driverId = int.tryParse(
+      (json['driver_id'] ?? deviceData['driver_id'] ?? '').toString(),
+    );
+
+    String phone = (json['driver_phone'] ??
+            deviceData['driver_phone'] ??
+            json['driver_mobile'] ??
+            deviceData['driver_mobile'] ??
+            '')
+        .toString()
+        .trim();
+
+    final dynamic driverNode =
+        json['driver'] ?? deviceData['driver'] ?? json['current_driver'];
+    if (driverNode is Map) {
+      final Map<String, dynamic> driverMap = driverNode.map(
+        (Object? k, Object? v) => MapEntry(k.toString(), v),
+      );
+      if (phone.isEmpty) {
+        phone = (driverMap['phone'] ??
+                driverMap['mobile'] ??
+                driverMap['phone_number'] ??
+                '')
+            .toString()
+            .trim();
+      }
+      driverId ??= int.tryParse('${driverMap['id']}');
+    }
+
+    final dynamic driversList = json['drivers'] ?? deviceData['drivers'];
+    if (phone.isEmpty && driversList is List && driversList.isNotEmpty) {
+      final dynamic first = driversList.first;
+      if (first is Map) {
+        final Map<String, dynamic> dm = first.map(
+          (Object? k, Object? v) => MapEntry(k.toString(), v),
+        );
+        phone = (dm['phone'] ?? dm['mobile'] ?? dm['phone_number'] ?? '')
+            .toString()
+            .trim();
+        driverId ??= int.tryParse('${dm['id']}');
+      }
+    }
+
+    return (phone: phone, driverId: driverId);
+  }
+
+  static String _resolveMapIcon(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+  ) {
+    final dynamic raw = json['icon'] ??
+        json['icon_type'] ??
+        json['device_icon'] ??
+        deviceData['icon'] ??
+        deviceData['icon_type'] ??
+        deviceData['device_icon'];
+    return raw?.toString().trim().toLowerCase() ?? '';
   }
 
   static String _resolveDeviceTime(
@@ -508,7 +691,59 @@ class VehicleModel {
         }
       }
     }
-    return '10 km/ltr';
+    return 'N/A';
+  }
+
+  static String _resolveFuelPricePerLiter(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+  ) {
+    final dynamic val = json['fuel_price'] ??
+        deviceData['fuel_price'] ??
+        json['fuel_cost_per_liter'] ??
+        deviceData['fuel_cost_per_liter'] ??
+        json['cost_per_liter'] ??
+        deviceData['cost_per_liter'];
+    if (val != null && val.toString().trim().isNotEmpty) {
+      return val.toString().trim();
+    }
+    return '';
+  }
+
+  static String _resolveEngineWorkCost(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+  ) {
+    final dynamic val = json['engine_work_cost'] ??
+        deviceData['engine_work_cost'] ??
+        json['engine_work'] ??
+        deviceData['engine_work'] ??
+        json['engine_cost'] ??
+        deviceData['engine_cost'];
+    if (val != null && val.toString().trim().isNotEmpty) {
+      return val.toString().trim();
+    }
+    return '';
+  }
+
+  static String _resolveSpeedLimitKmph(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+  ) {
+    final dynamic val = json['speed_limit'] ??
+        deviceData['speed_limit'] ??
+        json['overspeed'] ??
+        deviceData['overspeed'] ??
+        json['overspeed_limit'] ??
+        deviceData['overspeed_limit'] ??
+        json['max_speed_limit'] ??
+        deviceData['max_speed_limit'] ??
+        json['alert_speed'] ??
+        deviceData['alert_speed'];
+    if (val != null && val.toString().trim().isNotEmpty) {
+      return val.toString().trim();
+    }
+    return '';
   }
 
   static String _resolveFuelConsumption(
@@ -656,6 +891,81 @@ class VehicleModel {
     String accuracy = 'N/A';
     String temperature = 'N/A';
     String movement = currentSpeed > 0 || status.toLowerCase() == 'running' ? 'true' : 'false';
+
+    void applyTopLevel(String key, void Function(String value) apply) {
+      final dynamic raw = json[key] ?? deviceData[key];
+      if (raw == null) {
+        return;
+      }
+      final String str = raw.toString().trim();
+      if (str.isEmpty || str == '-' || str.toLowerCase() == 'null') {
+        return;
+      }
+      apply(str);
+    }
+
+    applyTopLevel('satellites', (String v) => satellites = v);
+    applyTopLevel('sat', (String v) => satellites = v);
+    applyTopLevel('battery', (String v) {
+      devBattery = v.contains('%') ? v : '$v%';
+    });
+    applyTopLevel('battery_level', (String v) {
+      devBattery = v.contains('%') ? v : '$v%';
+    });
+    applyTopLevel('engine_hours', (String v) => engineHours = v);
+    applyTopLevel('power', (String v) {
+      carBattery = v.contains('V') ? v : '$v V';
+    });
+    applyTopLevel('fuel', (String v) => fuelLevel = v);
+    applyTopLevel('fuel_level', (String v) => fuelLevel = v);
+    applyTopLevel('temperature', (String v) {
+      temperature = v.contains('°') ? v : '$v °C';
+    });
+    applyTopLevel('temp', (String v) {
+      temperature = v.contains('°') ? v : '$v °C';
+    });
+    applyTopLevel('accuracy', (String v) => accuracy = v);
+    applyTopLevel('hdop', (String v) {
+      accuracy = v.contains('m') ? v : '$v m';
+    });
+
+    final dynamic parameters =
+        json['parameters'] ?? deviceData['parameters'] ?? json['params'];
+    if (parameters is Map) {
+      final Map<String, dynamic> params = parameters.map(
+        (Object? k, Object? v) => MapEntry(k.toString().toLowerCase(), v),
+      );
+      void fromParam(String key, void Function(String value) apply) {
+        final dynamic raw = params[key];
+        if (raw == null) {
+          return;
+        }
+        final String str = raw.toString().trim();
+        if (str.isNotEmpty) {
+          apply(str);
+        }
+      }
+
+      fromParam('sat', (String v) => satellites = v);
+      fromParam('satellites', (String v) => satellites = v);
+      fromParam('battery', (String v) {
+        devBattery = v.contains('%') ? v : '$v%';
+      });
+      fromParam('enginehours', (String v) => engineHours = v);
+      fromParam('engine_hours', (String v) => engineHours = v);
+      fromParam('power', (String v) {
+        carBattery = v.contains('V') ? v : '$v V';
+      });
+      fromParam('fuel', (String v) => fuelLevel = v);
+      fromParam('temp', (String v) {
+        temperature = v.contains('°') ? v : '$v °C';
+      });
+      fromParam('hdop', (String v) {
+        accuracy = v.contains('m') ? v : '$v m';
+      });
+      fromParam('motion', (String v) => movement = v);
+      fromParam('movement', (String v) => movement = v);
+    }
 
     // 1. Direct deviceData / other_arr check
     final dynamic other = json['other_arr'] ?? deviceData['other_arr'] ?? json['other'] ?? deviceData['other'];
@@ -898,7 +1208,7 @@ class VehicleModel {
       }
     }
 
-    // 2. Check if already cached in ReverseGeocodingService
+    // 2. Cached geocode or coordinate fallback (never leave map empty while resolving).
     if (lat != null && lng != null && (lat != 0.0 || lng != 0.0)) {
       final String? cached = ReverseGeocodingService.getCached(lat, lng);
       if (cached != null &&
@@ -906,6 +1216,7 @@ class VehicleModel {
           cached != 'Location not available') {
         return cached;
       }
+      return '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
     }
 
     return 'Location not available';

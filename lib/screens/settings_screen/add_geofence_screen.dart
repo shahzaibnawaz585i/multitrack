@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../l10n/app_l10n.dart';
 import '../../theme/app_theme_tokens.dart';
@@ -6,7 +7,12 @@ import '../../theme/app_theme_tokens.dart';
 import 'select_geofence_location_screen.dart';
 
 class AddGeofenceScreen extends StatefulWidget {
-  const AddGeofenceScreen({super.key});
+  const AddGeofenceScreen({
+    super.key,
+    this.initialMapCenter,
+  });
+
+  final LatLng? initialMapCenter;
 
   @override
   State<AddGeofenceScreen> createState() => _AddGeofenceScreenState();
@@ -31,7 +37,8 @@ class _AddGeofenceScreenState extends State<AddGeofenceScreen> {
       context,
       MaterialPageRoute<GeofenceLocationResult>(
         builder: (_) => SelectGeofenceLocationScreen(
-          initialPosition: _selectedLocation?.position,
+          initialPosition: _selectedLocation?.position ??
+              widget.initialMapCenter,
           initialRadius: _selectedLocation?.radiusMeters ?? 100,
           initialAddress: _selectedLocation?.address,
           isPolygonMode: !_isCircular,

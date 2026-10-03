@@ -523,6 +523,8 @@ class HistoryService {
 
     if (response is Map) {
       meta = response.map((Object? k, Object? v) => MapEntry(k.toString(), v));
+    } else if (response is List) {
+      _collectPoints(response, points, fromList: true);
     }
 
     if (meta != null && meta['items'] is List) {
@@ -538,6 +540,23 @@ class HistoryService {
       final dynamic messages = meta['messages'];
       if (messages is List && messages.isNotEmpty) {
         _collectPoints(messages, points, fromList: true);
+      }
+      if (points.isEmpty) {
+        for (final String key in <String>[
+          'groups',
+          'trips',
+          'routes',
+          'history',
+          'result',
+        ]) {
+          final dynamic nested = meta[key];
+          if (nested is List && nested.isNotEmpty) {
+            _collectPoints(nested, points, fromList: true);
+          }
+        }
+      }
+      if (points.isEmpty && meta['device'] is Map) {
+        _collectPoints(meta['device'], points, fromList: false);
       }
     }
 
@@ -730,6 +749,21 @@ class HistoryService {
       }
     }
 
+    final dynamic show = map['show'];
+    if (show is String && show.isNotEmpty) {
+      final (double lat, double lng)? pair = CoordinateParser.parsePair(show);
+      if (pair != null) {
+        target.add(
+          HistoryPoint(
+            position: LatLng(pair.$1, pair.$2),
+            time: nodeTime ?? _parseTime(map['start_time'] ?? map['time']),
+            eventType: map['status']?.toString(),
+            isStop: _isStopEvent(map, map['status']?.toString()),
+          ),
+        );
+      }
+    }
+
     _tryAddPoint(map, target);
   }
 
@@ -782,16 +816,38 @@ class HistoryService {
   }
 
   /// GPSWOX drive/stop rows often expose endpoints as `left`/`right` strings.
+  static DateTime? _segmentEndpointTime(
+    Map<String, dynamic> map,
+    String key,
+  ) {
+    if (key == 'left' || key == 'start') {
+      return _parseTime(
+        map['start_time'] ??
+            map['time_from'] ??
+            map['from_time'] ??
+            map['time'] ??
+            map['timestamp'],
+      );
+    }
+    if (key == 'right' || key == 'end') {
+      return _parseTime(
+        map['end_time'] ??
+            map['time_to'] ??
+            map['to_time'] ??
+            map['finish_time'] ??
+            map['time'] ??
+            map['timestamp'],
+      );
+    }
+    return _parseTime(map['time'] ?? map['timestamp']);
+  }
+
   static void _addSegmentEndpoints(
     Map<String, dynamic> map,
     List<HistoryPoint> target,
   ) {
-    final DateTime? segmentTime = _parseTime(
-      map['time'] ??
-          map['start_time'] ??
-          map['timestamp'] ??
-          map['device_time'],
-    );
+    final String? eventType =
+        map['status']?.toString() ?? map['type']?.toString();
     for (final String key in <String>['left', 'right', 'start', 'end']) {
       final dynamic raw = map[key];
       if (raw is String && raw.isNotEmpty) {
@@ -800,8 +856,9 @@ class HistoryService {
           target.add(
             HistoryPoint(
               position: LatLng(pair.$1, pair.$2),
-              time: segmentTime,
-              eventType: map['status']?.toString() ?? map['type']?.toString(),
+              time: _segmentEndpointTime(map, key),
+              eventType: eventType,
+              isStop: _isStopEvent(map, eventType),
             ),
           );
         }
@@ -836,8 +893,9 @@ class HistoryService {
           target.add(
             HistoryPoint(
               position: LatLng(normalized.$1, normalized.$2),
-              time: segmentTime,
-              eventType: map['status']?.toString(),
+              time: _segmentEndpointTime(map, prefix),
+              eventType: eventType,
+              isStop: _isStopEvent(map, eventType),
             ),
           );
         }
@@ -846,6 +904,10 @@ class HistoryService {
   }
 
   static bool _isStopEvent(Map<String, dynamic> map, String? eventType) {
+    final dynamic statusRaw = map['status'];
+    if (statusRaw == 2 || statusRaw == '2') {
+      return true;
+    }
     final String hay =
         '${eventType ?? ''} ${map['status'] ?? ''}'.toLowerCase();
     if (hay.contains('stop') || hay.contains('park') || hay.contains('idle')) {
