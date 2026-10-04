@@ -11,6 +11,8 @@ import 'local_notification_service.dart';
 import 'notification_location_resolver.dart';
 import 'voice_alert_service.dart';
 import '../utils/live_location_text.dart';
+import '../utils/live_overspeed_guard.dart';
+import '../data/vehicle_data.dart';
 import '../utils/notification_location_text.dart';
 
 /// Singleton [ChangeNotifier] that drives the live in-app alert banner.
@@ -78,6 +80,17 @@ class LiveNotificationController extends ChangeNotifier {
   }
 
   Future<void> _pushResolved(AppNotification notification) async {
+    if (notification.eventType == NotificationEventType.overSpeed &&
+        !LiveOverspeedGuard.shouldPushApiOverSpeed(
+          notification,
+          liveVehicle: LiveOverspeedGuard.matchVehicle(
+            notification,
+            VehicleData.vehicles,
+          ),
+        )) {
+      return;
+    }
+
     AppNotification enriched = notification.copyWith(
       location: NotificationLocationResolver.resolveSync(notification),
     );

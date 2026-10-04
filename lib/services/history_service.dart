@@ -91,7 +91,8 @@ class HistoryService {
   static const Duration _historyChunk = Duration(days: 3);
   static const int _pageSize = 500;
   static const int _maxParseDepth = 24;
-  static const int _maxPointsPerChunk = 25000;
+  /// Budget while parsing one API response (final route still capped below).
+  static const int _maxPointsPerChunk = 15000;
   /// Cap GPS points kept in memory for map playback (stats still from API meta).
   static const int _maxRoutePoints = 2000;
 
@@ -200,7 +201,10 @@ class HistoryService {
     if (!forceRefresh) {
       final HistoryRoute? cached = _cache[key];
       if (cached != null) {
-        return cached;
+        if (!cached.isEmpty) {
+          return cached;
+        }
+        _cache.remove(key);
       }
     }
 
@@ -217,10 +221,12 @@ class HistoryService {
         rangeFrom: from,
         rangeTo: to,
       );
-      if (_cache.length >= _maxCacheEntries) {
-        _cache.remove(_cache.keys.first);
+      if (!route.isEmpty) {
+        if (_cache.length >= _maxCacheEntries) {
+          _cache.remove(_cache.keys.first);
+        }
+        _cache[key] = route;
       }
-      _cache[key] = route;
       return route;
     } on ApiException catch (e) {
       return HistoryRoute(

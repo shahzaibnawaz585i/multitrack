@@ -6,7 +6,7 @@ import 'vehicle_service.dart';
 class VehicleDetailFastApiService {
   VehicleDetailFastApiService._();
 
-  static const Duration _minNetworkGap = Duration(seconds: 7);
+  static const Duration _minNetworkGap = Duration(seconds: 4);
   static final Map<int, DateTime> _lastNetworkByDevice = <int, DateTime>{};
 
   /// Opens detail: refresh fleet once + prefetch today statistics (non-blocking).
@@ -25,13 +25,17 @@ class VehicleDetailFastApiService {
   static Future<VehicleModel?> refreshLiveDevice(
     int deviceId, {
     required bool allowNetwork,
+    bool resolveAddress = true,
+    bool aggressiveNetwork = false,
   }) async {
     VehicleModel? device = VehicleService.findCachedDevice(deviceId);
 
     final DateTime now = DateTime.now();
     final DateTime? lastNet = _lastNetworkByDevice[deviceId];
     final bool mayUseNetwork = allowNetwork &&
-        (lastNet == null || now.difference(lastNet) >= _minNetworkGap);
+        (aggressiveNetwork ||
+            lastNet == null ||
+            now.difference(lastNet) >= _minNetworkGap);
 
     if (mayUseNetwork) {
       _lastNetworkByDevice[deviceId] = now;
@@ -50,7 +54,7 @@ class VehicleDetailFastApiService {
       return null;
     }
 
-    if (_needsStreetAddress(device)) {
+    if (resolveAddress && _needsStreetAddress(device)) {
       final String? address = await VehicleService.resolveAddressFor(device);
       if (address != null && address.isNotEmpty) {
         device = device.copyWith(location: address);

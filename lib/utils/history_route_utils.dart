@@ -657,6 +657,16 @@ class HistoryRouteUtils {
   }
 
   /// Numbered red squares between route start/end (reference playback map).
+  static const int _maxPointsForAnalysis = 2500;
+
+  static List<HistoryPoint> _capForAnalysis(List<HistoryPoint> raw) {
+    if (raw.length <= _maxPointsForAnalysis) {
+      return raw;
+    }
+    final List<HistoryPoint> ordered = orderPointsForRoute(raw);
+    return decimatePoints(ordered, _maxPointsForAnalysis);
+  }
+
   static List<HistoryStopSession> buildStopSessionsForMap(
     List<HistoryPoint> raw, {
     Duration minStopDuration = const Duration(minutes: 5),
@@ -668,7 +678,7 @@ class HistoryRouteUtils {
       return const <HistoryStopSession>[];
     }
 
-    final List<HistoryPoint> ordered = orderPointsForRoute(raw);
+    final List<HistoryPoint> ordered = orderPointsForRoute(_capForAnalysis(raw));
     final List<HistoryPoint> timed = withInterpolatedTimes(
       ordered,
       rangeFrom: rangeFrom,
@@ -828,7 +838,7 @@ class HistoryRouteUtils {
     Duration minStopDuration = _minStopSegment,
   }) {
     final List<HistoryPoint> points = sortByTime(
-      raw.where((HistoryPoint p) => p.time != null).toList(),
+      _capForAnalysis(raw).where((HistoryPoint p) => p.time != null).toList(),
     );
     if (points.length < 2) {
       return const <HistoryTimelineSegment>[];

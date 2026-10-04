@@ -5,6 +5,7 @@ import '../constants/app_images.dart';
 import '../models/vehicle_model.dart';
 import '../utils/live_location_text.dart';
 import '../screens/vehicle_detail_screen.dart';
+import '../services/vehicle_service.dart';
 import '../theme/app_theme_tokens.dart';
 import '../theme/fast_page_transitions.dart';
 
@@ -186,9 +187,10 @@ class VehicleCard extends StatelessWidget {
   }
 
   void _openDetail(BuildContext context) {
+    VehicleService.patchCachedDevice(vehicle);
     Navigator.push(
       context,
-      FastMaterialPageRoute<void>(
+      InstantMaterialPageRoute<void>(
         builder: (_) => VehicleDetailScreen(
           deviceId: vehicle.id,
           name: vehicle.name,

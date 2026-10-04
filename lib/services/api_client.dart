@@ -205,6 +205,38 @@ class ApiClient {
     }
   }
 
+  /// POST JSON body; returns decoded JSON (Map, List, or null).
+  static Future<dynamic> postJsonRaw(
+    Uri uri, {
+    required Map<String, dynamic> body,
+    String? token,
+  }) async {
+    try {
+      final http.Response response = await http
+          .post(
+            uri,
+            headers: <String, String>{
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+              if (token != null && token.isNotEmpty)
+                'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(ApiConfig.timeout);
+
+      return _decodeDynamic(response);
+    } on TimeoutException {
+      throw const ApiException('Could not connect to server');
+    } on ApiException {
+      rethrow;
+    } on FormatException {
+      throw const ApiException('Login failed');
+    } catch (_) {
+      throw const ApiException('Could not connect to server');
+    }
+  }
+
   static Future<Map<String, dynamic>> postJson(
     Uri uri, {
     required Map<String, dynamic> body,

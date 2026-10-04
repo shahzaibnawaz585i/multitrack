@@ -48,3 +48,30 @@ class FastMaterialPageRoute<T> extends MaterialPageRoute<T> {
   Duration get reverseTransitionDuration =>
       FastPageTransitionsBuilder.kTransitionDuration;
 }
+
+/// Near-instant push — detail opens on first frame after tap.
+class InstantMaterialPageRoute<T> extends MaterialPageRoute<T> {
+  InstantMaterialPageRoute({
+    required super.builder,
+    super.settings,
+    super.fullscreenDialog,
+  });
+
+  static const Duration kOpenDuration = Duration(milliseconds: 1);
+
+  @override
+  Duration get transitionDuration => kOpenDuration;
+
+  @override
+  Duration get reverseTransitionDuration => kOpenDuration;
+
+  @override
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    return child;
+  }
+}

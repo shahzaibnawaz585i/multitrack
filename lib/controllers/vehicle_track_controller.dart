@@ -24,10 +24,12 @@ class VehicleTrackController {
     _filter = GpsFilterService();
     _animator = VehicleTrackAnimator(vsync: vsync);
     navCamera = NavigationCamera(
-      followLerp: 0.18,
-      lookAheadMeters: 55.0,
-      zoom: 18.0,
+      centerOnMarker: true,
+      followLerp: 0.35,
+      lookAheadMeters: 0,
+      zoom: 16.0,
       tilt: 0.0,
+      rotateWithVehicle: true,
     );
   }
 
@@ -41,7 +43,8 @@ class VehicleTrackController {
   VehicleMotionState _motion = VehicleMotionState.stopped;
   int _fixSequence = 0;
   DateTime? _lastIngestWallClock;
-  static const Duration _defaultPollSpan = Duration(milliseconds: 2000);
+  Future<GpsIngestResult>? _ingestChain;
+  static const Duration _defaultPollSpan = Duration(milliseconds: 4000);
 
   VehicleTrackAnimator get animator => _animator;
   VehicleMotionState get motionState => _motion;
@@ -80,66 +83,106 @@ class VehicleTrackController {
     );
   }
 
-  /// Primary entry point for live GPS updates from any transport layer.
+  /// Queues [fix] for smooth interpolation (FIFO) — see [VehicleTrackAnimator].
   Future<GpsIngestResult> ingestFix({
     required GpsFix fix,
     List<LatLng> tailHint = const <LatLng>[],
   }) async {
-    if (_disposed) return GpsIngestResult.unchanged;
+    if (_disposed) {
+      return GpsIngestResult.unchanged;
+    }
+    final Future<GpsIngestResult> chained = (_ingestChain ??
+            Future<GpsIngestResult>.value(GpsIngestResult.unchanged))
+        .then((_) => _ingestFixNow(fix: fix, tailHint: tailHint));
+    _ingestChain = chained;
+    return chained;
+  }
+
+  Future<GpsIngestResult> _ingestFixNow({
+    required GpsFix fix,
+    required List<LatLng> tailHint,
+  }) async {
+    if (_disposed) {
+      return GpsIngestResult.unchanged;
+    }
 
     _motion = _resolveMotion(fix.speedKmh);
 
     final GpsFix? previousFix = _filter.lastAccepted;
 
     final GpsFilterResult result = _filter.evaluate(fix);
+    final LatLng from = _animator.displayPosition;
+    GpsFix accepted;
     if (result.rejected || result.fix == null) {
-      return GpsIngestResult.rejected;
+      final double visualToFix =
+          LiveRouteService.haversineMeters(from, fix.position);
+      final bool coastCatchUp = visualToFix >= 1.5 &&
+          (fix.speedKmh > 0.5 || _motion == VehicleMotionState.moving);
+      if (!coastCatchUp) {
+        return GpsIngestResult.rejected;
+      }
+      accepted = fix;
+      _filter.syncAcceptedPosition(fix.position, speedKmh: fix.speedKmh);
+    } else {
+      accepted = result.fix!;
     }
 
-    final GpsFix accepted = result.fix!;
-    final LatLng from = _animator.displayPosition;
     final LatLng to = accepted.position;
     final double dist = LiveRouteService.haversineMeters(from, to);
 
-    if (dist < 0.3) {
+    if (dist < 0.15) {
+      _motion = _resolveMotion(accepted.speedKmh);
       return GpsIngestResult.unchanged;
     }
 
     _motion = dist > 0.8 ? VehicleMotionState.moving : VehicleMotionState.idle;
 
-    try {
-      final List<LatLng> roadPath = await RoadRouteService.routeBetween(
-        from: from,
-        to: to,
-        tailHint: tailHint,
+    // Sync path only — no network wait on the live poll path (prevents long freezes).
+    List<LatLng> roadPath = RoadRouteService.pathAlongDeviceTail(
+      from: from,
+      to: to,
+      tail: tailHint,
+    );
+    if (roadPath.length < 2) {
+      roadPath = LiveRouteService.dedupe(<LatLng>[from, to]);
+    }
+    roadPath = _clipPathTowardTarget(roadPath, to);
+
+    if (_disposed) {
+      return GpsIngestResult.unchanged;
+    }
+
+    final Duration duration = _animationDuration(
+      roadPath,
+      accepted,
+      previousFix,
+    );
+
+    final bool moving = accepted.speedKmh > 0.5 || dist > 2.0;
+    if (!moving) {
+      _animator.enqueueCoordinate(
+        to,
+        duration: const Duration(milliseconds: 400),
+        moving: false,
       );
+      return GpsIngestResult.animated;
+    }
 
-      if (_disposed) return GpsIngestResult.unchanged;
-
-      final Duration duration = _animationDuration(
-        roadPath,
-        accepted,
-        previousFix,
+    if (roadPath.length <= 2) {
+      _animator.enqueueCoordinate(
+        to,
+        duration: duration,
+        moving: true,
       );
-
-      final double effectiveSpeedKmh = accepted.speedKmh > 0
-          ? accepted.speedKmh
-          : math.max(4.0, (dist / (duration.inMilliseconds / 1000.0)) * 3.6);
-
+    } else {
       _animator.enqueueRoadPath(
         roadPath,
         duration: duration,
         moving: true,
-        speedKmh: effectiveSpeedKmh,
+        speedKmh: accepted.speedKmh,
       );
-      return GpsIngestResult.animated;
-    } catch (_) {
-      _animator.snapTo(
-        to,
-        bearing: _resolveBearing(from, to, tailHint, _animator.displayBearing),
-      );
-      return GpsIngestResult.snapped;
     }
+    return GpsIngestResult.animated;
   }
 
   Future<GpsIngestResult> ingestVehicleModel(VehicleModel vehicle) async {
@@ -155,7 +198,7 @@ class VehicleTrackController {
         .map((VehicleTrackPoint p) => LatLng(p.latitude, p.longitude))
         .toList();
 
-    final double speedKmh = double.tryParse(vehicle.speed) ?? 0.0;
+    final double speedKmh = VehicleModel.parseSpeedKmh(vehicle.speed);
 
     return ingestFix(
       fix: _nextFix(
@@ -214,38 +257,56 @@ class VehicleTrackController {
     }
 
     final DateTime now = DateTime.now();
+    double pollMs = _defaultPollSpan.inMilliseconds.toDouble();
     if (_lastIngestWallClock != null) {
-      final double wallMs = now
+      pollMs = now
           .difference(_lastIngestWallClock!)
           .inMilliseconds
-          .toDouble();
-      _lastIngestWallClock = now;
-      if (wallMs >= 400) {
-        return Duration(
-          milliseconds: (wallMs * 1.05).round().clamp(1200, 5000),
-        );
-      }
-    } else {
-      _lastIngestWallClock = now;
+          .toDouble()
+          .clamp(2500, 12000);
+    }
+    _lastIngestWallClock = now;
+
+    if (fix.speedKmh <= 0.5 && meters < 4) {
+      return const Duration(milliseconds: 400);
     }
 
-    if (previousFix != null) {
-      final double dtMs = fix.timestamp
-          .difference(previousFix.timestamp)
-          .inMilliseconds
-          .toDouble();
-      if (dtMs >= 400) {
-        return Duration(milliseconds: (dtMs * 1.05).round().clamp(1200, 5000));
+    final double speedKmh = fix.speedKmh > 1.0
+        ? fix.speedKmh
+        : (_motion == VehicleMotionState.moving ? 28.0 : 12.0);
+    final double mps = math.max(speedKmh / 3.6, 1.4);
+    int physicsMs = (meters / mps * 1000).round().clamp(320, 18000);
+
+    final int windowMs = (pollMs * 0.96).round().clamp(3600, 4200);
+    // Speed-synced travel time, stretched to the poll window so the marker
+    // never sits idle between coordinates.
+    int durationMs = math.max(physicsMs, windowMs);
+
+    final int backlog = _animator.queuedSegments;
+    if (backlog > 1) {
+      durationMs = (durationMs / backlog).round().clamp(450, durationMs);
+    }
+    return Duration(milliseconds: durationMs);
+  }
+
+  static List<LatLng> _clipPathTowardTarget(List<LatLng> path, LatLng to) {
+    if (path.length < 2) {
+      return path;
+    }
+    int endIdx = path.length - 1;
+    double endDist = LiveRouteService.haversineMeters(path[endIdx], to);
+    for (int i = 0; i < path.length; i++) {
+      final double d = LiveRouteService.haversineMeters(path[i], to);
+      if (d < endDist) {
+        endDist = d;
+        endIdx = i;
       }
     }
-
-    final double mps = (fix.speedKmh <= 0 ? 8.0 : fix.speedKmh) / 3.6;
-    return Duration(
-      milliseconds: (meters / mps * 1000).round().clamp(
-        1200,
-        _defaultPollSpan.inMilliseconds + 500,
-      ),
-    );
+    final List<LatLng> out = path.sublist(0, endIdx + 1);
+    if (LiveRouteService.haversineMeters(out.last, to) > 0.35) {
+      out.add(to);
+    }
+    return LiveRouteService.dedupe(out);
   }
 
   static VehicleMotionState _resolveMotion(double speedKmh) {

@@ -17,12 +17,15 @@ import '../services/vehicle_service.dart';
 import '../services/vehicle_detail_api_service.dart';
 import '../services/vehicle_detail_fast_api_service.dart';
 import '../services/vehicle_detail_telemetry_service.dart';
+import '../services/live_device_socket_service.dart';
 import '../utils/report_period.dart';
 import '../data/vehicle_data.dart';
 import '../controllers/vehicle_track_controller.dart';
 import '../services/road_route_service.dart';
 import '../utils/live_location_text.dart';
-import '../utils/map_arrow_icon.dart';
+import '../theme/tracking_map_style.dart';
+import '../utils/map_car_icon.dart';
+import '../utils/vehicle_status_colors.dart';
 import '../utils/vehicle_category_map_icon.dart';
 import '../services/vehicle_icon_service.dart';
 import '../widgets/update_vehicle_icon_dialog.dart';
@@ -138,7 +141,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
   bool _userDraggingMap = false;
   DateTime _programmaticCameraUntil = DateTime.fromMillisecondsSinceEpoch(0);
   bool _followEnabled = true;
-  static const double _followZoom = 17.5;
+  static const double _followZoom = liveTrackInitialZoom;
   MapType _mapType = MapType.normal;
   bool _showTrail = true;
   bool _mapToolsMenuOpen = false;
@@ -157,11 +160,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
 
   // ─── API polling ──────────────────────────────────────────────────────────
   Timer? _pollTimer;
+  StreamSubscription<VehicleModel>? _liveDeviceSub;
+  bool _liveNetworkInFlight = false;
 
   // ─── Cached map marker (category icon or arrow) ───────────────────────────
   BitmapDescriptor? _arrowIcon;
   int _arrowColorKey = 0;
-  Offset _markerAnchor = MapArrowIcon.markerAnchor;
+  Offset _markerAnchor = MapCarIcon.markerAnchor;
   bool _markerUsesCategoryIcon = false;
   final ValueNotifier<String> _liveStatus = ValueNotifier<String>('');
   final ValueNotifier<String> _liveSpeed = ValueNotifier<String>('00');
@@ -171,11 +176,11 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
   bool _locationResolveInFlight = false;
   bool _forceNextRefresh = true;
   bool _disposed = false;
-  bool _pollInFlight = false;
-  static const Duration _pollInterval = Duration(seconds: 6);
-  static const Duration _detailNetworkGap = Duration(seconds: 12);
-  DateTime _lastDetailNetworkPoll = DateTime.fromMillisecondsSinceEpoch(0);
+  int _historyWarmGeneration = 0;
+  static const Duration _pollInterval = Duration(seconds: 4);
   bool _trailDirty = true;
+  int _lastFollowCameraMs = 0;
+  int _lastTrailPushMs = 0;
 
   double _initialSheetFraction(double screenHeight) {
     return 0.20;
@@ -416,6 +421,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
     )..onFrame = _onSegmentFrame;
 
     _seedFromWidgetData(initial);
+    unawaited(MapCarIcon.preloadStatusIcons());
 
     // Show arrow + green trail immediately, then refresh in background.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -428,7 +434,18 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
       final int? deviceId = widget.deviceId ?? widget.vehicle?.id;
       if (deviceId != null) {
         unawaited(_refreshTelemetryFromServer(deviceId));
-        VehicleDetailApiService.warmHistoryCache(deviceId);
+        final int warmGen = ++_historyWarmGeneration;
+        unawaited(
+          Future<void>.delayed(const Duration(seconds: 3), () {
+            if (!mounted ||
+                _disposed ||
+                warmGen != _historyWarmGeneration ||
+                _currentBottomIndex != 0) {
+              return;
+            }
+            VehicleDetailApiService.warmHistoryCache(deviceId);
+          }),
+        );
       }
     });
   }
@@ -489,37 +506,60 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
     return widget.vehicle?.mapIcon ?? '';
   }
 
+  ({String status, String speed}) _normalizedLiveTelemetry(VehicleModel match) {
+    final double kmh = VehicleModel.parseSpeedKmh(match.speed);
+    String status = match.status;
+    if (kmh > 0 &&
+        status.trim().toUpperCase() != 'EXPIRED' &&
+        status.trim().toUpperCase() != 'NOT REPORTING') {
+      status = 'RUNNING';
+    }
+    return (status: status, speed: match.speed);
+  }
+
+  void _applyMarkerColorInstant(String status, String speed) {
+    final Color color = VehicleStatusColors.markerColor(
+      status: status,
+      speed: speed,
+    );
+    final int colorKey = color.toARGB32();
+    if (_arrowColorKey == colorKey && _arrowIcon != null) {
+      return;
+    }
+    final BitmapDescriptor? cached = MapCarIcon.cachedForColor(color);
+    if (cached == null) {
+      unawaited(_refreshTrackMarkerIcon());
+      return;
+    }
+    _markerUsesCategoryIcon = false;
+    _markerAnchor = MapCarIcon.markerAnchor;
+    _arrowIcon = cached;
+    _arrowColorKey = colorKey;
+    if (_currentBottomIndex == 0) {
+      _liveMapKey.currentState?.updateMarker(
+        position: _renderPos,
+        bearing: _renderBearing,
+        arrowIcon: cached,
+        force: true,
+      );
+    }
+  }
+
   Future<void> _refreshTrackMarkerIcon() async {
-    final String slug = _resolvedMapIconSlug();
-    final Color color = _arrowColorForLive();
-    final int colorKey = Object.hash(slug, color.toARGB32(), _markerUsesCategoryIcon);
+    final Color color = VehicleStatusColors.markerColor(
+      status: _liveStatus.value,
+      speed: _liveSpeed.value,
+    );
+    final int colorKey = color.toARGB32();
 
     if (_arrowIcon != null && _arrowColorKey == colorKey) {
       return;
     }
 
-    if (slug.isNotEmpty) {
-      _markerUsesCategoryIcon = true;
-      _markerAnchor = VehicleCategoryMapIcon.markerAnchor;
-      try {
-        final BitmapDescriptor icon = await VehicleCategoryMapIcon.forSlug(
-          slug,
-          tint: color,
-        );
-        if (!mounted || _disposed) {
-          return;
-        }
-        _arrowIcon = icon;
-        _arrowColorKey = colorKey;
-        _applyMarkerIconToMap(force: true);
-        return;
-      } catch (_) {}
-    }
-
     _markerUsesCategoryIcon = false;
-    _markerAnchor = MapArrowIcon.markerAnchor;
+    _markerAnchor = MapCarIcon.markerAnchor;
     try {
-      final BitmapDescriptor icon = await MapArrowIcon.forColor(color);
+      final BitmapDescriptor icon = await MapCarIcon.forColor(color);
       if (!mounted || _disposed) {
         return;
       }
@@ -574,8 +614,13 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
       bearing: _renderBearing,
       arrowIcon: _arrowIcon,
       fromAnimation: true,
+      force: true,
     );
-    _pushTrailToMap();
+    final int nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs - _lastTrailPushMs >= 120) {
+      _lastTrailPushMs = nowMs;
+      _pushTrailToMap();
+    }
 
     if (_followEnabled && !_userDraggingMap) {
       _followCameraSmooth(fromAnimation: true);
@@ -623,7 +668,27 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
         .toList();
     points = LiveRouteService.dedupe(points);
 
-    if (widget.deviceId != null && points.length < 4) {
+    if (!mounted || _disposed || points.isEmpty) return;
+
+    if (points.length >= 2) {
+      _trackController.animator.seedTrailFromPoints(points);
+    }
+    _primeMapVisuals();
+
+    unawaited(_bootstrapLiveRouteFromNetwork(tail));
+  }
+
+  Future<void> _bootstrapLiveRouteFromNetwork(
+    List<VehicleTrackPoint> tail,
+  ) async {
+    if (widget.deviceId == null || !mounted || _disposed) return;
+
+    List<LatLng> points = tail
+        .map((VehicleTrackPoint p) => LatLng(p.latitude, p.longitude))
+        .toList();
+    points = LiveRouteService.dedupe(points);
+
+    if (points.length < 4) {
       final List<LatLng> bootstrap = await LiveRouteService.bootstrapRoute(
         deviceId: widget.deviceId!,
         tail: tail,
@@ -633,28 +698,22 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
       }
     }
 
-    if (!mounted || _disposed || points.isEmpty) return;
+    if (!mounted || _disposed || points.length < 2) return;
 
-    if (points.length >= 2) {
-      final List<LatLng> roadPath = await RoadRouteService.routeBetween(
-        from: points.first,
-        to: points.last,
-        tailHint: points,
-      );
-      if (roadPath.length >= 2) {
-        points = roadPath;
-      }
+    final List<LatLng> roadPath = await RoadRouteService.routeBetween(
+      from: points.first,
+      to: points.last,
+      tailHint: points,
+    );
+    if (roadPath.length >= 2) {
+      points = roadPath;
     }
 
-    // Only refresh trail if we are far — never jump the visible car position.
     final LatLng latest = points.last;
-    final double bearing = points.length >= 2
-        ? _bearingFromTail(points)
-        : _renderBearing;
     final double driftMeters =
         LiveRouteService.haversineMeters(_renderPos, latest);
-
     if (driftMeters >= 50.0) {
+      final double bearing = _bearingFromTail(points);
       _trackController.seed(latest, bearing: bearing);
       _readAnimatorState();
     }
@@ -663,23 +722,6 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
       _trackController.animator.seedTrailFromPoints(points);
     }
     _primeMapVisuals();
-  }
-
-  Color _arrowColorForLive() {
-    final double speed = double.tryParse(_liveSpeed.value) ?? 0.0;
-    if (speed > 0) return const Color(0xFF00C853);
-    switch (_liveStatus.value.trim().toLowerCase()) {
-      case 'running':
-        return const Color(0xFF00C853);
-      case 'stopped':
-        return const Color(0xFFD50000);
-      case 'idle':
-        return const Color(0xFFFFA000);
-      case 'not reporting':
-        return const Color(0xFF757575);
-      default:
-        return const Color(0xFF757575);
-    }
   }
 
   void _onUserMapGesture() {
@@ -695,20 +737,47 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
 
   void _startLiveTracking() {
     _pollTimer?.cancel();
+    _liveDeviceSub?.cancel();
 
     if (widget.deviceId == null) return;
+    final int deviceId = widget.deviceId!;
 
-    _refreshLivePosition();
+    unawaited(LiveDeviceSocketService.instance.startTracking(deviceId));
+    _liveDeviceSub = LiveDeviceSocketService.instance
+        .streamForDevice(deviceId)
+        .listen(_onLiveDeviceStreamUpdate);
+
+    LiveDeviceSocketService.instance.emitCachedDevice(deviceId);
+    LiveDeviceSocketService.instance.requestRefresh();
+
+    // Manual refresh / address resolve — not the primary coordinate stream.
     _pollTimer = Timer.periodic(_pollInterval, (_) {
-      if (!_disposed && mounted) {
-        _refreshLivePosition();
+      if (!_disposed && mounted && _currentBottomIndex == 0) {
+        LiveDeviceSocketService.instance.requestRefresh();
       }
     });
+  }
+
+  void _onLiveDeviceStreamUpdate(VehicleModel match) {
+    if (_disposed || !mounted || _currentBottomIndex != 0) {
+      return;
+    }
+    if (match.id != widget.deviceId) {
+      return;
+    }
+    final ({String status, String speed}) live = _normalizedLiveTelemetry(match);
+    _applyMarkerColorInstant(live.status, live.speed);
+    unawaited(_applyLiveVehicleModel(match, fromStream: true));
   }
 
   void _stopLiveTracking() {
     _pollTimer?.cancel();
     _pollTimer = null;
+    _liveDeviceSub?.cancel();
+    _liveDeviceSub = null;
+    if (widget.deviceId != null) {
+      LiveDeviceSocketService.instance.stopTracking(deviceId: widget.deviceId);
+    }
   }
 
   void _syncVisuals({bool forceTrail = false}) {
@@ -730,11 +799,23 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
       return;
     }
 
+    final int nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (!force && !fromAnimation && nowMs - _lastFollowCameraMs < 50) {
+      return;
+    }
+    _lastFollowCameraMs = nowMs;
+
     try {
-      _markProgrammaticCamera();
-      _mapController!.moveCamera(
-        CameraUpdate.newLatLng(_renderPos),
+      if (force) {
+        _trackController.navCamera.reset(_renderPos, _renderBearing);
+      }
+      final CameraPosition cam = _trackController.navCamera.cameraFor(
+        _renderPos,
+        _renderBearing,
+        snapToMarker: fromAnimation || force,
       );
+      _markProgrammaticCamera();
+      _mapController!.moveCamera(CameraUpdate.newCameraPosition(cam));
     } catch (_) {
       _mapController = null;
     }
@@ -787,107 +868,121 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
     }
   }
 
-  Future<void> _refreshLivePosition() async {
-    if (widget.deviceId == null ||
-        !mounted ||
-        _disposed ||
-        _pollInFlight ||
-        _currentBottomIndex != 0) {
-      return;
-    }
-    _pollInFlight = true;
-
+  Future<void> _fetchLiveVehicleFromNetwork(int deviceId) async {
     try {
-      final int deviceId = widget.deviceId!;
-      final DateTime now = DateTime.now();
-      final bool needNetwork = _forceNextRefresh ||
-          now.difference(_lastDetailNetworkPoll) >= _detailNetworkGap;
+      final bool resolveAddressThisPoll = _forceNextRefresh;
+      _forceNextRefresh = false;
 
-      VehicleModel? match = VehicleService.findCachedDevice(deviceId);
+      final VehicleModel? match =
+          await VehicleDetailFastApiService.refreshLiveDevice(
+        deviceId,
+        allowNetwork: true,
+        resolveAddress: resolveAddressThisPoll,
+        aggressiveNetwork: true,
+      );
 
-      if (needNetwork) {
-        _forceNextRefresh = false;
-        _lastDetailNetworkPoll = now;
-        match = await VehicleDetailFastApiService.refreshLiveDevice(
-              deviceId,
-              allowNetwork: true,
-            ) ??
-            match;
+      if (!mounted || _disposed || match == null || match.id != deviceId) {
+        return;
       }
+      await _applyLiveVehicleModel(match);
+    } finally {
+      _liveNetworkInFlight = false;
+    }
+  }
 
-      if (!mounted || _disposed) return;
-      if (match == null || match.id != deviceId) return;
+  Future<void> _applyLiveVehicleModel(
+    VehicleModel match, {
+    bool fromStream = false,
+  }) async {
+    if (!mounted || _disposed || match.id != widget.deviceId) return;
 
-      final bool statusChanged = match.status != _liveStatus.value;
-      final bool speedChanged = match.speed != _liveSpeed.value;
-      final String previousSpeed = _liveSpeed.value;
-      if (statusChanged || speedChanged) {
-        if (statusChanged) {
-          _liveStatus.value = match.status;
-        }
-        if (speedChanged) {
-          _liveSpeed.value = match.speed;
-        }
-        final double oldSpd = double.tryParse(previousSpeed) ?? 0.0;
-        final double newSpd = double.tryParse(match.speed) ?? 0.0;
-        if (statusChanged || (oldSpd == 0) != (newSpd == 0)) {
-          await _refreshTrackMarkerIcon();
-        }
+    final ({String status, String speed}) live = _normalizedLiveTelemetry(match);
+    final bool statusChanged = live.status != _liveStatus.value;
+    final bool speedChanged = VehicleModel.parseSpeedKmh(live.speed) !=
+        VehicleModel.parseSpeedKmh(_liveSpeed.value);
+    if (statusChanged || speedChanged) {
+      if (statusChanged) {
+        _liveStatus.value = live.status;
       }
-
-      if (match.odometer != _liveOdometer.value) {
-        _liveOdometer.value = match.odometer;
+      if (speedChanged) {
+        _liveSpeed.value = live.speed;
       }
+      _applyMarkerColorInstant(live.status, live.speed);
+    }
 
-      _liveTelemetry.value = match;
+    if (match.odometer != _liveOdometer.value) {
+      _liveOdometer.value = match.odometer;
+    }
 
-      unawaited(_syncLiveLocation(match));
+    _liveTelemetry.value = match;
+    unawaited(_syncLiveLocation(match));
 
-      if (match.latitude == null || match.longitude == null) return;
+    if (match.latitude == null || match.longitude == null) return;
 
-      final LatLng serverPos = LatLng(match.latitude!, match.longitude!);
-      final LatLng posBefore = _trackController.animator.displayPosition;
-      final GpsIngestResult ingestResult =
-          await _trackController.ingestVehicleModel(match);
-      if (!mounted || _disposed) return;
+    final LatLng serverPos = LatLng(match.latitude!, match.longitude!);
+    final LatLng posBefore = _trackController.animator.displayPosition;
+    final GpsIngestResult ingestResult =
+        await _trackController.ingestVehicleModel(match);
+    if (!mounted || _disposed) return;
 
-      if (ingestResult == GpsIngestResult.wrongDevice) return;
+    if (ingestResult == GpsIngestResult.wrongDevice) return;
 
-      final LatLng posAfter = _trackController.animator.displayPosition;
-      final double driftMeters =
-          LiveRouteService.haversineMeters(posAfter, serverPos);
+    final LatLng posAfter = _trackController.animator.displayPosition;
+    final double driftMeters =
+        LiveRouteService.haversineMeters(posAfter, serverPos);
 
-      if (ingestResult == GpsIngestResult.rejected && driftMeters >= 12.0) {
-        final List<LatLng> tail = match.tail
-            .map((VehicleTrackPoint p) => LatLng(p.latitude, p.longitude))
-            .toList();
+    if (ingestResult == GpsIngestResult.rejected &&
+        driftMeters >= 35.0 &&
+        !_trackController.animator.isAnimating) {
+      final List<LatLng> tail = match.tail
+          .map((VehicleTrackPoint p) => LatLng(p.latitude, p.longitude))
+          .toList();
+      final List<LatLng> tailPath = RoadRouteService.pathAlongDeviceTail(
+        from: _trackController.animator.displayPosition,
+        to: serverPos,
+        tail: tail,
+      );
+      if (tailPath.length >= 2) {
+        _trackController.animator.enqueueRoadPath(
+          tailPath,
+          duration: const Duration(milliseconds: 3900),
+          moving: true,
+          speedKmh: VehicleModel.parseSpeedKmh(match.speed).clamp(1.0, 200.0),
+        );
+      } else {
         final double bearing = tail.length >= 2
             ? _bearingFromTail(tail)
             : _trackController.animator.displayBearing;
         _trackController.forceSnapTo(serverPos, bearing: bearing);
       }
+    }
 
-      _readAnimatorState();
-      final bool moved = posBefore.latitude != posAfter.latitude ||
-          posBefore.longitude != posAfter.longitude ||
-          ingestResult == GpsIngestResult.snapped ||
-          ingestResult == GpsIngestResult.animated;
+    _readAnimatorState();
+    final bool animating = _trackController.animator.isAnimating;
+    final bool moved = posBefore.latitude != posAfter.latitude ||
+        posBefore.longitude != posAfter.longitude ||
+        ingestResult == GpsIngestResult.snapped ||
+        ingestResult == GpsIngestResult.animated;
 
-      if (moved || statusChanged || speedChanged || driftMeters >= 1.0) {
-        _trailDirty = moved || driftMeters >= 1.0;
+    if (moved || statusChanged || speedChanged || driftMeters >= 1.0) {
+      _trailDirty = moved || driftMeters >= 1.0;
+      if (!animating || ingestResult == GpsIngestResult.snapped) {
         _liveMapKey.currentState?.updateMarker(
           position: _renderPos,
           bearing: _renderBearing,
           arrowIcon: _arrowIcon,
-          force: true,
+          force: ingestResult == GpsIngestResult.snapped,
+          fromAnimation: animating && !fromStream,
         );
-        _syncVisuals(forceTrail: _trailDirty);
-        if (_followEnabled && !_userDraggingMap && moved) {
-          _followCameraSmooth(force: true);
-        }
       }
-    } finally {
-      _pollInFlight = false;
+      _syncVisuals(forceTrail: _trailDirty);
+      if (_followEnabled &&
+          !_userDraggingMap &&
+          moved &&
+          !animating &&
+          ingestResult != GpsIngestResult.animated) {
+        _followCameraSmooth(force: true);
+      }
     }
   }
 
@@ -910,21 +1005,20 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
     setState(() => _currentBottomIndex = index);
     if (index == 0) {
       _trackController.onFrame = _onSegmentFrame;
+      _readAnimatorState();
+      _trackController.navCamera.reset(_renderPos, _renderBearing);
       _startLiveTracking();
+      _primeMapVisuals();
     } else {
-      _trackController.onFrame = null;
       _stopLiveTracking();
     }
   }
 
   Widget _buildDetailBody(Color accentColor) {
     final int? historyDeviceId = widget.deviceId ?? widget.vehicle?.id;
-    return IndexedStack(
-      index: _currentBottomIndex,
-      sizing: StackFit.expand,
-      children: <Widget>[
-        _buildTrackView(),
-        VehicleHistoryScreen(
+    switch (_currentBottomIndex) {
+      case 1:
+        return VehicleHistoryScreen(
           key: const ValueKey<String>('vehicle_detail_history_tab'),
           deviceId: historyDeviceId,
           name: widget.name,
@@ -934,21 +1028,26 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
             widget.vehicle?.speedLimitKmph.trim() ?? '',
           ),
           onClose: () => _selectTab(0),
-        ),
-        NotificationsScreen(
+          isTabActive: true,
+        );
+      case 2:
+        return NotificationsScreen(
           key: const ValueKey<String>('vehicle_detail_alerts'),
           showAlertsOnly: true,
           vehicleName: widget.name,
           deviceId: widget.deviceId,
-        ),
-        _VehicleStatisticsTab(
+        );
+      case 3:
+        return _VehicleStatisticsTab(
           key: const ValueKey<String>('vehicle_detail_statistics'),
           deviceId: historyDeviceId,
           vehicleName: widget.name,
           onBack: () => _selectTab(0),
-        ),
-      ],
-    );
+        );
+      case 0:
+      default:
+        return _buildTrackView();
+    }
   }
 
   LatLng _nearbyAnchor() {
@@ -1532,7 +1631,10 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
   }
 
   Future<void> _refreshMapAndVehicle() async {
-    await _refreshLivePosition();
+    if (widget.deviceId != null) {
+      _forceNextRefresh = true;
+      await _fetchLiveVehicleFromNetwork(widget.deviceId!);
+    }
     if (!mounted) {
       return;
     }
@@ -2451,6 +2553,7 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
   @override
   void dispose() {
     _disposed = true;
+    _historyWarmGeneration++;
     _stopLiveTracking();
     _trackController.onFrame = null;
     _trackController.dispose();
@@ -2518,7 +2621,8 @@ class _VehicleDetailScreenState extends State<VehicleDetailScreen>
               initialTarget: _carLocation,
               initialBearing: _carRotation,
               mapType: _mapType,
-              mapStyle: context.themedMapStyle,
+              mapStyle: context.liveTrackMapStyle,
+              initialZoom: _followZoom,
               arrowIcon: _arrowIcon,
               markerAnchor: _markerAnchor,
               onMapCreated: (GoogleMapController controller) {
@@ -4043,6 +4147,7 @@ class _LiveVehicleMap extends StatefulWidget {
     required this.initialBearing,
     required this.mapType,
     required this.mapStyle,
+    required this.initialZoom,
     required this.arrowIcon,
     required this.markerAnchor,
     required this.onMapCreated,
@@ -4056,6 +4161,7 @@ class _LiveVehicleMap extends StatefulWidget {
   final double initialBearing;
   final MapType mapType;
   final String? mapStyle;
+  final double initialZoom;
   final BitmapDescriptor? arrowIcon;
   final Offset markerAnchor;
   final ValueChanged<GoogleMapController> onMapCreated;
@@ -4196,7 +4302,7 @@ class _LiveVehicleMapState extends State<_LiveVehicleMap> {
       padding: widget.padding,
       initialCameraPosition: CameraPosition(
         target: widget.initialTarget,
-        zoom: 17.5,
+        zoom: widget.initialZoom,
         bearing: widget.initialBearing,
       ),
       style: widget.mapStyle,

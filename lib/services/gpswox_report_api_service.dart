@@ -19,7 +19,7 @@ class GpswoxReportApiService {
 
   static final DateFormat _full = DateFormat('yyyy-MM-dd HH:mm:ss');
 
-  /// Tries several GPSWOX body shapes until rows are returned.
+  /// Tries GPSWOX canonical bodies first, then legacy field aliases.
   static Future<dynamic> fetchBestResponse({
     required int reportId,
     required int deviceId,
@@ -34,8 +34,9 @@ class GpswoxReportApiService {
 
     final Uri uri = ApiConfig.generateReportUri(server);
     dynamic lastResponse;
+    ApiException? lastError;
 
-    for (final Map<String, dynamic> body in _bodyVariants(
+    for (final _ReportRequest req in _requestVariants(
       token: token,
       reportId: reportId,
       deviceId: deviceId,
@@ -43,18 +44,26 @@ class GpswoxReportApiService {
       to: to,
     )) {
       try {
-        final dynamic response = await ApiClient.postFormRaw(
-          uri,
-          body: body,
-          token: token,
-        ).timeout(const Duration(seconds: 45));
+        final dynamic response = req.useJson
+            ? await ApiClient.postJsonRaw(uri, body: req.body, token: token)
+                .timeout(const Duration(seconds: 45))
+            : await ApiClient.postFormRaw(uri, body: req.body, token: token)
+                .timeout(const Duration(seconds: 45));
         lastResponse = response;
         if (!ReportResponseParser.isEmptyReport(response)) {
           return response;
         }
+      } on ApiException catch (e) {
+        lastError = e;
+        if (!_isValidationNoise(e.message)) {
+          developer.log(
+            'generate_report failed reportId=$reportId (${req.label}): ${e.message}',
+            name: 'GpswoxReportApiService',
+          );
+        }
       } catch (e, stack) {
         developer.log(
-          'generate_report variant failed reportId=$reportId: $e',
+          'generate_report error reportId=$reportId (${req.label}): $e',
           error: e,
           stackTrace: stack,
           name: 'GpswoxReportApiService',
@@ -62,7 +71,19 @@ class GpswoxReportApiService {
       }
     }
 
+    if (lastError != null && lastResponse == null) {
+      throw lastError;
+    }
     return lastResponse;
+  }
+
+  static bool _isValidationNoise(String message) {
+    final String lower = message.toLowerCase();
+    return lower.contains('field is required') ||
+        lower.contains('devices field') ||
+        lower.contains('date from') ||
+        lower.contains('date to') ||
+        lower.contains('format field');
   }
 
   static Future<List<Map<String, dynamic>>> fetchRows({
@@ -71,16 +92,20 @@ class GpswoxReportApiService {
     required DateTime from,
     required DateTime to,
   }) async {
-    final dynamic response = await fetchBestResponse(
-      reportId: reportId,
-      deviceId: deviceId,
-      from: from,
-      to: to,
-    );
-    if (response == null) {
+    try {
+      final dynamic response = await fetchBestResponse(
+        reportId: reportId,
+        deviceId: deviceId,
+        from: from,
+        to: to,
+      );
+      if (response == null) {
+        return <Map<String, dynamic>>[];
+      }
+      return ReportResponseParser.rowsFromResponse(response);
+    } on ApiException {
       return <Map<String, dynamic>>[];
     }
-    return ReportResponseParser.rowsFromResponse(response);
   }
 
   /// Trip → summary → GPS history when daily report API returns nothing.
@@ -238,7 +263,7 @@ class GpswoxReportApiService {
     return row;
   }
 
-  static List<Map<String, dynamic>> _bodyVariants({
+  static List<_ReportRequest> _requestVariants({
     required String token,
     required int reportId,
     required int deviceId,
@@ -249,48 +274,82 @@ class GpswoxReportApiService {
     final String toFull = _full.format(to);
     String two(int n) => n.toString().padLeft(2, '0');
     String dateOnly(DateTime d) => '${d.year}-${two(d.month)}-${two(d.day)}';
-    String timeOnly(DateTime d) => '${two(d.hour)}:${two(d.minute)}:${two(d.second)}';
 
-    final Map<String, dynamic> base = <String, dynamic>{
-      'user_api_hash': token,
-      'report_id': reportId.toString(),
-      'device_id': deviceId.toString(),
-    };
-
-    return <Map<String, dynamic>>[
-      <String, dynamic>{...base, 'from': fromFull, 'to': toFull},
-      <String, dynamic>{
-        ...base,
-        'from': fromFull,
-        'to': toFull,
-        'format': 'json',
-      },
-      <String, dynamic>{
+    Map<String, dynamic> canonicalForm({
+      required String format,
+      String devicesKey = 'devices[]',
+      String? dateFrom,
+      String? dateTo,
+    }) {
+      return <String, dynamic>{
         'user_api_hash': token,
         'report_id': reportId.toString(),
-        'devices[]': deviceId.toString(),
-        'from': fromFull,
-        'to': toFull,
-      },
-      <String, dynamic>{
-        ...base,
-        'date_from': fromFull,
-        'date_to': toFull,
-      },
-      <String, dynamic>{
-        ...base,
-        'from_date': dateOnly(from),
-        'from_time': timeOnly(from),
-        'to_date': dateOnly(to),
-        'to_time': timeOnly(to),
-      },
-      <String, dynamic>{
-        'user_api_hash': token,
-        'type': reportId.toString(),
-        'device_id': deviceId.toString(),
-        'from': fromFull,
-        'to': toFull,
-      },
+        devicesKey: deviceId.toString(),
+        'date_from': dateFrom ?? fromFull,
+        'date_to': dateTo ?? toFull,
+        'format': format,
+      };
+    }
+
+    return <_ReportRequest>[
+      _ReportRequest(
+        label: 'json+devices[]',
+        useJson: true,
+        body: <String, dynamic>{
+          'user_api_hash': token,
+          'report_id': reportId,
+          'devices': <int>[deviceId],
+          'date_from': fromFull,
+          'date_to': toFull,
+          'format': 'json',
+        },
+      ),
+      _ReportRequest(
+        label: 'form canonical json',
+        body: canonicalForm(format: 'json'),
+      ),
+      _ReportRequest(
+        label: 'form canonical html',
+        body: canonicalForm(format: 'html'),
+      ),
+      _ReportRequest(
+        label: 'form devices[0]',
+        body: canonicalForm(format: 'json', devicesKey: 'devices[0]'),
+      ),
+      _ReportRequest(
+        label: 'form date-only',
+        body: canonicalForm(
+          format: 'json',
+          dateFrom: dateOnly(from),
+          dateTo: dateOnly(to),
+        ),
+      ),
+      _ReportRequest(
+        label: 'legacy from/to',
+        body: <String, dynamic>{
+          'user_api_hash': token,
+          'report_id': reportId.toString(),
+          'devices[]': deviceId.toString(),
+          'date_from': fromFull,
+          'date_to': toFull,
+          'format': 'json',
+          'from': fromFull,
+          'to': toFull,
+          'device_id': deviceId.toString(),
+        },
+      ),
     ];
   }
+}
+
+class _ReportRequest {
+  const _ReportRequest({
+    required this.label,
+    required this.body,
+    this.useJson = false,
+  });
+
+  final String label;
+  final Map<String, dynamic> body;
+  final bool useJson;
 }

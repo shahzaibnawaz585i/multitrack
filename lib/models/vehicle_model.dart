@@ -1415,15 +1415,17 @@ class VehicleModel {
       return 'Not Reporting';
     }
 
-    // 3. Real movement check: if speed > 0, vehicle is RUNNING
-    if (speed > 0) {
-      return 'RUNNING';
+    // 3. Server-reported stop/park beats noisy GPS speed while parked.
+    if (lower == 'stop' ||
+        lower == 'stopped' ||
+        lower == 'parked' ||
+        lower == 'stop detected') {
+      return 'STOPPED';
     }
 
-    // 4. If speed is 0:
-    // Check if explicitly stopped / parked
-    if (lower == 'stop' || lower == 'stopped' || lower == 'parked') {
-      return 'STOPPED';
+    // 4. Real movement: speed above idle threshold → RUNNING
+    if (speed > 0.5) {
+      return 'RUNNING';
     }
 
     // Check ignition / engine status
@@ -1482,10 +1484,90 @@ class VehicleModel {
     }
   }
 
+  /// Parses UI or API speed text (e.g. `"09"`, `"45 km/h"`) to km/h.
+  static double parseSpeedKmh(String speed) {
+    final String trimmed = speed.trim();
+    if (trimmed.isEmpty) return 0;
+    final double? direct = double.tryParse(trimmed);
+    if (direct != null && !direct.isNaN) {
+      return direct < 0 ? 0 : direct;
+    }
+    final RegExpMatch? match =
+        RegExp(r'(\d+(?:\.\d+)?)').firstMatch(trimmed);
+    if (match != null) {
+      final double? v = double.tryParse(match.group(1)!);
+      if (v != null && !v.isNaN) {
+        return v < 0 ? 0 : v;
+      }
+    }
+    return 0;
+  }
+
+  /// Merges a partial WebSocket/push payload onto [base] with normalized status/speed.
+  static VehicleModel mergeSocketUpdate(
+    VehicleModel base,
+    Map<String, dynamic> patch,
+  ) {
+    final Map<String, dynamic> json = <String, dynamic>{
+      'id': base.id,
+      'name': base.name,
+      if (base.latitude != null) 'lat': base.latitude,
+      if (base.longitude != null) 'lng': base.longitude,
+      'speed': parseSpeedKmh(base.speed),
+      'status': base.status,
+    };
+    json.addAll(patch);
+
+    final double? lat = _readFirstDouble(
+      json,
+      <String>['lat', 'latitude', 'last_lat'],
+    );
+    final double? lng = _readFirstDouble(
+      json,
+      <String>['lng', 'lon', 'longitude', 'last_lng'],
+    );
+    if (lat != null) json['lat'] = lat;
+    if (lng != null) json['lng'] = lng;
+
+    final VehicleModel live = VehicleModel.fromJson(json);
+    return live.copyWith(
+      location: live.location.trim().isNotEmpty ? live.location : base.location,
+      tail: live.tail.isNotEmpty ? live.tail : base.tail,
+      odometer: _preferNonEmpty(live.odometer, base.odometer),
+      mapIcon: base.mapIcon.isNotEmpty ? base.mapIcon : live.mapIcon,
+      driverPhone: _preferNonEmpty(live.driverPhone, base.driverPhone),
+      driverId: live.driverId ?? base.driverId,
+      deviceTime: _preferNonEmpty(live.deviceTime, base.deviceTime),
+      serverTime: _preferNonEmpty(live.serverTime, base.serverTime),
+      fuelLevel: _preferNonEmpty(live.fuelLevel, base.fuelLevel),
+      movement: _preferNonEmpty(live.movement, base.movement),
+    );
+  }
+
+  static String _preferNonEmpty(String primary, String fallback) {
+    return primary.trim().isNotEmpty ? primary : fallback;
+  }
+
+  static double? _readFirstDouble(
+    Map<String, dynamic> map,
+    List<String> keys,
+  ) {
+    for (final String key in keys) {
+      final dynamic value = map[key];
+      if (value == null) continue;
+      if (value is num) return value.toDouble();
+      final double? parsed = double.tryParse(value.toString());
+      if (parsed != null && !parsed.isNaN) return parsed;
+    }
+    return null;
+  }
+
   static String _formatSpeed(dynamic speed) {
     if (speed == null) return '00';
-    final double? parsed = double.tryParse(speed.toString());
-    if (parsed == null || parsed <= 0) return '00';
+    final double parsed = speed is num
+        ? speed.toDouble()
+        : parseSpeedKmh(speed.toString());
+    if (parsed <= 0) return '00';
     return parsed.round().toString().padLeft(2, '0');
   }
 

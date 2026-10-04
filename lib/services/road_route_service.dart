@@ -21,11 +21,42 @@ class RoadRouteService {
   static const Duration _directionsCooldown = Duration(seconds: 4);
   static const int _maxCacheEntries = 64;
 
+  /// Road-following segment using server tail (preferred for live tracking).
+  static List<LatLng> pathAlongDeviceTail({
+    required LatLng from,
+    required LatLng to,
+    required List<LatLng> tail,
+  }) {
+    if (tail.length < 2) {
+      return <LatLng>[];
+    }
+    final List<LatLng> deduped = LiveRouteService.dedupe(tail);
+    final List<LatLng> ahead =
+        LiveRouteService.queueAhead(path: deduped, current: from);
+    if (ahead.isEmpty) {
+      return <LatLng>[];
+    }
+    final List<LatLng> path = <LatLng>[from, ...ahead];
+    if (LiveRouteService.haversineMeters(path.last, to) > 0.35) {
+      path.add(to);
+    }
+    return LiveRouteService.dedupe(path);
+  }
+
   static Future<List<LatLng>> routeBetween({
     required LatLng from,
     required LatLng to,
     List<LatLng> tailHint = const <LatLng>[],
   }) async {
+    final List<LatLng> tailFirst = pathAlongDeviceTail(
+      from: from,
+      to: to,
+      tail: tailHint,
+    );
+    if (tailFirst.length >= 2) {
+      return tailFirst;
+    }
+
     final String cacheKey = _cacheKey(from, to);
     final List<LatLng>? cached = _routeCache[cacheKey];
     if (cached != null && cached.length >= 2) {
@@ -49,6 +80,13 @@ class RoadRouteService {
     final List<LatLng>? directions = await _fetchGoogleDirections(from, to);
     if (directions != null && directions.length >= 2) {
       final List<LatLng> result = LiveRouteService.dedupe(directions);
+      _storeCache(cacheKey, result);
+      return result;
+    }
+
+    final List<LatLng>? osrm = await _fetchOsrmRoute(from, to);
+    if (osrm != null && osrm.length >= 2) {
+      final List<LatLng> result = LiveRouteService.dedupe(osrm);
       _storeCache(cacheKey, result);
       return result;
     }
@@ -103,6 +141,36 @@ class RoadRouteService {
       }
     }
     return best;
+  }
+
+  static Future<List<LatLng>?> _fetchOsrmRoute(LatLng from, LatLng to) async {
+    final Uri uri = Uri.parse(
+      'https://router.project-osrm.org/route/v1/driving/'
+      '${from.longitude},${from.latitude};${to.longitude},${to.latitude}'
+      '?overview=full&geometries=polyline',
+    );
+    try {
+      final http.Response response =
+          await http.get(uri).timeout(const Duration(seconds: 6));
+      if (response.statusCode != 200) {
+        return null;
+      }
+      final dynamic decoded = jsonDecode(response.body);
+      if (decoded is! Map || decoded['code']?.toString() != 'Ok') {
+        return null;
+      }
+      final dynamic routes = decoded['routes'];
+      if (routes is! List || routes.isEmpty) {
+        return null;
+      }
+      final dynamic geometry = routes.first['geometry'];
+      if (geometry is! String || geometry.isEmpty) {
+        return null;
+      }
+      return PolylineUtils.decode(geometry);
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<List<LatLng>?> _fetchGoogleDirections(

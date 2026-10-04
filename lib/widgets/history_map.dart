@@ -1,4 +1,6 @@
-﻿import 'package:flutter/foundation.dart';
+﻿import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -25,11 +27,15 @@ class HistoryMap extends StatefulWidget {
     required this.routeColor,
     this.stopSessions = const <HistoryStopSession>[],
     this.onStopSelected,
+    this.selectedStopPosition,
+    this.stopPopupScreenNotifier,
   });
 
   final HistoryRoute route;
   final List<HistoryStopSession> stopSessions;
   final ValueChanged<HistoryStopSession>? onStopSelected;
+  final LatLng? selectedStopPosition;
+  final ValueNotifier<Offset?>? stopPopupScreenNotifier;
   final ValueListenable<double> fractionListenable;
   final ValueListenable<bool> playingListenable;
   final bool isActive;
@@ -65,6 +71,8 @@ class HistoryMapState extends State<HistoryMap>
   LatLng? _lastCameraTarget;
   Duration _lastFrameAt = Duration.zero;
   int _lastUiFrameMs = 0;
+  int _popupAnchorUpdateSeq = 0;
+  int _lastPopupAnchorPublishMs = 0;
 
   bool get _isPlaying => widget.playingListenable.value;
 
@@ -92,7 +100,56 @@ class HistoryMapState extends State<HistoryMap>
     _playbackTicker?.dispose();
     _playbackTicker = null;
     _controller = null;
+    widget.stopPopupScreenNotifier?.value = null;
     super.dispose();
+  }
+
+  /// Screen position for [widget.selectedStopPosition] (updates when the map pans/zooms).
+  Future<void> refreshStopPopupAnchor() async {
+    await _publishStopPopupScreen(widget.selectedStopPosition);
+  }
+
+  Future<void> _publishStopPopupScreen(LatLng? latLng) async {
+    final ValueNotifier<Offset?>? notifier = widget.stopPopupScreenNotifier;
+    if (notifier == null) {
+      return;
+    }
+    if (latLng == null) {
+      notifier.value = null;
+      return;
+    }
+    final GoogleMapController? controller = _controller;
+    if (controller == null || !mounted) {
+      return;
+    }
+    try {
+      final ScreenCoordinate screen =
+          await controller.getScreenCoordinate(latLng);
+      if (!mounted) {
+        return;
+      }
+      notifier.value = Offset(screen.x.toDouble(), screen.y.toDouble());
+    } catch (_) {
+      notifier.value = null;
+    }
+  }
+
+  void _scheduleStopPopupAnchorUpdate() {
+    if (widget.selectedStopPosition == null) {
+      return;
+    }
+    final int nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs - _lastPopupAnchorPublishMs < 32) {
+      return;
+    }
+    _lastPopupAnchorPublishMs = nowMs;
+    final int seq = ++_popupAnchorUpdateSeq;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || seq != _popupAnchorUpdateSeq) {
+        return;
+      }
+      await _publishStopPopupScreen(widget.selectedStopPosition);
+    });
   }
 
   void _onExternalPlaybackTick() {
@@ -209,6 +266,9 @@ class HistoryMapState extends State<HistoryMap>
     final String nextKey =
         '${widget.route.points.length}_${widget.route.startTime?.millisecondsSinceEpoch}_'
         '${widget.route.endTime?.millisecondsSinceEpoch}_${widget.stopSessions.length}';
+    if (oldWidget.selectedStopPosition != widget.selectedStopPosition) {
+      unawaited(refreshStopPopupAnchor());
+    }
     if (nextKey != _routeKey) {
       _deferApplyRoute(widget.route, _targetFraction);
     } else {
@@ -318,7 +378,7 @@ class HistoryMapState extends State<HistoryMap>
       if (followCamera) {
         _maybeFollowPlayback(playbackFraction);
       }
-      final int uiThrottleMs = _isPlaying ? 120 : 50;
+      final int uiThrottleMs = _isPlaying ? 180 : 66;
       if (nowMs - _lastUiFrameMs >= uiThrottleMs || !_isPlaying) {
         _lastUiFrameMs = nowMs;
         if (mounted && widget.isActive) {
@@ -581,12 +641,15 @@ class HistoryMapState extends State<HistoryMap>
           widget.onStopSelected!(hit);
         }
       },
+      onCameraMove: (_) => _scheduleStopPopupAnchorUpdate(),
+      onCameraIdle: () => unawaited(refreshStopPopupAnchor()),
       onMapCreated: (GoogleMapController controller) {
         if (!mounted) {
           return;
         }
         _controller = controller;
         _scheduleFitBounds();
+        unawaited(refreshStopPopupAnchor());
       },
     );
   }

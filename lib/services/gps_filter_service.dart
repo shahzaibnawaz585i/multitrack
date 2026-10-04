@@ -29,6 +29,17 @@ class GpsFilterService {
     _sequence = seed?.sequence ?? 0;
   }
 
+  /// After visual coast, align filter with the marker so the next poll is not dropped as duplicate.
+  void syncAcceptedPosition(LatLng position, {double speedKmh = 0.0}) {
+    _sequence += 1;
+    _lastAccepted = GpsFix(
+      position: position,
+      timestamp: DateTime.now(),
+      speedKmh: speedKmh,
+      sequence: _sequence,
+    );
+  }
+
   GpsFilterResult evaluate(GpsFix incoming) {
     if (!_isValidCoordinate(incoming.position)) {
       return const GpsFilterResult.rejected(GpsRejectReason.invalidCoordinates);

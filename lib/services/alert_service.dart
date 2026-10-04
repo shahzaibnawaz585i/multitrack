@@ -11,6 +11,7 @@ import 'api_client.dart';
 import 'vehicle_service.dart';
 import 'auth_service.dart';
 import 'live_notification_controller.dart';
+import '../utils/live_overspeed_guard.dart';
 import 'reverse_geocoding_service.dart';
 
 class AlertService {
@@ -586,6 +587,16 @@ class AlertService {
       final String key = _notifKey(n);
       if (!_knownEventKeys.contains(key)) {
         _knownEventKeys.add(key);
+        if (n.eventType == NotificationEventType.overSpeed &&
+            !LiveOverspeedGuard.shouldPushApiOverSpeed(
+              n,
+              liveVehicle: LiveOverspeedGuard.matchVehicle(
+                n,
+                VehicleData.vehicles,
+              ),
+            )) {
+          continue;
+        }
         LiveNotificationController.instance.push(n);
       }
     }

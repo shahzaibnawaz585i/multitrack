@@ -11,6 +11,7 @@ import '../data/vehicle_data.dart';
 import '../models/notification_model.dart';
 import '../models/vehicle_model.dart';
 import '../utils/live_location_text.dart';
+import '../utils/live_overspeed_guard.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
 import 'live_notification_controller.dart';
@@ -192,7 +193,7 @@ class VehicleService {
       // Baseline initialization: store initial status so no false alarms on startup
       for (final VehicleModel v in vehicles) {
         final String key = v.id != null ? 'id_${v.id}' : v.name;
-        final double spd = _parseSpeedKmph(v.speed);
+        final double spd = _overspeedTrackingSpeed(v);
         _previousStates[key] = _VehicleStateSnapshot(
           status: v.status.toUpperCase(),
           speed: spd,
@@ -205,7 +206,7 @@ class VehicleService {
     for (final VehicleModel v in vehicles) {
       final String key = v.id != null ? 'id_${v.id}' : v.name;
       final String currentStatus = v.status.toUpperCase();
-      final double currentSpeed = _parseSpeedKmph(v.speed);
+      final double currentSpeed = _overspeedTrackingSpeed(v);
 
       final _VehicleStateSnapshot? prev = _previousStates[key];
       if (prev != null) {
@@ -255,8 +256,12 @@ class VehicleService {
           LiveNotificationController.instance.push(notif);
         }
 
-        // 3. OverSpeed: Speed exceeds 80 km/h
-        if (prevSpeed <= 80 && currentSpeed > 80) {
+        // 3. OverSpeed — device limit, only while actually moving (not parked).
+        if (LiveOverspeedGuard.shouldNotifyLiveTransition(
+          vehicle: v,
+          previousSpeedKmph: prevSpeed,
+          currentSpeedKmh: currentSpeed,
+        )) {
           final AppNotification notif = AppNotification(
             id: v.id,
             vehicleId: v.name,
@@ -280,8 +285,12 @@ class VehicleService {
     }
   }
 
-  static double _parseSpeedKmph(String speed) {
-    return double.tryParse(speed.replaceAll(RegExp(r'[^\d.]'), '')) ?? 0.0;
+  /// Speed used for overspeed edge detection — zero when the device reads as parked.
+  static double _overspeedTrackingSpeed(VehicleModel v) {
+    if (LiveOverspeedGuard.isParked(v)) {
+      return 0;
+    }
+    return VehicleModel.parseSpeedKmh(v.speed);
   }
 
   static void _resolveMissingAddresses(

@@ -1,10 +1,10 @@
-import 'dart:collection';
 import 'dart:math' as math;
 
 import 'package:flutter/animation.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../services/live_route_service.dart';
+import 'marker_motion_queue.dart';
 
 /// Animates a vehicle marker along road coordinate paths (never straight GPS jumps).
 class VehicleTrackAnimator {
@@ -15,7 +15,7 @@ class VehicleTrackAnimator {
   }
 
   final AnimationController _segmentCtrl;
-  final Queue<_PathJob> _pathQueue = Queue<_PathJob>();
+  final MarkerMotionQueue _motionQueue = MarkerMotionQueue();
   final List<LatLng> trailPoints = <LatLng>[];
 
   List<LatLng> _activePath = <LatLng>[];
@@ -32,6 +32,36 @@ class VehicleTrackAnimator {
   double get displayBearing => _displayBearing;
   bool get isAnimating => !_disposed && _segmentCtrl.isAnimating;
   bool get isDisposed => _disposed;
+  int get queuedSegments => _motionQueue.length + (isAnimating ? 1 : 0);
+
+  /// Enqueues a single GPS fix — animates from the current display position to [target].
+  void enqueueCoordinate(
+    LatLng target, {
+    required Duration duration,
+    bool moving = true,
+    double maxStepMeters = 14,
+  }) {
+    if (_disposed) {
+      return;
+    }
+    if (!_initialized) {
+      seed(target);
+      return;
+    }
+    final LatLng from = _displayPosition;
+    if (LiveRouteService.haversineMeters(from, target) < 0.25) {
+      return;
+    }
+    final List<LatLng> dense = _densifyPath(
+      <LatLng>[from, target],
+      maxStepMeters: maxStepMeters,
+    );
+    _offerSegment(
+      waypoints: dense,
+      duration: duration,
+      moving: moving,
+    );
+  }
 
   void seed(LatLng start, {double bearing = 0.0}) {
     if (_disposed) return;
@@ -51,7 +81,7 @@ class VehicleTrackAnimator {
     }
 
     _segmentCtrl.stop();
-    _pathQueue.clear();
+    _motionQueue.clear();
     _activePath = <LatLng>[];
 
     _displayPosition = path.first;
@@ -64,7 +94,12 @@ class VehicleTrackAnimator {
       ..add(path.first);
     _initialized = true;
 
-    _enqueuePath(path, _durationForPath(path, speedKmh), speedKmh > 1.0);
+    _offerSegment(
+      waypoints: path,
+      duration: _durationForPath(path, speedKmh),
+      moving: speedKmh > 1.0,
+      flush: true,
+    );
   }
 
   /// Clears the rendered trail polyline for this vehicle.
@@ -89,6 +124,31 @@ class VehicleTrackAnimator {
       _frozenBearing = _displayBearing;
     }
     _initialized = true;
+  }
+
+  /// Short glide while waiting for the next GPS poll (does not interrupt active segments).
+  void enqueueCoast({
+    required double bearingDeg,
+    required double stepMeters,
+    required Duration duration,
+  }) {
+    if (_disposed || !_initialized || stepMeters < 0.15) {
+      return;
+    }
+    if (_segmentCtrl.isAnimating || !_motionQueue.isEmpty) {
+      return;
+    }
+    final LatLng from = _displayPosition;
+    final LatLng to = _offsetMeters(from, bearingDeg, stepMeters);
+    if (LiveRouteService.haversineMeters(from, to) < 0.15) {
+      return;
+    }
+    _bearingFrozen = false;
+    final List<LatLng> dense = _densifyPath(
+      <LatLng>[from, to],
+      maxStepMeters: 8,
+    );
+    _offerSegment(waypoints: dense, duration: duration, moving: true);
   }
 
   void enqueueRoadPath(
@@ -120,15 +180,47 @@ class VehicleTrackAnimator {
       cleaned.add(path.last);
     }
 
-    _segmentCtrl.stop();
-    _pathQueue.clear();
-    _enqueuePath(cleaned, duration, true);
+    final List<LatLng> dense = _densifyPath(cleaned, maxStepMeters: 14);
+
+    _offerSegment(waypoints: dense, duration: duration, moving: true);
+  }
+
+  static List<LatLng> _densifyPath(
+    List<LatLng> path, {
+    required double maxStepMeters,
+  }) {
+    if (path.length < 2) {
+      return path;
+    }
+    final List<LatLng> out = <LatLng>[path.first];
+    for (int i = 1; i < path.length; i++) {
+      final LatLng a = out.last;
+      final LatLng b = path[i];
+      final double span = LiveRouteService.haversineMeters(a, b);
+      if (span <= maxStepMeters) {
+        if (LiveRouteService.haversineMeters(out.last, b) > 0.35) {
+          out.add(b);
+        }
+        continue;
+      }
+      final int steps = (span / maxStepMeters).ceil().clamp(1, 48);
+      for (int s = 1; s <= steps; s++) {
+        final double t = s / steps;
+        out.add(
+          LatLng(
+            a.latitude + (b.latitude - a.latitude) * t,
+            a.longitude + (b.longitude - a.longitude) * t,
+          ),
+        );
+      }
+    }
+    return out;
   }
 
   void snapTo(LatLng fix, {double? bearing, bool freezeBearing = false}) {
     if (_disposed) return;
     _segmentCtrl.stop();
-    _pathQueue.clear();
+    _motionQueue.clear();
     _activePath = <LatLng>[];
     _displayPosition = fix;
     if (bearing != null) {
@@ -190,32 +282,75 @@ class VehicleTrackAnimator {
     _segmentCtrl.removeStatusListener(_onSegmentStatus);
     _segmentCtrl.stop();
     _segmentCtrl.dispose();
-    _pathQueue.clear();
+    _motionQueue.clear();
     onSegmentFrame = null;
   }
 
-  void _enqueuePath(List<LatLng> path, Duration duration, bool moving) {
-    _pathQueue.add(_PathJob(points: path, duration: duration, moving: moving));
+  void _offerSegment({
+    required List<LatLng> waypoints,
+    required Duration duration,
+    required bool moving,
+    bool flush = false,
+  }) {
+    if (_disposed || waypoints.length < 2) {
+      return;
+    }
+    if (flush) {
+      _segmentCtrl.stop();
+      _motionQueue.clear();
+      _activePath = <LatLng>[];
+    }
+    _motionQueue.enqueue(
+      MarkerMotionSegment(
+        waypoints: waypoints,
+        duration: duration,
+        moving: moving,
+      ),
+    );
     if (!_segmentCtrl.isAnimating) {
-      _startNextPath();
+      _startNextSegment();
     }
   }
 
-  void _startNextPath() {
-    if (_disposed || _pathQueue.isEmpty) return;
-    final _PathJob job = _pathQueue.removeFirst();
+  void _startNextSegment() {
+    if (_disposed) {
+      return;
+    }
+    final MarkerMotionSegment? job = _motionQueue.dequeue();
+    if (job == null) {
+      return;
+    }
     _invalidateSamplingCache();
-    _activePath = job.points;
+    _activePath = _retargetPathFromDisplay(job.waypoints);
     _bearingFrozen = !job.moving;
     _segmentCtrl
       ..duration = job.duration
-      ..forward(from: 0);
+      ..forward(from: 0.0);
+  }
+
+  List<LatLng> _retargetPathFromDisplay(List<LatLng> path) {
+    if (path.isEmpty) {
+      return path;
+    }
+    if (LiveRouteService.haversineMeters(path.first, _displayPosition) <= 2.5) {
+      return path;
+    }
+    final List<LatLng> out = <LatLng>[_displayPosition];
+    for (int i = 0; i < path.length; i++) {
+      if (LiveRouteService.haversineMeters(out.last, path[i]) > 0.35) {
+        out.add(path[i]);
+      }
+    }
+    if (out.length < 2) {
+      out.add(path.last);
+    }
+    return out;
   }
 
   void _onSegmentTick() {
     if (_disposed || _activePath.length < 2) return;
 
-    final double t = Curves.linear.transform(_segmentCtrl.value);
+    final double t = _segmentCtrl.value;
     final _PathSample sample = _samplePath(_activePath, t);
     _displayPosition = sample.position;
 
@@ -239,8 +374,8 @@ class VehicleTrackAnimator {
     if (_activePath.isNotEmpty) {
       _commitTrailPoint(_activePath.last);
     }
-    if (_pathQueue.isNotEmpty) {
-      _startNextPath();
+    if (!_motionQueue.isEmpty) {
+      _startNextSegment();
     }
   }
 
@@ -341,18 +476,6 @@ class VehicleTrackAnimator {
   }
 }
 
-class _PathJob {
-  const _PathJob({
-    required this.points,
-    required this.duration,
-    required this.moving,
-  });
-
-  final List<LatLng> points;
-  final Duration duration;
-  final bool moving;
-}
-
 class _PathSample {
   const _PathSample(this.position, this.bearing);
 
@@ -360,58 +483,72 @@ class _PathSample {
   final double bearing;
 }
 
-/// Smooth navigation camera — keeps vehicle near bottom-center of visible map.
+/// Follow camera — [centerOnMarker] keeps the vehicle at the map viewport center.
 class NavigationCamera {
   NavigationCamera({
     this.followLerp = 0.12,
     this.lookAheadMeters = 75.0,
     this.zoom = 18.0,
     this.tilt = 0.0,
+    this.centerOnMarker = false,
+    this.rotateWithVehicle = true,
   });
 
   final double followLerp;
   final double lookAheadMeters;
   final double zoom;
   final double tilt;
+  final bool centerOnMarker;
+  final bool rotateWithVehicle;
 
   LatLng _target = const LatLng(0, 0);
   double _bearing = 0.0;
   bool _initialized = false;
 
-  CameraPosition cameraFor(LatLng car, double bearing) {
+  CameraPosition cameraFor(
+    LatLng car,
+    double bearing, {
+    bool snapToMarker = false,
+  }) {
+    final double lerp = snapToMarker ? 1.0 : followLerp;
+    final LatLng desired = _cameraTarget(car, bearing);
+
     if (!_initialized) {
-      _target = _offsetTarget(car, bearing);
-      _bearing = bearing;
+      _target = desired;
+      _bearing = rotateWithVehicle ? bearing : 0.0;
       _initialized = true;
     } else {
-      final LatLng desired = _offsetTarget(car, bearing);
       _target = LatLng(
-        _target.latitude + (desired.latitude - _target.latitude) * followLerp,
-        _target.longitude +
-            (desired.longitude - _target.longitude) * followLerp,
+        _target.latitude + (desired.latitude - _target.latitude) * lerp,
+        _target.longitude + (desired.longitude - _target.longitude) * lerp,
       );
-      _bearing = VehicleTrackAnimator.lerpAngleShortest(
-        _bearing,
-        bearing,
-        followLerp,
-      );
+      if (rotateWithVehicle) {
+        _bearing = VehicleTrackAnimator.lerpAngleShortest(
+          _bearing,
+          bearing,
+          lerp,
+        );
+      }
     }
 
     return CameraPosition(
       target: _target,
       zoom: zoom,
-      bearing: _bearing,
+      bearing: rotateWithVehicle ? _bearing : 0.0,
       tilt: tilt,
     );
   }
 
   void reset(LatLng car, double bearing) {
-    _target = _offsetTarget(car, bearing);
-    _bearing = bearing;
+    _target = _cameraTarget(car, bearing);
+    _bearing = rotateWithVehicle ? bearing : 0.0;
     _initialized = true;
   }
 
-  LatLng _offsetTarget(LatLng car, double bearing) {
+  LatLng _cameraTarget(LatLng car, double bearing) {
+    if (centerOnMarker || lookAheadMeters <= 0) {
+      return car;
+    }
     const double mPerDegLat = 111319.5;
     final double mPerDegLng =
         mPerDegLat * math.cos(car.latitude * math.pi / 180);

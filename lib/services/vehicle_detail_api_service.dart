@@ -110,7 +110,11 @@ class VehicleDetailApiService {
   }) async {
     final String key = _key(deviceId, from, to, 'history');
     if (!forceRefresh && _historyCache.containsKey(key)) {
-      return _historyCache[key]!;
+      final HistoryRoute cached = _historyCache[key]!;
+      if (!cached.isEmpty) {
+        return cached;
+      }
+      _historyCache.remove(key);
     }
     if (!forceRefresh) {
       final Future<HistoryRoute>? inFlight = _historyInflight[key];
@@ -135,9 +139,9 @@ class VehicleDetailApiService {
                 forceRefresh: forceRefresh,
               ))
         .then((HistoryRoute route) {
-      _historyCache[key] = route;
-      _trimCache(_historyCache);
       if (!route.isEmpty) {
+        _historyCache[key] = route;
+        _trimCache(_historyCache);
         final String statsKey = _key(deviceId, from, to, 'stats');
         _statsCache[statsKey] = statsFromHistoryRoute(route);
         _trimCache(_statsCache);
