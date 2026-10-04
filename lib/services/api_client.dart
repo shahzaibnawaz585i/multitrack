@@ -71,8 +71,11 @@ class ApiClient {
 
       return HttpJsonResponse(statusCode: response.statusCode, body: decoded);
     } on TimeoutException {
-      throw const ApiException(
-        'Request timed out. Check internet or try a shorter date range.',
+      final bool historyPath = uri.path.contains('get_history');
+      throw ApiException(
+        historyPath
+            ? 'History request timed out. Try Wi‑Fi or a shorter period.'
+            : 'Request timed out. Check internet and try again.',
       );
     } on ApiException {
       rethrow;
@@ -94,29 +97,14 @@ class ApiClient {
   static Future<dynamic> get(
     Uri uri, {
     String? token,
+    Duration? timeout,
   }) async {
-    try {
-      final http.Response response = await http
-          .get(
-            uri,
-            headers: <String, String>{
-              'Accept': 'application/json',
-              if (token != null && token.isNotEmpty)
-                'Authorization': 'Bearer $token',
-            },
-          )
-          .timeout(const Duration(seconds: 8));
-
-      return _decodeDynamic(response);
-    } on TimeoutException {
-      throw const ApiException('Could not connect to server');
-    } on ApiException {
-      rethrow;
-    } on FormatException {
-      throw const ApiException('Failed to process response');
-    } catch (_) {
-      throw const ApiException('Could not connect to server');
-    }
+    final HttpJsonResponse result = await getWithStatus(
+      uri,
+      token: token,
+      timeout: timeout ?? ApiConfig.timeout,
+    );
+    return result.body;
   }
 
   /// GET that returns null on 404 instead of throwing.

@@ -78,8 +78,17 @@ class _GeneralSettingScreenState extends State<GeneralSettingScreen> {
             );
           }
 
-          final String notifVal = _values['Notification'] ?? 'ON';
-          VoiceAlertService.instance.enabled = (notifVal.toUpperCase() == 'ON');
+          final bool notifOn =
+              (_values['Notification'] ?? 'ON').toUpperCase() == 'ON';
+          final bool voiceOn =
+              (_values['Voice Command'] ?? 'ON').toUpperCase() == 'ON';
+          VoiceAlertService.instance.applySettings(
+            notificationOn: notifOn,
+            voiceOn: voiceOn,
+          );
+          LiveNotificationController.instance.applySettings(
+            notificationOn: notifOn,
+          );
         });
       }
     } catch (error) {
@@ -539,19 +548,31 @@ class _GeneralSettingScreenState extends State<GeneralSettingScreen> {
             .setSetting(setting.title, selected);
 
         if (setting.title == 'Notification' || setting.title == 'Voice Command') {
-          final bool isEnabled = (selected.toUpperCase() == 'ON');
-          VoiceAlertService.instance.enabled = isEnabled;
-          if (isEnabled) {
-            LiveNotificationController.instance.push(
-              AppNotification(
-                vehicleId: 'PB11DD9661',
-                eventTitle: 'Ignition On',
-                location: 'Live GPS Alert Active',
-                timestamp: DateTime.now(),
-                category: NotificationCategory.alerts,
-                eventType: NotificationEventType.ignitionOn,
-              ),
+          final bool notifOn =
+              (_values['Notification'] ?? 'ON').toUpperCase() == 'ON';
+          final bool voiceOn =
+              (_values['Voice Command'] ?? 'ON').toUpperCase() == 'ON';
+          VoiceAlertService.instance.applySettings(
+            notificationOn: notifOn,
+            voiceOn: voiceOn,
+          );
+          LiveNotificationController.instance.applySettings(
+            notificationOn: notifOn,
+          );
+          if (voiceOn) {
+            final AppNotification sample = AppNotification(
+              vehicleId: 'PB11DD9661',
+              eventTitle: 'Ignition On',
+              location: 'Live GPS Alert Active',
+              timestamp: DateTime.now(),
+              category: NotificationCategory.alerts,
+              eventType: NotificationEventType.ignitionOn,
             );
+            if (notifOn) {
+              LiveNotificationController.instance.push(sample);
+            } else {
+              VoiceAlertService.instance.speak(sample);
+            }
           }
         }
 

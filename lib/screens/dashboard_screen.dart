@@ -30,7 +30,7 @@ import 'lists_screen.dart';
 import 'map_screen.dart';
 import 'settings_screen/add_expense_screen.dart';
 import 'settings_screen/reminders_screen.dart';
-import 'settings_screen/setting_screen.dart';
+ import 'settings_screen/setting_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -136,7 +136,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           children: <Widget>[
             // ── Main tab content ──────────────────────────────────────
             PageStorage(
-              bucket: _pageStorageBucket,
+        bucket: _pageStorageBucket,
               child: IndexedStack(
                 index: _selectedIndex,
                 children: <Widget>[
@@ -175,26 +175,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
           ],
-        ),
-        bottomNavigationBar: CurvedNavigationBar(
-          index: _selectedIndex,
-          height: 65,
-          backgroundColor: Colors.transparent,
+      ),
+      bottomNavigationBar: CurvedNavigationBar(
+        index: _selectedIndex,
+        height: 65,
+        backgroundColor: Colors.transparent,
           color: theme.cardColor,
           buttonBackgroundColor: theme.cardColor,
           animationDuration: Duration.zero,
           animationCurve: Curves.linear,
-          items: <Widget>[
+        items: <Widget>[
             _buildNavigationItem(icon: Icons.dashboard, index: _dashboardIndex),
-            _buildNavigationItem(
-              icon: Icons.location_on_rounded,
-              index: _mapIndex,
-            ),
+          _buildNavigationItem(
+            icon: Icons.location_on_rounded,
+            index: _mapIndex,
+          ),
             _buildNavigationItem(icon: Icons.local_shipping, index: _listIndex),
             _buildNavigationItem(icon: Icons.person, index: _reportIndex),
             _buildNavigationItem(icon: Icons.settings, index: _settingsIndex),
           ],
-          onTap: _onNavigationTap,
+        onTap: _onNavigationTap,
         ),
     );
   }
@@ -807,12 +807,12 @@ class _MainDashboardContentState extends State<MainDashboardContent> {
             cacheHeight: 120,
             errorBuilder:
                 (BuildContext context, Object error, StackTrace? stackTrace) {
-                  return const SizedBox(
-                    height: 40,
-                    width: 40,
-                    child: Icon(Icons.apps),
-                  );
-                },
+              return const SizedBox(
+                height: 40,
+                width: 40,
+                child: Icon(Icons.apps),
+              );
+            },
           ),
           const SizedBox(width: 8),
           Text(
@@ -833,12 +833,12 @@ class _MainDashboardContentState extends State<MainDashboardContent> {
             cacheHeight: 150,
             errorBuilder:
                 (BuildContext context, Object error, StackTrace? stackTrace) {
-                  return const SizedBox(
-                    height: 50,
-                    width: 50,
-                    child: Icon(Icons.edit),
-                  );
-                },
+              return const SizedBox(
+                height: 50,
+                width: 50,
+                child: Icon(Icons.edit),
+              );
+            },
           ),
           const SizedBox(width: 8),
           InkWell(
@@ -886,14 +886,14 @@ class _MainDashboardContentState extends State<MainDashboardContent> {
             borderRadius: BorderRadius.circular(8),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
+            decoration: BoxDecoration(
                 border: Border.all(color: textColor.withValues(alpha: 0.4)),
-                borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(8),
                 color: Theme.of(context).cardColor,
-              ),
+            ),
               child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
+              mainAxisSize: MainAxisSize.min,
+              children: [
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 140),
                     child: Text(
@@ -971,22 +971,22 @@ class _MainDashboardContentState extends State<MainDashboardContent> {
                           enabled: true,
                           touchCallback:
                               (FlTouchEvent event, PieTouchResponse? response) {
-                                if (!event.isInterestedForInteractions) {
-                                  return;
-                                }
+                            if (!event.isInterestedForInteractions) {
+                              return;
+                            }
 
-                                final PieTouchedSection? touchedSection =
-                                    response?.touchedSection;
+                            final PieTouchedSection? touchedSection =
+                                response?.touchedSection;
 
-                                if (touchedSection == null) {
-                                  return;
-                                }
+                            if (touchedSection == null) {
+                              return;
+                            }
 
-                                final int sectionIndex =
-                                    touchedSection.touchedSectionIndex;
+                            final int sectionIndex =
+                                touchedSection.touchedSectionIndex;
 
-                                _handlePieSectionTap(sectionIndex);
-                              },
+                            _handlePieSectionTap(sectionIndex);
+                          },
                         ),
                         sections: _buildPieSections(
                           running: running,
@@ -1114,42 +1114,42 @@ class _MainDashboardContentState extends State<MainDashboardContent> {
     final List<PieChartSectionData> sections = <PieChartSectionData>[];
     if (stopped > 0) {
       sections.add(
-        PieChartSectionData(
+      PieChartSectionData(
           value: stopped.toDouble(),
-          color: Colors.red,
+        color: Colors.red,
           radius: 32,
           title: '$stopped',
           titleStyle: sliceStyle,
-        ),
+      ),
       );
     }
     if (inactive > 0) {
       sections.add(
-        PieChartSectionData(
+      PieChartSectionData(
           value: inactive.toDouble(),
-          color: Colors.blue,
+        color: Colors.blue,
           radius: 32,
           title: '$inactive',
           titleStyle: sliceStyle,
-        ),
+      ),
       );
     }
     if (running > 0) {
       sections.add(
-        PieChartSectionData(
+      PieChartSectionData(
           value: running.toDouble(),
-          color: Colors.green,
+        color: Colors.green,
           radius: 32,
           title: '$running',
           titleStyle: sliceStyle,
-        ),
+      ),
       );
     }
     if (idle > 0) {
       sections.add(
-        PieChartSectionData(
+      PieChartSectionData(
           value: idle.toDouble(),
-          color: Colors.orange,
+        color: Colors.orange,
           radius: 32,
           title: '$idle',
           titleStyle: sliceStyle,
@@ -1211,13 +1211,13 @@ class _MainDashboardContentState extends State<MainDashboardContent> {
                 ),
               )
             : RepaintBoundary(
-                child: LineChart(
-                  LineChartData(
-                    minX: 0,
+          child: LineChart(
+            LineChartData(
+              minX: 0,
                     maxX: maxX,
-                    minY: 0,
+              minY: 0,
                     maxY: maxY,
-                    borderData: FlBorderData(show: false),
+              borderData: FlBorderData(show: false),
                     gridData: const FlGridData(show: false),
                     lineTouchData: LineTouchData(
                       enabled: true,
@@ -1236,11 +1236,11 @@ class _MainDashboardContentState extends State<MainDashboardContent> {
                           }).toList();
                         },
                       ),
-                    ),
-                    titlesData: FlTitlesData(
-                      leftTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
+              ),
+              titlesData: FlTitlesData(
+                leftTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
                           interval: interval,
                           reservedSize: 26,
                           getTitlesWidget: (double value, TitleMeta meta) {
@@ -1260,49 +1260,49 @@ class _MainDashboardContentState extends State<MainDashboardContent> {
                               ),
                             );
                           },
-                        ),
-                      ),
-                      bottomTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
+                  ),
+                ),
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
                           reservedSize: 26,
                           getTitlesWidget: (double value, TitleMeta meta) {
                             return _buildBottomTitle(context, value, meta);
                           },
-                        ),
-                      ),
+                  ),
+                ),
                       topTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false),
-                      ),
+                  sideTitles: SideTitles(showTitles: false),
+                ),
                       rightTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false),
-                      ),
-                    ),
-                    lineBarsData: [
-                      LineChartBarData(
-                        isCurved: true,
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+              ),
+              lineBarsData: [
+                LineChartBarData(
+                  isCurved: true,
                         color: const Color(0xFF4CAF50),
-                        barWidth: 3,
+                  barWidth: 3,
                         spots: _engineHourSpots.isNotEmpty
                             ? _engineHourSpots
                             : const <FlSpot>[FlSpot(0, 0)],
                         dotData: const FlDotData(show: true),
-                        belowBarData: BarAreaData(
-                          show: true,
-                          gradient: LinearGradient(
-                            colors: [
-                              Colors.green.withValues(alpha: 0.20),
-                              Colors.green.withValues(alpha: 0.001),
-                            ],
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                          ),
-                        ),
-                      ),
-                    ],
+                  belowBarData: BarAreaData(
+                    show: true,
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.green.withValues(alpha: 0.20),
+                        Colors.green.withValues(alpha: 0.001),
+                      ],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
                   ),
                 ),
-              ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1403,9 +1403,9 @@ class _MainDashboardContentState extends State<MainDashboardContent> {
                           showTitles: true,
                           reservedSize: 26,
                           getTitlesWidget: (double value, TitleMeta meta) {
-                            final int index = value.toInt();
-                            if (value != index.toDouble() ||
-                                index < 0 ||
+    final int index = value.toInt();
+    if (value != index.toDouble() ||
+        index < 0 ||
                                 index >= _travelDistanceDates.length) {
                               return const SizedBox.shrink();
                             }
@@ -1602,7 +1602,7 @@ class _TodaysFuelRateSectionState extends State<_TodaysFuelRateSection> {
                       color: textColor.withValues(alpha: 0.45),
                     ),
                   ),
-                  child: Text(
+      child: Text(
                     _displayState,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,

@@ -12,6 +12,16 @@ class NotificationData {
     alertsRevision.value++;
   }
 
+  static void assignAnnouncements(List<AppNotification> next) {
+    announcements = next;
+    alertsRevision.value++;
+  }
+
+  static void assignReminders(List<AppNotification> next) {
+    reminders = next;
+    alertsRevision.value++;
+  }
+
   /// Filled from [AlertService.getEvents] — no seeded demo alerts.
   static List<AppNotification> alerts = <AppNotification>[];
 

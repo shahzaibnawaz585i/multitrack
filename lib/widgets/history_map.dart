@@ -73,15 +73,33 @@ class HistoryMapState extends State<HistoryMap>
   int _lastUiFrameMs = 0;
   int _popupAnchorUpdateSeq = 0;
   int _lastPopupAnchorPublishMs = 0;
+  static const double _playbackFollowZoom = 17.0;
+  static const int _followThrottleMs = 320;
+  bool _wasPlaying = false;
+  bool _followZoomApplied = false;
+  bool _mapDisposed = false;
 
-  bool get _isPlaying => widget.playingListenable.value;
+  bool get _isPlaying {
+    try {
+      return widget.playingListenable.value;
+    } catch (_) {
+      return false;
+    }
+  }
 
-  double get _targetFraction => widget.fractionListenable.value;
+  double get _targetFraction {
+    try {
+      return widget.fractionListenable.value;
+    } catch (_) {
+      return _displayFraction;
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     _displayFraction = _targetFraction;
+    _wasPlaying = widget.playingListenable.value;
     widget.fractionListenable.addListener(_onExternalPlaybackTick);
     widget.playingListenable.addListener(_onExternalPlaybackTick);
     _playbackTicker = createTicker(_onPlaybackFrame);
@@ -94,13 +112,20 @@ class HistoryMapState extends State<HistoryMap>
 
   @override
   void dispose() {
-    widget.fractionListenable.removeListener(_onExternalPlaybackTick);
-    widget.playingListenable.removeListener(_onExternalPlaybackTick);
+    _mapDisposed = true;
+    try {
+      widget.fractionListenable.removeListener(_onExternalPlaybackTick);
+    } catch (_) {}
+    try {
+      widget.playingListenable.removeListener(_onExternalPlaybackTick);
+    } catch (_) {}
     _playbackTicker?.stop();
     _playbackTicker?.dispose();
     _playbackTicker = null;
     _controller = null;
-    widget.stopPopupScreenNotifier?.value = null;
+    try {
+      widget.stopPopupScreenNotifier?.value = null;
+    } catch (_) {}
     super.dispose();
   }
 
@@ -153,19 +178,28 @@ class HistoryMapState extends State<HistoryMap>
   }
 
   void _onExternalPlaybackTick() {
-    if (!mounted || !widget.isActive) {
+    if (_mapDisposed || !mounted || !widget.isActive) {
       return;
     }
     try {
+      final bool playing = _isPlaying;
       final double target = _targetFraction.clamp(0.0, 1.0);
-      if (!_isPlaying && (target - _displayFraction).abs() < 0.000001) {
+      if (!playing && (target - _displayFraction).abs() < 0.000001) {
         return;
       }
       _displayFraction = target;
+      if (playing && !_wasPlaying) {
+        _lastCameraMoveMs = 0;
+        _lastCameraTarget = null;
+        _followZoomApplied = false;
+      } else if (!playing && _wasPlaying) {
+        _followZoomApplied = false;
+      }
+      _wasPlaying = playing;
       _applyPlaybackVisuals(
         _displayFraction,
-        followCamera: false,
-        smoothMarker: _isPlaying,
+        followCamera: playing,
+        smoothMarker: playing,
       );
     } catch (_) {}
   }
@@ -221,7 +255,11 @@ class HistoryMapState extends State<HistoryMap>
   }
 
   void _onPlaybackFrame(Duration elapsed) {
-    if (!mounted || !widget.isActive || _sortedPoints.isEmpty || _isPlaying) {
+    if (_mapDisposed ||
+        !mounted ||
+        !widget.isActive ||
+        _sortedPoints.isEmpty ||
+        _isPlaying) {
       return;
     }
     if (_lastFrameAt != Duration.zero &&
@@ -364,24 +402,25 @@ class HistoryMapState extends State<HistoryMap>
     required bool followCamera,
     bool smoothMarker = false,
   }) {
-    if (_sortedPoints.isEmpty) {
+    if (_mapDisposed || !mounted || _sortedPoints.isEmpty) {
       return;
     }
     try {
       final int nowMs = DateTime.now().millisecondsSinceEpoch;
-      if (_isPlaying) {
+      final bool playing = _isPlaying;
+      if (playing) {
         _rebuildArrowMarkerOnly(playbackFraction, smoothMarker: smoothMarker);
       } else {
         _rebuildPolylines(playbackFraction);
         _rebuildMarkers(playbackFraction, smoothMarker: smoothMarker);
       }
-      if (followCamera) {
+      if (followCamera && playing) {
         _maybeFollowPlayback(playbackFraction);
       }
-      final int uiThrottleMs = _isPlaying ? 180 : 66;
-      if (nowMs - _lastUiFrameMs >= uiThrottleMs || !_isPlaying) {
+      final int uiThrottleMs = playing ? 200 : 66;
+      if (nowMs - _lastUiFrameMs >= uiThrottleMs || !playing) {
         _lastUiFrameMs = nowMs;
-        if (mounted && widget.isActive) {
+        if (!_mapDisposed && mounted && widget.isActive) {
           setState(() {});
         }
       }
@@ -548,7 +587,22 @@ class HistoryMapState extends State<HistoryMap>
     _markers = next;
   }
 
+  bool _isValidLatLng(LatLng p) {
+    final double lat = p.latitude;
+    final double lng = p.longitude;
+    if (!lat.isFinite || !lng.isFinite) {
+      return false;
+    }
+    if (lat.abs() > 90 || lng.abs() > 180) {
+      return false;
+    }
+    return !(lat == 0 && lng == 0);
+  }
+
   void _maybeFollowPlayback(double fraction) {
+    if (_mapDisposed || !mounted) {
+      return;
+    }
     final GoogleMapController? controller = _controller;
     if (controller == null || _sortedPoints.isEmpty) {
       return;
@@ -558,29 +612,31 @@ class HistoryMapState extends State<HistoryMap>
       fraction,
       timeFractions: _timeFractions,
     );
+    if (!_isValidLatLng(sample.position)) {
+      return;
+    }
     final int nowMs = DateTime.now().millisecondsSinceEpoch;
     final LatLng? last = _lastCameraTarget;
     if (last != null &&
-        nowMs - _lastCameraMoveMs < 80 &&
-        LiveRouteService.haversineMeters(last, sample.position) < 3) {
+        nowMs - _lastCameraMoveMs < _followThrottleMs &&
+        LiveRouteService.haversineMeters(last, sample.position) < 6) {
       return;
     }
     _lastCameraMoveMs = nowMs;
     _lastCameraTarget = sample.position;
-    if (!mounted) {
-      return;
-    }
     try {
-      controller.moveCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: sample.position,
-            zoom: 16,
-            bearing: _smoothedBearing,
-            tilt: 0,
+      // Avoid full CameraPosition+bearing every tick — native map crashes on
+      // some MediaTek devices when moveCamera is called too aggressively.
+      if (!_followZoomApplied) {
+        _followZoomApplied = true;
+        unawaited(
+          controller.animateCamera(
+            CameraUpdate.newLatLngZoom(sample.position, _playbackFollowZoom),
           ),
-        ),
-      );
+        );
+      } else {
+        controller.moveCamera(CameraUpdate.newLatLng(sample.position));
+      }
     } catch (_) {}
   }
 

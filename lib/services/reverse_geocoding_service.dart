@@ -344,7 +344,7 @@ class ReverseGeocodingService {
 
   static Future<void> _saveToCache(String key, String address) async {
     _memoryCache[key] = address;
-    while (_memoryCache.length > 300) {
+    while (_memoryCache.length > 120) {
       _memoryCache.remove(_memoryCache.keys.first);
     }
     try {
@@ -354,12 +354,32 @@ class ReverseGeocodingService {
           prefs.getStringList('geo_cache_keys') ?? <String>[];
       if (!keys.contains(key)) {
         keys.add(key);
-        if (keys.length > 200) {
-          final String oldKey = keys.removeAt(0);
-          await prefs.remove('geo_addr_$oldKey');
-        }
-        await prefs.setStringList('geo_cache_keys', keys);
       }
+      while (keys.length > 80) {
+        final String oldKey = keys.removeAt(0);
+        _memoryCache.remove(oldKey);
+        await prefs.remove('geo_addr_$oldKey');
+      }
+      await prefs.setStringList('geo_cache_keys', keys);
+    } catch (_) {}
+  }
+
+  /// Drops oldest saved addresses (SharedPreferences can grow large on big fleets).
+  static Future<void> trimPersistentCache({required int maxEntries}) async {
+    await _loadCache();
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      List<String> keys =
+          prefs.getStringList('geo_cache_keys') ?? <String>[];
+      while (keys.length > maxEntries) {
+        final String oldKey = keys.removeAt(0);
+        _memoryCache.remove(oldKey);
+        await prefs.remove('geo_addr_$oldKey');
+      }
+      while (_memoryCache.length > maxEntries) {
+        _memoryCache.remove(_memoryCache.keys.first);
+      }
+      await prefs.setStringList('geo_cache_keys', keys);
     } catch (_) {}
   }
 }

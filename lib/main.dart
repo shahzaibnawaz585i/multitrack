@@ -12,6 +12,7 @@ import 'l10n/app_locale_controller.dart';
 import 'screens/splash_screen.dart';
 import 'services/auth_service.dart';
 import 'services/general_settings_controller.dart';
+import 'services/app_cache_service.dart';
 import 'services/vehicle_service.dart';
 import 'theme/app_theme_controller.dart';
 import 'theme/app_theme_mode.dart';
@@ -22,6 +23,8 @@ import 'widgets/screen_hack_overlay.dart';
 import 'screens/notifications_screen.dart';
 import 'services/alert_polling_service.dart';
 import 'services/app_lifecycle_gate.dart';
+import 'services/voice_alert_service.dart';
+import 'services/live_notification_controller.dart';
 import 'services/local_notification_service.dart';
 import 'navigation/root_navigator.dart';
 import 'widgets/global_live_alert_overlay.dart';
@@ -61,8 +64,8 @@ Future<void> main() async {
 
     AppLifecycleGate.instance.ensureBound();
     GestureBinding.instance.resamplingEnabled = true;
-    PaintingBinding.instance.imageCache.maximumSize = 200;
-    PaintingBinding.instance.imageCache.maximumSizeBytes = 80 << 20;
+    PaintingBinding.instance.imageCache.maximumSize = 120;
+    PaintingBinding.instance.imageCache.maximumSizeBytes = 48 << 20;
 
     final AppThemeController themeController = AppThemeController();
     final AppLocaleController localeController = AppLocaleController();
@@ -80,7 +83,16 @@ Future<void> main() async {
       final bool isLoggedIn = await AuthService.isLoggedIn();
       if (isLoggedIn) {
         await VehicleService.restorePersistedFleet();
+        await AppCacheService.trimOnStartup();
       }
+      VoiceAlertService.instance.applySettings(
+        notificationOn: generalSettingsController.isNotificationOn,
+        voiceOn: generalSettingsController.isVoiceCommandOn,
+      );
+      LiveNotificationController.instance.applySettings(
+        notificationOn: generalSettingsController.isNotificationOn,
+      );
+      await VoiceAlertService.instance.prewarm();
     } catch (error, stackTrace) {
       debugPrint('Startup init error: $error');
       debugPrint('$stackTrace');

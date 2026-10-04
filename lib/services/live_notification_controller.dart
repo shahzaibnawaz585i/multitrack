@@ -30,8 +30,15 @@ class LiveNotificationController extends ChangeNotifier {
   Future<void>? _pushChain;
   static const int _maxQueue = 100;
 
+  /// When false (Settings → Notification OFF), in-app banner + tray alerts stay off.
+  /// Voice still runs via [VoiceAlertService] when Voice Command is ON.
+  bool bannersEnabled = true;
+
   /// The alert currently being shown (null = banner hidden).
   LiveAlertItem? get currentAlert => _current;
+
+  /// Alerts waiting after the visible banner.
+  int get queuedAlertCount => _queue.length;
 
   /// Alerts already placed in the banner queue this session (avoid repeats).
   final Set<String> _queuedBannerKeys = <String>{};
@@ -40,9 +47,21 @@ class LiveNotificationController extends ChangeNotifier {
 
   /// Key → expiry time.
   final Map<String, DateTime> _seen = <String, DateTime>{};
-  static const Duration _dedupWindow = Duration(seconds: 30);
+  static const Duration _dedupWindow = Duration(seconds: 12);
 
   // ─── Public API ───────────────────────────────────────────────────────────
+
+  void applySettings({required bool notificationOn}) {
+    bannersEnabled = notificationOn;
+    if (!bannersEnabled) {
+      _advanceTimer?.cancel();
+      _queue.clear();
+      if (_current != null) {
+        _current = null;
+        notifyListeners();
+      }
+    }
+  }
 
   /// Push an [AppNotification] from any screen / service.
   void push(AppNotification notification) {
@@ -71,10 +90,13 @@ class LiveNotificationController extends ChangeNotifier {
         continue;
       }
       _queuedBannerKeys.add(key);
-      _enqueueForBanner(raw);
+      if (bannersEnabled) {
+        _enqueueForBanner(raw);
+      }
+      _playVoiceIfAllowed(raw);
       added++;
     }
-    if (_current == null && _queue.isNotEmpty) {
+    if (bannersEnabled && _current == null && _queue.isNotEmpty) {
       _showNext();
     }
   }
@@ -110,9 +132,12 @@ class LiveNotificationController extends ChangeNotifier {
 
     _commitAlert(enriched);
     _queuedBannerKeys.add(key);
-    _enqueueForBanner(enriched);
+    if (bannersEnabled) {
+      _enqueueForBanner(enriched);
+    }
+    _playVoiceIfAllowed(enriched);
 
-    if (!AppLifecycleGate.instance.isForeground) {
+    if (bannersEnabled && !AppLifecycleGate.instance.isForeground) {
       unawaited(LocalNotificationService.showAlert(enriched));
     }
 
@@ -124,14 +149,12 @@ class LiveNotificationController extends ChangeNotifier {
           return;
         }
         _commitAlert(resolved);
-        if (_current != null &&
+        if (bannersEnabled &&
+            _current != null &&
             _current!.vehicleName == resolved.vehicleId &&
             _current!.timestamp == resolved.timestamp) {
           _current = _toAlertItem(resolved);
           notifyListeners();
-        }
-        if (!AppLifecycleGate.instance.isForeground) {
-          unawaited(LocalNotificationService.showAlert(resolved));
         }
       } catch (_) {}
     }
@@ -175,6 +198,9 @@ class LiveNotificationController extends ChangeNotifier {
   }
 
   void _enqueueForBanner(AppNotification enriched) {
+    if (!bannersEnabled) {
+      return;
+    }
     while (_queue.length >= _maxQueue) {
       _queue.removeFirst();
     }
@@ -191,19 +217,22 @@ class LiveNotificationController extends ChangeNotifier {
     if (_queue.isEmpty) return;
     final AppNotification notif = _queue.removeFirst();
     _current = _toAlertItem(notif);
-
-    if (_queue.isEmpty) {
-      VoiceAlertService.instance.speak(notif);
-    }
-
     notifyListeners();
   }
 
+  void _playVoiceIfAllowed(AppNotification notification) {
+    if (AppLifecycleGate.instance.isForegroundForVoice) {
+      VoiceAlertService.instance.speak(notification);
+    }
+  }
+
   String _dedupKey(AppNotification n) {
-    if (n.id != null) return 'id_${n.id}';
-    final int minuteBucket =
-        n.timestamp.millisecondsSinceEpoch ~/ 60000;
-    return '${n.vehicleId}_${n.eventType.name}_$minuteBucket';
+    if (n.id != null) {
+      return 'evt_${n.id}';
+    }
+    final int secBucket = n.timestamp.millisecondsSinceEpoch ~/ 1000;
+    final String title = n.eventTitle.trim().toLowerCase();
+    return '${n.vehicleId}_${n.eventType.name}_${title}_$secBucket';
   }
 
   LiveAlertItem _toAlertItem(AppNotification n) {
@@ -214,6 +243,7 @@ class LiveNotificationController extends ChangeNotifier {
       timestamp: n.timestamp,
       vehicleName: n.vehicleId,
       speed: n.speed,
+      queuedBehind: _queue.length,
     );
   }
 
@@ -222,21 +252,21 @@ class LiveNotificationController extends ChangeNotifier {
   String _title(AppNotification n) {
     switch (n.eventType) {
       case NotificationEventType.ignitionOn:
-        return '🔑 Ignition ON — ${n.vehicleId}';
+        return 'Ignition ON';
       case NotificationEventType.ignitionOff:
-        return '🔴 Ignition OFF — ${n.vehicleId}';
+        return 'Ignition OFF';
       case NotificationEventType.overSpeed:
-        return '⚡ Overspeed Alert — ${n.vehicleId}';
+        return 'Overspeed Alert';
       case NotificationEventType.geofenceIn:
-        return '📍 Geofence Entered — ${n.vehicleId}';
+        return 'Geofence Entered';
       case NotificationEventType.geofenceOut:
-        return '🚪 Geofence Exited — ${n.vehicleId}';
+        return 'Geofence Exited';
       case NotificationEventType.offline:
-        return '📵 Device Offline — ${n.vehicleId}';
+        return 'Device Offline';
       case NotificationEventType.movement:
-        return '🚗 Movement Detected — ${n.vehicleId}';
+        return 'Movement Detected';
       case NotificationEventType.generic:
-        return '🔔 Alert — ${n.vehicleId}';
+        return n.eventTitle.isNotEmpty ? n.eventTitle : 'Fleet Alert';
     }
   }
 

@@ -16,6 +16,8 @@ class LiveDeviceSocketService {
   static final LiveDeviceSocketService instance = LiveDeviceSocketService._();
 
   static const Duration _pollInterval = Duration(seconds: 2);
+  static const Duration _minForceRefreshGap = Duration(seconds: 2);
+  DateTime? _lastForceRefreshAt;
   static const Duration _reconnectDelay = Duration(seconds: 5);
 
   final StreamController<VehicleModel> _updates =
@@ -45,7 +47,7 @@ class LiveDeviceSocketService {
       await _connectWebSocket();
     }
     if (deviceChanged || !_pollInFlight) {
-      unawaited(_pollOnce(force: true));
+      unawaited(_pollOnce(force: false));
     }
     emitCachedDevice(deviceId);
   }
@@ -69,6 +71,12 @@ class LiveDeviceSocketService {
     if (!_running) {
       return;
     }
+    final DateTime now = DateTime.now();
+    if (_lastForceRefreshAt != null &&
+        now.difference(_lastForceRefreshAt!) < _minForceRefreshGap) {
+      return;
+    }
+    _lastForceRefreshAt = now;
     unawaited(_pollOnce(force: true));
   }
 
@@ -82,7 +90,7 @@ class LiveDeviceSocketService {
   void _startPollTimer() {
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(_pollInterval, (_) {
-      unawaited(_pollOnce(force: true));
+      unawaited(_pollOnce(force: false));
     });
   }
 

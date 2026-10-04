@@ -8,7 +8,6 @@ import '../models/notification_model.dart';
 import '../models/vehicle_model.dart';
 import '../utils/coordinate_parser.dart';
 import 'api_client.dart';
-import 'vehicle_service.dart';
 import 'auth_service.dart';
 import 'live_notification_controller.dart';
 import '../utils/live_overspeed_guard.dart';
@@ -52,10 +51,6 @@ class AlertService {
     _isFetching = true;
 
     try {
-      if (ApiConfig.usesRemoteApi(server)) {
-        await VehicleService.getDevices(forceRefresh: false);
-      }
-
       final Uri uri = ApiConfig.getEventsUri(
         server,
         token: token,

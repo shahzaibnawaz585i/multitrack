@@ -32,6 +32,7 @@ class _ListScreenState extends State<ListScreen> {
   late String selectedFilter;
   bool _isSearchVisible = false;
   bool _isLoading = true;
+  bool _isRefreshing = false;
   List<VehicleModel> _vehicles = VehicleData.vehicles;
   List<VehicleModel> _visibleVehicles = VehicleData.vehicles;
   Map<String, int> _statusCounts = <String, int>{'all': 0};
@@ -56,20 +57,15 @@ class _ListScreenState extends State<ListScreen> {
   void initState() {
     super.initState();
     selectedFilter = _normalizeFilter(widget.initialFilter);
-    if (VehicleData.vehicles.isNotEmpty) {
-      _vehicles = VehicleData.vehicles;
-      _isLoading = false;
-      _recomputeDerivedLists();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _fetchVehicles(isRefresh: false);
-        }
-      });
-    } else {
-      _isLoading = true;
-      _recomputeDerivedLists();
-      _fetchVehicles();
-    }
+    _vehicles = VehicleData.vehicles;
+    _isLoading = _vehicles.isEmpty;
+    _recomputeDerivedLists();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _fetchVehicles(isRefresh: _vehicles.isNotEmpty);
+    });
     if (widget.isVisible) {
       _startAutoRefresh();
     }
@@ -108,40 +104,52 @@ class _ListScreenState extends State<ListScreen> {
     );
   }
 
-  Future<void> _fetchVehicles({bool isRefresh = false}) async {
+  Future<void> _fetchVehicles({
+    bool isRefresh = false,
+    bool forceNetwork = false,
+  }) async {
     final bool showBlockingLoader = !isRefresh && _vehicles.isEmpty;
     if (showBlockingLoader) {
       setState(() {
         _isLoading = true;
+        _isRefreshing = false;
       });
+    } else if (isRefresh) {
+      setState(() => _isRefreshing = true);
     }
 
     try {
       final List<VehicleModel> data = await VehicleService.getDevices(
-        forceRefresh: isRefresh && _vehicles.isNotEmpty,
+        forceRefresh: forceNetwork,
       );
       if (!mounted) return;
 
       final bool changed =
           VehicleRefreshUtils.listDisplayChanged(_vehicles, data);
       if (!changed) {
-        if (_isLoading) {
-          setState(() => _isLoading = false);
-        }
+        setState(() {
+          _isLoading = false;
+          _isRefreshing = false;
+        });
         return;
       }
 
       setState(() {
         _vehicles = data;
         _isLoading = false;
+        _isRefreshing = false;
         _recomputeDerivedLists();
       });
     } catch (_) {
       if (!mounted) return;
-      if (_vehicles.isNotEmpty && _isLoading == false) return;
+      if (_vehicles.isNotEmpty && !_isLoading) {
+        setState(() => _isRefreshing = false);
+        return;
+      }
       setState(() {
         _vehicles = VehicleData.vehicles;
         _isLoading = false;
+        _isRefreshing = false;
         _recomputeDerivedLists();
       });
     }
@@ -169,7 +177,7 @@ class _ListScreenState extends State<ListScreen> {
   void _startAutoRefresh() {
     _refreshTimer?.cancel();
     _refreshTimer = Timer.periodic(_refreshInterval, (_) {
-      _fetchVehicles(isRefresh: true);
+      _fetchVehicles(isRefresh: true, forceNetwork: false);
     });
   }
 
@@ -194,7 +202,7 @@ class _ListScreenState extends State<ListScreen> {
 
     if (oldWidget.isVisible != widget.isVisible) {
       if (widget.isVisible) {
-        _fetchVehicles(isRefresh: true);
+        _fetchVehicles(isRefresh: true, forceNetwork: false);
         _startAutoRefresh();
       } else {
         _stopAutoRefresh();
@@ -286,22 +294,18 @@ class _ListScreenState extends State<ListScreen> {
             _buildHeader(),
             _buildSearchBar(),
             _buildStatusCards(),
-            const SizedBox(height: 10),
-            Container(
-              height: 5,
-              color: context.containerColor,
-            ),
+            const SizedBox(height: 8),
+            _buildStatusListDivider(),
             Expanded(
-              child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(strokeWidth: 2.5),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: () => _fetchVehicles(isRefresh: true),
-                      child: vehicles.isEmpty
-                          ? _buildEmptyState()
-                          : _buildVehicleList(vehicles),
-                    ),
+              child: RefreshIndicator(
+                onRefresh: () =>
+                    _fetchVehicles(isRefresh: true, forceNetwork: true),
+                child: _isLoading && vehicles.isEmpty
+                    ? _buildInitialLoadingList()
+                    : vehicles.isEmpty
+                        ? _buildEmptyState()
+                        : _buildVehicleList(vehicles),
+              ),
             ),
           ],
         ),
@@ -459,6 +463,55 @@ class _ListScreenState extends State<ListScreen> {
     );
   }
 
+  /// Thin bar between status chips and vehicle cards — shows load progress.
+  Widget _buildStatusListDivider() {
+    final ThemeData theme = Theme.of(context);
+    final Color accent = theme.colorScheme.primary;
+    final bool showProgress = _isLoading || _isRefreshing;
+
+    if (showProgress) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(2),
+          child: LinearProgressIndicator(
+            minHeight: 3,
+            backgroundColor: accent.withValues(alpha: 0.12),
+            color: accent,
+          ),
+        ),
+      );
+    }
+
+    return Divider(
+      height: 1,
+      thickness: 1,
+      indent: 10,
+      endIndent: 10,
+      color: (context.appTokens.containerBorderColor ??
+              context.mutedTextColor)
+          .withValues(alpha: 0.35),
+    );
+  }
+
+  Widget _buildInitialLoadingList() {
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(24, 48, 24, 24),
+      children: [
+        Center(
+          child: Text(
+            context.tr('Loading vehicles…'),
+            style: TextStyle(
+              fontSize: 14,
+              color: context.mutedTextColor,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildStatusCards() {
     final Map<String, int> counts = _statusCounts;
 
@@ -569,7 +622,8 @@ class _ListScreenState extends State<ListScreen> {
               ),
               const SizedBox(height: 16),
               ElevatedButton.icon(
-                onPressed: () => _fetchVehicles(isRefresh: true),
+                onPressed: () =>
+                    _fetchVehicles(isRefresh: true, forceNetwork: true),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Theme.of(context).colorScheme.primary,
                   foregroundColor: Colors.white,

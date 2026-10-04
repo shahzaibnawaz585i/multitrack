@@ -109,6 +109,15 @@ class RoadRouteService {
         '->${to.latitude.toStringAsFixed(4)},${to.longitude.toStringAsFixed(4)}';
   }
 
+  /// Cached Google/OSRM route for live animation without waiting on network.
+  static List<LatLng>? cachedRouteBetween(LatLng from, LatLng to) {
+    final List<LatLng>? hit = _routeCache[_cacheKey(from, to)];
+    if (hit != null && hit.length >= 2) {
+      return List<LatLng>.from(hit);
+    }
+    return null;
+  }
+
   static List<LatLng> _extractTailSegment(
     LatLng from,
     LatLng to,

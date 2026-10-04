@@ -54,7 +54,7 @@ class VehicleTrackAnimator {
     }
     final List<LatLng> dense = _densifyPath(
       <LatLng>[from, target],
-      maxStepMeters: maxStepMeters,
+      maxStepMeters: math.min(maxStepMeters, 8),
     );
     _offerSegment(
       waypoints: dense,
@@ -180,7 +180,7 @@ class VehicleTrackAnimator {
       cleaned.add(path.last);
     }
 
-    final List<LatLng> dense = _densifyPath(cleaned, maxStepMeters: 14);
+    final List<LatLng> dense = _densifyPath(cleaned, maxStepMeters: 8);
 
     _offerSegment(waypoints: dense, duration: duration, moving: true);
   }
@@ -215,6 +215,32 @@ class VehicleTrackAnimator {
       }
     }
     return out;
+  }
+
+  /// Drops queued motion and glides quickly to [target] (server catch-up).
+  void catchUpToward(
+    LatLng target, {
+    required Duration duration,
+    bool moving = true,
+  }) {
+    if (_disposed || !_initialized) {
+      return;
+    }
+    if (LiveRouteService.haversineMeters(_displayPosition, target) < 0.5) {
+      return;
+    }
+    _segmentCtrl.stop();
+    _motionQueue.clear();
+    _activePath = <LatLng>[];
+    final List<LatLng> path = _densifyPath(
+      <LatLng>[_displayPosition, target],
+      maxStepMeters: 8,
+    );
+    _offerSegment(
+      waypoints: path,
+      duration: duration,
+      moving: moving,
+    );
   }
 
   void snapTo(LatLng fix, {double? bearing, bool freezeBearing = false}) {
@@ -360,7 +386,7 @@ class VehicleTrackAnimator {
       _displayBearing = lerpAngleShortest(
         _displayBearing,
         sample.bearing,
-        0.35,
+        0.55,
       );
       _frozenBearing = _displayBearing;
     }

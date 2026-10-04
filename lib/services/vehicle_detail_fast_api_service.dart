@@ -6,7 +6,7 @@ import 'vehicle_service.dart';
 class VehicleDetailFastApiService {
   VehicleDetailFastApiService._();
 
-  static const Duration _minNetworkGap = Duration(seconds: 4);
+  static const Duration _minNetworkGap = Duration(seconds: 2);
   static final Map<int, DateTime> _lastNetworkByDevice = <int, DateTime>{};
 
   /// Opens detail: refresh fleet once + prefetch today statistics (non-blocking).

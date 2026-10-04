@@ -34,8 +34,9 @@ class VehicleService {
   static Future<List<VehicleModel>>? _inFlight;
   static DateTime? _lastSuccessfulFetch;
   static const Duration _cacheTtl = Duration(seconds: 45);
-  static const String _diskCacheKey = 'vehicle_service_get_devices_v1';
+  static const String _diskCacheKey = 'vehicle_service_get_devices_v2';
   static const String _diskCacheTimeKey = 'vehicle_service_get_devices_time_v1';
+  static const String _legacyDiskCacheKey = 'vehicle_service_get_devices_v1';
   static int _geocodeGeneration = 0;
   static const int _geocodeConcurrency = 2;
   static const int _maxGeocodePerFetch = 24;
@@ -59,12 +60,13 @@ class VehicleService {
   static Future<void> restorePersistedFleet() async {
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
-      final String? raw = prefs.getString(_diskCacheKey);
+      String? raw = prefs.getString(_diskCacheKey);
+      raw ??= prefs.getString(_legacyDiskCacheKey);
       if (raw == null || raw.isEmpty) {
         return;
       }
       final dynamic decoded = jsonDecode(raw);
-      final List<VehicleModel> parsed = _parseDevices(decoded);
+      final List<VehicleModel> parsed = _parseDevicesFromDisk(decoded);
       if (parsed.isEmpty) {
         return;
       }
@@ -88,10 +90,20 @@ class VehicleService {
     }
   }
 
-  static Future<void> _persistFleetResponse(dynamic response) async {
+  static Future<void> _persistFleetResponse(List<VehicleModel> devices) async {
+    if (devices.isEmpty) {
+      return;
+    }
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_diskCacheKey, jsonEncode(response));
+      final List<Map<String, dynamic>> slim = devices
+          .map(_diskMapForVehicle)
+          .toList(growable: false);
+      await prefs.setString(
+        _diskCacheKey,
+        jsonEncode(<String, dynamic>{'fleet_v': 2, 'devices': slim}),
+      );
+      await prefs.remove(_legacyDiskCacheKey);
       await prefs.setInt(
         _diskCacheTimeKey,
         DateTime.now().millisecondsSinceEpoch,
@@ -99,9 +111,46 @@ class VehicleService {
     } catch (_) {}
   }
 
+  static List<VehicleModel> _parseDevicesFromDisk(dynamic decoded) {
+    if (decoded is Map<String, dynamic> &&
+        decoded['fleet_v'] == 2 &&
+        decoded['devices'] is List) {
+      final List<VehicleModel> out = <VehicleModel>[];
+      for (final dynamic item in decoded['devices'] as List<dynamic>) {
+        if (item is Map) {
+          final Map<String, dynamic> map = item.map(
+            (Object? k, Object? v) => MapEntry(k.toString(), v),
+          );
+          out.add(VehicleModel.fromJson(map));
+        }
+      }
+      return out;
+    }
+    return _parseDevices(decoded);
+  }
+
+  static Map<String, dynamic> _diskMapForVehicle(VehicleModel v) {
+    String loc = v.location.trim();
+    if (loc.length > 96) {
+      loc = '${loc.substring(0, 96)}…';
+    }
+    return <String, dynamic>{
+      if (v.id != null) 'id': v.id,
+      'name': v.name,
+      'status': v.status,
+      'speed': v.speed,
+      if (v.latitude != null) 'lat': v.latitude,
+      if (v.longitude != null) 'lng': v.longitude,
+      if (loc.isNotEmpty) 'location': loc,
+      if (v.groupId != null) 'group_id': v.groupId,
+      if (v.groupName.isNotEmpty) 'group_name': v.groupName,
+    };
+  }
+
   static Future<void> _clearPersistedFleet() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.remove(_diskCacheKey);
+    await prefs.remove(_legacyDiskCacheKey);
     await prefs.remove(_diskCacheTimeKey);
   }
 
@@ -116,9 +165,43 @@ class VehicleService {
     }
 
     if (_inFlight != null) {
+      if (!forceRefresh && VehicleData.vehicles.isNotEmpty) {
+        return VehicleData.vehicles;
+      }
       return _inFlight!;
     }
 
+    if (!forceRefresh && VehicleData.vehicles.isEmpty) {
+      await restorePersistedFleet();
+    }
+
+    if (!forceRefresh && VehicleData.vehicles.isNotEmpty) {
+      _startBackgroundFetch();
+      return VehicleData.vehicles;
+    }
+
+    return _awaitFetchDevices();
+  }
+
+  static void _startBackgroundFetch() {
+    if (_inFlight != null) {
+      return;
+    }
+    final Future<List<VehicleModel>> request = _fetchDevices();
+    _inFlight = request;
+    unawaited(
+      request.whenComplete(() {
+        if (identical(_inFlight, request)) {
+          _inFlight = null;
+        }
+      }),
+    );
+  }
+
+  static Future<List<VehicleModel>> _awaitFetchDevices() async {
+    if (_inFlight != null) {
+      return _inFlight!;
+    }
     final Future<List<VehicleModel>> request = _fetchDevices();
     _inFlight = request;
     try {
@@ -144,16 +227,32 @@ class VehicleService {
     try {
       final Uri uri = ApiConfig.getDevicesUri(server, token: token);
       if (kDebugMode) {
-        print('VehicleService: Fetching devices from $uri with token: $token');
+        print('VehicleService: Fetching devices from ${uri.origin}${uri.path}');
       }
 
-      final dynamic response = await ApiClient.get(uri, token: token);
+      dynamic response;
+      for (int attempt = 0; attempt < 2; attempt++) {
+        try {
+          response = await ApiClient.get(
+            uri,
+            token: token,
+            timeout: attempt == 0
+                ? ApiConfig.devicesListTimeout
+                : ApiConfig.devicesListRetryTimeout,
+          );
+          break;
+        } catch (e) {
+          if (attempt == 1) {
+            rethrow;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 800));
+        }
+      }
 
       if (kDebugMode) {
         print('VehicleService: Response received: $response');
       }
 
-      await _persistFleetResponse(response);
       VehicleGroupService.cacheGroupsFromFleetResponse(response);
 
       final List<VehicleModel> parsedDevices = _parseDevices(response);
@@ -162,6 +261,7 @@ class VehicleService {
         print('VehicleService: Parsed ${parsedDevices.length} devices');
       }
 
+      await _persistFleetResponse(parsedDevices);
       VehicleData.assignVehicles(parsedDevices);
 
       if (parsedDevices.isNotEmpty) {

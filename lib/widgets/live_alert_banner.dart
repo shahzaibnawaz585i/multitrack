@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../models/notification_model.dart';
 
@@ -10,6 +13,7 @@ class LiveAlertItem {
   final DateTime timestamp;
   final String? vehicleName;
   final double? speed;
+  final int queuedBehind;
 
   const LiveAlertItem({
     required this.title,
@@ -18,6 +22,7 @@ class LiveAlertItem {
     required this.timestamp,
     this.vehicleName,
     this.speed,
+    this.queuedBehind = 0,
   });
 }
 
@@ -38,8 +43,11 @@ class LiveAlertBanner extends StatefulWidget {
 }
 
 class _LiveAlertBannerState extends State<LiveAlertBanner>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animController;
+    with TickerProviderStateMixin {
+  static const Duration _visibleDuration = Duration(seconds: 6);
+
+  late AnimationController _entryController;
+  late AnimationController _progressController;
   late Animation<Offset> _offsetAnimation;
   late Animation<double> _fadeAnimation;
   Timer? _autoDismissTimer;
@@ -47,26 +55,29 @@ class _LiveAlertBannerState extends State<LiveAlertBanner>
   @override
   void initState() {
     super.initState();
-    _animController = AnimationController(
+    _entryController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 350),
+      duration: const Duration(milliseconds: 420),
+    );
+    _progressController = AnimationController(
+      vsync: this,
+      duration: _visibleDuration,
     );
 
     _offsetAnimation = Tween<Offset>(
-      begin: const Offset(0.0, -1.0),
+      begin: const Offset(0, -1.15),
       end: Offset.zero,
     ).animate(
-      CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic),
+      CurvedAnimation(parent: _entryController, curve: Curves.easeOutCubic),
     );
 
     _fadeAnimation = CurvedAnimation(
-      parent: _animController,
-      curve: Curves.easeIn,
+      parent: _entryController,
+      curve: Curves.easeOut,
     );
 
     if (widget.alert != null) {
-      _animController.forward();
-      _startAutoDismiss();
+      _presentAlert();
     }
   }
 
@@ -75,23 +86,31 @@ class _LiveAlertBannerState extends State<LiveAlertBanner>
     super.didUpdateWidget(oldWidget);
     if (widget.alert != oldWidget.alert) {
       if (widget.alert != null) {
-        _animController.forward(from: 0.0);
-        _startAutoDismiss();
+        _presentAlert();
       } else {
-        _animController.reverse();
+        _dismissAnimated();
       }
     }
   }
 
-  void _startAutoDismiss() {
+  void _presentAlert() {
     _autoDismissTimer?.cancel();
-    _autoDismissTimer = Timer(const Duration(milliseconds: 5000), () {
+    _progressController.reset();
+    _entryController.forward(from: 0);
+    _progressController.forward();
+    _autoDismissTimer = Timer(_visibleDuration, () {
       if (mounted) {
-        _animController.reverse().then((_) {
-          if (mounted) {
-            widget.onDismiss?.call();
-          }
-        });
+        _dismissAnimated();
+      }
+    });
+  }
+
+  void _dismissAnimated() {
+    _autoDismissTimer?.cancel();
+    _progressController.stop();
+    _entryController.reverse().then((_) {
+      if (mounted) {
+        widget.onDismiss?.call();
       }
     });
   }
@@ -99,42 +118,66 @@ class _LiveAlertBannerState extends State<LiveAlertBanner>
   @override
   void dispose() {
     _autoDismissTimer?.cancel();
-    _animController.dispose();
+    _entryController.dispose();
+    _progressController.dispose();
     super.dispose();
   }
 
-  Color _getPrimaryColor(NotificationEventType type) {
+  _AlertTheme _themeFor(NotificationEventType type) {
     switch (type) {
       case NotificationEventType.ignitionOn:
-        return const Color(0xFF00A854);
+        return const _AlertTheme(
+          accent: Color(0xFF10B981),
+          accentDeep: Color(0xFF059669),
+          icon: Icons.key_rounded,
+        );
       case NotificationEventType.ignitionOff:
-        return const Color(0xFFE53935);
+        return const _AlertTheme(
+          accent: Color(0xFFEF4444),
+          accentDeep: Color(0xFFDC2626),
+          icon: Icons.power_settings_new_rounded,
+        );
       case NotificationEventType.overSpeed:
-        return const Color(0xFFE91E63);
+        return const _AlertTheme(
+          accent: Color(0xFFF43F5E),
+          accentDeep: Color(0xFFE11D48),
+          icon: Icons.speed_rounded,
+        );
       case NotificationEventType.geofenceIn:
-        return const Color(0xFF0288D1);
+        return const _AlertTheme(
+          accent: Color(0xFF0EA5E9),
+          accentDeep: Color(0xFF0284C7),
+          icon: Icons.login_rounded,
+        );
       case NotificationEventType.geofenceOut:
-        return const Color(0xFFF57C00);
-      default:
-        return const Color(0xFF673AB7);
+        return const _AlertTheme(
+          accent: Color(0xFFF97316),
+          accentDeep: Color(0xFFEA580C),
+          icon: Icons.logout_rounded,
+        );
+      case NotificationEventType.offline:
+        return const _AlertTheme(
+          accent: Color(0xFF64748B),
+          accentDeep: Color(0xFF475569),
+          icon: Icons.signal_wifi_off_rounded,
+        );
+      case NotificationEventType.movement:
+        return const _AlertTheme(
+          accent: Color(0xFF8B5CF6),
+          accentDeep: Color(0xFF7C3AED),
+          icon: Icons.directions_car_filled_rounded,
+        );
+      case NotificationEventType.generic:
+        return const _AlertTheme(
+          accent: Color(0xFF6366F1),
+          accentDeep: Color(0xFF4F46E5),
+          icon: Icons.notifications_active_rounded,
+        );
     }
   }
 
-  IconData _getIcon(NotificationEventType type) {
-    switch (type) {
-      case NotificationEventType.ignitionOn:
-        return Icons.power_settings_new_rounded;
-      case NotificationEventType.ignitionOff:
-        return Icons.power_off_rounded;
-      case NotificationEventType.overSpeed:
-        return Icons.speed_rounded;
-      case NotificationEventType.geofenceIn:
-        return Icons.login_rounded;
-      case NotificationEventType.geofenceOut:
-        return Icons.logout_rounded;
-      default:
-        return Icons.notifications_active_rounded;
-    }
+  String _formatTime(DateTime time) {
+    return DateFormat('h:mm a').format(time);
   }
 
   @override
@@ -144,135 +187,235 @@ class _LiveAlertBannerState extends State<LiveAlertBanner>
     }
 
     final LiveAlertItem alert = widget.alert!;
-    final Color alertColor = _getPrimaryColor(alert.eventType);
-    final IconData icon = _getIcon(alert.eventType);
+    final _AlertTheme theme = _themeFor(alert.eventType);
+    final String vehicle =
+        (alert.vehicleName ?? '').trim().isEmpty ? 'Vehicle' : alert.vehicleName!.trim();
 
     return SlideTransition(
       position: _offsetAnimation,
       child: FadeTransition(
         opacity: _fadeAnimation,
         child: Dismissible(
-          key: ValueKey<String>('${alert.title}_${alert.timestamp.millisecondsSinceEpoch}'),
+          key: ValueKey<String>(
+            '${alert.title}_${alert.timestamp.millisecondsSinceEpoch}',
+          ),
           direction: DismissDirection.up,
           onDismissed: (_) => widget.onDismiss?.call(),
-          child: GestureDetector(
-            onTap: widget.onTap,
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: alertColor.withValues(alpha: 0.35),
-                  width: 1.5,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.12),
-                    blurRadius: 18,
-                    spreadRadius: 0,
-                    offset: const Offset(0, 6),
-                  ),
-                  BoxShadow(
-                    color: alertColor.withValues(alpha: 0.12),
-                    blurRadius: 10,
-                    spreadRadius: 1,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  // Vibrant Icon badge
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: alertColor.withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: alertColor.withValues(alpha: 0.35),
-                        width: 1.5,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: widget.onTap,
+                    child: Ink(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: <Color>[
+                            Colors.white.withValues(alpha: 0.97),
+                            Colors.white.withValues(alpha: 0.92),
+                          ],
+                        ),
+                        border: Border.all(
+                          color: theme.accent.withValues(alpha: 0.28),
+                          width: 1.2,
+                        ),
+                        boxShadow: <BoxShadow>[
+                          BoxShadow(
+                            color: theme.accentDeep.withValues(alpha: 0.22),
+                            blurRadius: 24,
+                            offset: const Offset(0, 10),
+                          ),
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.08),
+                            blurRadius: 16,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
                       ),
-                    ),
-                    child: Center(
-                      child: Icon(
-                        icon,
-                        color: alertColor,
-                        size: 22,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  // Content
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                alert.title,
-                                style: TextStyle(
-                                  color: alertColor,
-                                  fontSize: 14.5,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 0.2,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            if (alert.speed != null && alert.speed! > 0) ...[
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
                               Container(
-                                margin: const EdgeInsets.only(left: 6),
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                width: 5,
+                                height: 88,
                                 decoration: BoxDecoration(
-                                  color: alertColor.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(6),
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: <Color>[
+                                      theme.accent,
+                                      theme.accentDeep,
+                                    ],
+                                  ),
                                 ),
-                                child: Text(
-                                  '${alert.speed!.toStringAsFixed(0)} km/h',
-                                  style: TextStyle(
-                                    color: alertColor,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
+                              ),
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(12, 12, 8, 10),
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: <Widget>[
+                                      Container(
+                                        width: 46,
+                                        height: 46,
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: <Color>[
+                                              theme.accent.withValues(alpha: 0.18),
+                                              theme.accentDeep.withValues(alpha: 0.28),
+                                            ],
+                                          ),
+                                          borderRadius: BorderRadius.circular(14),
+                                        ),
+                                        child: Icon(
+                                          theme.icon,
+                                          color: theme.accentDeep,
+                                          size: 24,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: <Widget>[
+                                            Row(
+                                              children: <Widget>[
+                                                Expanded(
+                                                  child: Text(
+                                                    alert.title,
+                                                    style: TextStyle(
+                                                      fontSize: 15,
+                                                      fontWeight: FontWeight.w800,
+                                                      letterSpacing: -0.2,
+                                                      color: theme.accentDeep,
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  _formatTime(alert.timestamp),
+                                                  style: const TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: Color(0xFF94A3B8),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              vehicle,
+                                              style: const TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w700,
+                                                color: Color(0xFF0F172A),
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              alert.message,
+                                              style: const TextStyle(
+                                                fontSize: 12.5,
+                                                height: 1.35,
+                                                fontWeight: FontWeight.w500,
+                                                color: Color(0xFF475569),
+                                              ),
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            if (alert.speed != null && alert.speed! > 0) ...<Widget>[
+                                              const SizedBox(height: 8),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 8,
+                                                  vertical: 4,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: theme.accent.withValues(alpha: 0.12),
+                                                  borderRadius: BorderRadius.circular(8),
+                                                ),
+                                                child: Text(
+                                                  '${alert.speed!.toStringAsFixed(0)} km/h',
+                                                  style: TextStyle(
+                                                    fontSize: 11.5,
+                                                    fontWeight: FontWeight.w800,
+                                                    color: theme.accentDeep,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                      IconButton(
+                                        visualDensity: VisualDensity.compact,
+                                        icon: const Icon(
+                                          Icons.close_rounded,
+                                          size: 20,
+                                          color: Color(0xFF94A3B8),
+                                        ),
+                                        onPressed: _dismissAnimated,
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),
                             ],
-                          ],
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          alert.message,
-                          style: const TextStyle(
-                            color: Color(0xFF1E293B),
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w500,
-                            height: 1.25,
                           ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                          if (alert.queuedBehind > 0)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Text(
+                                    '+${alert.queuedBehind} more in queue',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF64748B),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          AnimatedBuilder(
+                            animation: _progressController,
+                            builder: (BuildContext context, Widget? child) {
+                              return LinearProgressIndicator(
+                                value: 1 - _progressController.value,
+                                minHeight: 3,
+                                backgroundColor: theme.accent.withValues(alpha: 0.12),
+                                valueColor: AlwaysStoppedAnimation<Color>(theme.accent),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 6),
-                  IconButton(
-                    icon: const Icon(Icons.close_rounded, color: Color(0xFF94A3B8), size: 20),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
-                    onPressed: () {
-                      _animController.reverse().then((_) {
-                        if (mounted) widget.onDismiss?.call();
-                      });
-                    },
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -280,4 +423,16 @@ class _LiveAlertBannerState extends State<LiveAlertBanner>
       ),
     );
   }
+}
+
+class _AlertTheme {
+  const _AlertTheme({
+    required this.accent,
+    required this.accentDeep,
+    required this.icon,
+  });
+
+  final Color accent;
+  final Color accentDeep;
+  final IconData icon;
 }

@@ -63,8 +63,14 @@ class GpsFilterService {
     );
 
     final double impliedSpeedKmh = (dist / dtSec) * 3.6;
-    if (impliedSpeedKmh > maxSpeedKmh && dist > maxJumpMeters) {
-      return const GpsFilterResult.rejected(GpsRejectReason.unrealisticJump);
+    // After missed polls or heavy map lag, accept a large server jump as resync.
+    if (dist > maxJumpMeters) {
+      if (dtSec >= 2.5 || incoming.speedKmh >= 3.0) {
+        return _accept(incoming);
+      }
+      if (impliedSpeedKmh > maxSpeedKmh) {
+        return const GpsFilterResult.rejected(GpsRejectReason.unrealisticJump);
+      }
     }
 
     final bool stationary =

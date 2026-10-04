@@ -1,7 +1,14 @@
 class ApiConfig {
   ApiConfig._();
 
-  static const Duration timeout = Duration(seconds: 45);
+  static const Duration timeout = Duration(seconds: 60);
+
+  /// Large fleet list — fail faster so the UI can show cached data.
+  static const Duration devicesListTimeout = Duration(seconds: 22);
+  static const Duration devicesListRetryTimeout = Duration(seconds: 40);
+
+  /// Single get_history / get_history_messages request.
+  static const Duration historyRequestTimeout = Duration(seconds: 45);
   static const String defaultBaseUrl = 'https://gps.m-track.net.pk';
 
   /// Stored server id for login session (maps to [defaultBaseUrl]).
@@ -33,6 +40,7 @@ class ApiConfig {
 
   // History & geocoding
   static const String getHistoryPath = '/api/get_history';
+  static const String getHistoryMessagesPath = '/api/get_history_messages';
   static const String geoAddressPath = '/api/geo_address';
 
   // Reports
@@ -57,7 +65,8 @@ class ApiConfig {
   static const String getDeviceDocumentsPath = '/api/get_device_documents';
   static const String addDeviceDocumentPath = '/api/add_device_document';
   static const String editDeviceDocumentPath = '/api/edit_device_document';
-  static const String destroyDeviceDocumentPath = '/api/destroy_device_document';
+  static const String destroyDeviceDocumentPath =
+      '/api/destroy_device_document';
 
   // Tasks & sharing
   static const String getTasksPath = '/api/get_tasks';
@@ -118,7 +127,12 @@ class ApiConfig {
     if (limit != null) {
       queryParams['limit'] = limit.toString();
     }
-    return apiUri(server, getEventsPath, token: token, queryParams: queryParams);
+    return apiUri(
+      server,
+      getEventsPath,
+      token: token,
+      queryParams: queryParams,
+    );
   }
 
   static Uri alertsUri(String server, {String? token}) =>
@@ -153,8 +167,7 @@ class ApiConfig {
     String lang = 'en',
   }) {
     String two(int n) => n.toString().padLeft(2, '0');
-    String date(DateTime d) =>
-        '${d.year}-${two(d.month)}-${two(d.day)}';
+    String date(DateTime d) => '${d.year}-${two(d.month)}-${two(d.day)}';
     String time(DateTime d) =>
         '${two(d.hour)}:${two(d.minute)}:${two(d.second)}';
 
@@ -200,7 +213,43 @@ class ApiConfig {
     if (deviceId != null && !queryParams.containsKey('device_id')) {
       queryParams['device_id'] = deviceId.toString();
     }
-    return apiUri(server, getHistoryPath, token: token, queryParams: queryParams);
+    return apiUri(
+      server,
+      getHistoryPath,
+      token: token,
+      queryParams: queryParams,
+    );
+  }
+
+  static Uri getHistoryMessagesUri(
+    String server, {
+    String? token,
+    int? deviceId,
+    DateTime? from,
+    DateTime? to,
+    int? page,
+    int? limit,
+    String lang = 'en',
+  }) {
+    final Map<String, String> queryParams = from != null && to != null
+        ? getHistoryQueryParams(
+            from: from,
+            to: to,
+            deviceId: deviceId,
+            page: page,
+            limit: limit,
+            lang: lang,
+          )
+        : <String, String>{'lang': lang};
+    if (deviceId != null && !queryParams.containsKey('device_id')) {
+      queryParams['device_id'] = deviceId.toString();
+    }
+    return apiUri(
+      server,
+      getHistoryMessagesPath,
+      token: token,
+      queryParams: queryParams,
+    );
   }
 
   static Uri geoAddressUri(
@@ -209,18 +258,17 @@ class ApiConfig {
     required double lat,
     required double lng,
     String lang = 'en',
-  }) =>
-      apiUri(
-        server,
-        geoAddressPath,
-        token: token,
-        queryParams: <String, String>{
-          'lat': lat.toString(),
-          'lon': lng.toString(),
-          'lng': lng.toString(),
-          'lang': lang,
-        },
-      );
+  }) => apiUri(
+    server,
+    geoAddressPath,
+    token: token,
+    queryParams: <String, String>{
+      'lat': lat.toString(),
+      'lon': lng.toString(),
+      'lng': lng.toString(),
+      'lang': lang,
+    },
+  );
 
   static Uri generateReportUri(String server) =>
       apiUri(server, generateReportPath);
@@ -231,13 +279,16 @@ class ApiConfig {
   static Uri getGroupsUri(String server, {String? token}) =>
       apiUri(server, getGroupsPath, token: token);
 
-  static Uri fcmTokenUri(String server, {String? token, required String fcmToken}) =>
-      apiUri(
-        server,
-        fcmTokenPath,
-        token: token,
-        queryParams: <String, String>{'token': fcmToken},
-      );
+  static Uri fcmTokenUri(
+    String server, {
+    String? token,
+    required String fcmToken,
+  }) => apiUri(
+    server,
+    fcmTokenPath,
+    token: token,
+    queryParams: <String, String>{'token': fcmToken},
+  );
 
   static Uri deleteFcmTokenUri(String server, {required String fcmToken}) =>
       apiUri(
@@ -246,12 +297,21 @@ class ApiConfig {
         queryParams: <String, String>{'token': fcmToken},
       );
 
-  static Uri getDeviceCommandsUri(String server, {String? token, int? deviceId}) {
+  static Uri getDeviceCommandsUri(
+    String server, {
+    String? token,
+    int? deviceId,
+  }) {
     final Map<String, String> queryParams = <String, String>{};
     if (deviceId != null) {
       queryParams['device_id'] = deviceId.toString();
     }
-    return apiUri(server, getDeviceCommandsPath, token: token, queryParams: queryParams);
+    return apiUri(
+      server,
+      getDeviceCommandsPath,
+      token: token,
+      queryParams: queryParams,
+    );
   }
 
   static Uri sendGprsCommandUri(String server) =>
@@ -311,7 +371,12 @@ class ApiConfig {
     if (deviceId != null) {
       queryParams['device_id'] = deviceId.toString();
     }
-    return apiUri(server, getServicesPath, token: token, queryParams: queryParams);
+    return apiUri(
+      server,
+      getServicesPath,
+      token: token,
+      queryParams: queryParams,
+    );
   }
 
   static bool usesRemoteApi(String server) => baseUrlFor(server).isNotEmpty;

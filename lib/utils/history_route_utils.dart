@@ -435,6 +435,107 @@ class HistoryRouteUtils {
     return _timelineCardFormat.format(value);
   }
 
+  /// Same style as GPSWOX web history player (position timestamp).
+  static final DateFormat _playbackPositionFormat =
+      DateFormat('dd-MM-yyyy hh:mm:ss a', 'en');
+
+  static String formatPlaybackPositionTime(DateTime? value) {
+    if (value == null) {
+      return '—';
+    }
+    return _playbackPositionFormat.format(value);
+  }
+
+  static final DateFormat _playbackPositionDateFormat =
+      DateFormat('dd-MM-yyyy', 'en');
+
+  static final DateFormat _playbackPositionClockFormat =
+      DateFormat('hh:mm:ss a', 'en');
+
+  static String formatPlaybackPositionDate(DateTime? value) {
+    if (value == null) {
+      return '—';
+    }
+    return _playbackPositionDateFormat.format(value);
+  }
+
+  static String formatPlaybackPositionClock(DateTime? value) {
+    if (value == null) {
+      return '—';
+    }
+    return _playbackPositionClockFormat.format(value).toUpperCase();
+  }
+
+  /// Wall-clock at map marker / slider [fraction] (interpolated between GPS times).
+  static DateTime? timeAtFraction(
+    List<HistoryPoint> points,
+    double fraction, {
+    List<double>? timeFractions,
+    DateTime? rangeFrom,
+    DateTime? rangeTo,
+  }) {
+    if (points.isEmpty) {
+      return _timeOnRange(rangeFrom, rangeTo, fraction);
+    }
+    if (points.length == 1) {
+      return points.first.time ??
+          _timeOnRange(rangeFrom, rangeTo, fraction);
+    }
+    if (!hasTimeTimeline(points)) {
+      final DateTime? onRange = _timeOnRange(
+        rangeFrom ?? points.first.time,
+        rangeTo ?? points.last.time,
+        fraction,
+      );
+      if (onRange != null) {
+        return onRange;
+      }
+      return pointAtFraction(
+        points,
+        fraction,
+        timeFractions: timeFractions,
+      )?.time;
+    }
+
+    final List<double> fracs =
+        timeFractions ?? buildPointTimeFractions(points);
+    final double t = fraction.clamp(0.0, 1.0);
+    final int i0 = _segmentIndexAtFraction(fracs, t);
+    final int i1 = math.min(i0 + 1, points.length - 1);
+    final DateTime? a = points[i0].time;
+    final DateTime? b = points[i1].time;
+    if (a == null && b == null) {
+      return null;
+    }
+    if (a == null) {
+      return b;
+    }
+    if (b == null) {
+      return a;
+    }
+    final double t0 = fracs[i0];
+    final double t1 = fracs[i1];
+    final double w =
+        t1 > t0 ? ((t - t0) / (t1 - t0)).clamp(0.0, 1.0) : 0.0;
+    final int ms = a.millisecondsSinceEpoch +
+        ((b.millisecondsSinceEpoch - a.millisecondsSinceEpoch) * w).round();
+    return DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
+  static DateTime? _timeOnRange(
+    DateTime? from,
+    DateTime? to,
+    double fraction,
+  ) {
+    if (from == null || to == null || !to.isAfter(from)) {
+      return null;
+    }
+    final double t = fraction.clamp(0.0, 1.0);
+    final int ms = from.millisecondsSinceEpoch +
+        (to.difference(from).inMilliseconds * t).round();
+    return DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
   /// Best route order for map markers (time when available, else API order).
   static List<HistoryPoint> orderPointsForRoute(List<HistoryPoint> raw) {
     if (raw.isEmpty) {
@@ -895,6 +996,150 @@ class HistoryRouteUtils {
           b.start.compareTo(a.start),
     );
     return segments;
+  }
+
+  /// One trip/stop card per numbered map marker (same count as [markers]).
+  static List<HistoryTimelineSegment> buildTimelineSegmentsForMapMarkers(
+    List<HistoryPoint> raw,
+    List<HistoryStopSession> markers, {
+    Duration minStopDuration = _minStopSegment,
+  }) {
+    if (markers.isEmpty) {
+      return buildTimelineSegments(
+        raw,
+        minStopDuration: minStopDuration,
+      );
+    }
+
+    final List<HistoryPoint> points = sortByTime(
+      _capForAnalysis(raw).where((HistoryPoint p) => p.time != null).toList(),
+    );
+    if (points.isEmpty) {
+      return const <HistoryTimelineSegment>[];
+    }
+
+    final List<HistoryStopSession> ordered =
+        List<HistoryStopSession>.from(markers)
+          ..sort(
+            (HistoryStopSession a, HistoryStopSession b) =>
+                a.arrival.compareTo(b.arrival),
+          );
+
+    final List<HistoryTimelineSegment> segments = <HistoryTimelineSegment>[];
+    DateTime legStart = points.first.time!;
+    LatLng legOrigin = points.first.position;
+
+    for (final HistoryStopSession session in ordered) {
+      final DateTime arrival = session.arrival;
+      DateTime departure = session.departure;
+      if (!departure.isAfter(arrival)) {
+        departure = arrival.add(const Duration(minutes: 1));
+      }
+
+      final bool isStop = _stopSessionIsParkStop(
+        session,
+        points,
+        minStopDuration,
+      );
+
+      if (isStop) {
+        segments.add(
+          HistoryTimelineSegment(
+            kind: HistoryTimelineKind.stop,
+            start: arrival,
+            end: departure,
+          ),
+        );
+        legStart = departure;
+        legOrigin = session.position;
+        continue;
+      }
+
+      final DateTime start =
+          legStart.isBefore(arrival) ? legStart : arrival;
+      DateTime end = arrival.isAfter(start)
+          ? arrival
+          : start.add(const Duration(seconds: 30));
+      final List<HistoryPoint> slice = _pointsInTimeRange(points, start, end);
+      double maxSpeed = 0;
+      for (final HistoryPoint p in slice) {
+        final double s = p.speed ?? 0;
+        if (s > maxSpeed) {
+          maxSpeed = s;
+        }
+      }
+      double distanceKm = 0;
+      if (slice.length >= 2) {
+        distanceKm = totalDistanceKm(slice);
+      } else {
+        distanceKm =
+            LiveRouteService.haversineMeters(legOrigin, session.position) /
+                1000;
+      }
+
+      segments.add(
+        HistoryTimelineSegment(
+          kind: HistoryTimelineKind.trip,
+          start: start,
+          end: end,
+          distanceKm: distanceKm,
+          maxSpeedKmph: maxSpeed,
+        ),
+      );
+      legStart = end;
+      legOrigin = session.position;
+    }
+
+    segments.sort(
+      (HistoryTimelineSegment a, HistoryTimelineSegment b) =>
+          b.start.compareTo(a.start),
+    );
+    return segments;
+  }
+
+  static bool _stopSessionIsParkStop(
+    HistoryStopSession session,
+    List<HistoryPoint> points,
+    Duration minStopDuration,
+  ) {
+    if (session.duration >= minStopDuration) {
+      return true;
+    }
+    HistoryPoint? nearest;
+    double bestM = double.infinity;
+    for (final HistoryPoint p in points) {
+      final double m = LiveRouteService.haversineMeters(
+        p.position,
+        session.position,
+      );
+      if (m < bestM) {
+        bestM = m;
+        nearest = p;
+      }
+    }
+    if (nearest != null &&
+        bestM <= 150 &&
+        pointIsStopped(nearest) &&
+        session.duration.inMinutes >= 1) {
+      return true;
+    }
+    return false;
+  }
+
+  static List<HistoryPoint> _pointsInTimeRange(
+    List<HistoryPoint> points,
+    DateTime start,
+    DateTime end,
+  ) {
+    return points
+        .where((HistoryPoint p) {
+          final DateTime? t = p.time;
+          if (t == null) {
+            return false;
+          }
+          return !t.isBefore(start) && !t.isAfter(end);
+        })
+        .toList();
   }
 
   /// Smooth arrow position + heading between GPS samples ([fraction] = timeline 0..1).

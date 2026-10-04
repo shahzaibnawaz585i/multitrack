@@ -7,6 +7,7 @@ import '../data/vehicle_data.dart';
 import '../l10n/app_l10n.dart';
 import '../models/notification_model.dart';
 import '../services/alert_service.dart';
+import '../services/notification_feed_service.dart';
 import '../services/live_notification_controller.dart';
 import '../services/voice_alert_service.dart';
 import '../theme/app_theme_tokens.dart';
@@ -38,7 +39,18 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   bool _hasMore = true;
   int _currentPage = 1;
   List<AppNotification> _alerts = <AppNotification>[];
+  List<AppNotification> _announcements = <AppNotification>[];
+  List<AppNotification> _reminders = <AppNotification>[];
+  bool _feedLoading = false;
+  bool _disposed = false;
   Timer? _refreshTimer;
+
+  void _safeSetState(VoidCallback fn) {
+    if (_disposed || !mounted) {
+      return;
+    }
+    setState(fn);
+  }
 
   @override
   void initState() {
@@ -47,21 +59,25 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     _tabController.addListener(_onTabChanged);
     _scrollController = ScrollController()..addListener(_onScroll);
     _alerts = _getFilteredAlerts(NotificationData.alerts);
+    _announcements = List<AppNotification>.from(NotificationData.announcements);
+    _reminders = List<AppNotification>.from(NotificationData.reminders);
     LiveNotificationController.instance.addListener(_onLiveAlertsChanged);
     NotificationData.alertsRevision.addListener(_onLiveAlertsChanged);
     VehicleData.revision.addListener(_onLiveAlertsChanged);
     _refreshTimer = Timer.periodic(const Duration(seconds: 45), (_) {
-      _loadEvents(isRefresh: true);
+      if (_disposed || !mounted) {
+        return;
+      }
+      unawaited(_loadEvents(isRefresh: true));
     });
-    _loadEvents();
+    unawaited(_loadEvents());
   }
 
   void _onLiveAlertsChanged() {
-    if (!mounted) {
-      return;
-    }
-    setState(() {
+    _safeSetState(() {
       _alerts = _getFilteredAlerts(NotificationData.alerts);
+      _announcements = List<AppNotification>.from(NotificationData.announcements);
+      _reminders = List<AppNotification>.from(NotificationData.reminders);
     });
   }
 
@@ -69,7 +85,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     if (_tabController.indexIsChanging) {
       return;
     }
-    setState(() {});
+    _safeSetState(() {});
   }
 
   void _onScroll() {
@@ -84,59 +100,118 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   }
 
   Future<void> _loadEvents({bool isRefresh = false}) async {
+    if (_disposed) {
+      return;
+    }
     if (!isRefresh && _alerts.isEmpty) {
-      setState(() => _isLoading = true);
+      _safeSetState(() => _isLoading = true);
     }
     if (isRefresh) {
       _currentPage = 1;
       _hasMore = true;
     }
 
-    final List<AppNotification> fetched = await AlertService.getDisplayAlerts(
-      deviceId: widget.deviceId,
-      vehicleName: widget.vehicleName,
-      forceRefresh: isRefresh || _alerts.isEmpty,
-    );
-
-    if (mounted && fetched.isNotEmpty) {
-      LiveNotificationController.instance.enqueueBatch(
-        fetched.where(
-          (AppNotification n) =>
-              n.category == NotificationCategory.alerts &&
-              n.eventType != NotificationEventType.generic,
-        ),
-        maxCount: 100,
+    List<AppNotification> fetched = const <AppNotification>[];
+    try {
+      fetched = await AlertService.getDisplayAlerts(
+        deviceId: widget.deviceId,
+        vehicleName: widget.vehicleName,
+        forceRefresh: isRefresh || _alerts.isEmpty,
       );
+    } catch (_) {
+      fetched = const <AppNotification>[];
     }
 
-    if (!mounted) {
+    if (_disposed || !mounted) {
       return;
     }
 
-    setState(() {
+    if (fetched.isNotEmpty) {
+      try {
+        LiveNotificationController.instance.enqueueBatch(
+          fetched.where(
+            (AppNotification n) =>
+                n.category == NotificationCategory.alerts &&
+                n.eventType != NotificationEventType.generic,
+          ),
+          maxCount: 100,
+        );
+      } catch (_) {}
+    }
+
+    _safeSetState(() {
       _isLoading = false;
       _alerts = _getFilteredAlerts(fetched);
       if (fetched.length < 30) {
         _hasMore = false;
       }
     });
+
+    await _loadFeedTabs(recentEvents: fetched);
+  }
+
+  Future<void> _loadFeedTabs({List<AppNotification>? recentEvents}) async {
+    if (_disposed) {
+      return;
+    }
+    _safeSetState(() => _feedLoading = true);
+    try {
+      final List<AppNotification> announcements =
+          await NotificationFeedService.loadAnnouncements(
+        deviceId: widget.deviceId,
+        recentEvents: recentEvents,
+      );
+      final List<AppNotification> reminders =
+          await NotificationFeedService.loadReminders(
+        deviceId: widget.deviceId,
+      );
+      if (_disposed || !mounted) {
+        return;
+      }
+      _safeSetState(() {
+        _announcements = announcements;
+        _reminders = reminders;
+      });
+    } catch (_) {
+      // Keep previously loaded cards; do not crash the screen.
+    } finally {
+      _safeSetState(() => _feedLoading = false);
+    }
+  }
+
+  String _tabTitle(String label, int count) {
+    final String base = context.tr(label);
+    if (count <= 0) {
+      return base;
+    }
+    return '$base ($count)';
+  }
+
+  int _overdueCount(List<AppNotification> items) {
+    final DateTime now = DateTime.now();
+    return items.where((AppNotification n) => n.timestamp.isBefore(now)).length;
   }
 
   Future<void> _loadMoreEvents() async {
-    if (_isLoadingMore || !_hasMore) return;
-    setState(() => _isLoadingMore = true);
+    if (_disposed || _isLoadingMore || !_hasMore) return;
+    _safeSetState(() => _isLoadingMore = true);
 
     final int nextPage = _currentPage + 1;
-    final List<AppNotification> fetched = await AlertService.getEvents(
-      deviceId: widget.deviceId,
-      page: nextPage,
-      limit: 50,
-      forceRefresh: true,
-    );
+    List<AppNotification> fetched = const <AppNotification>[];
+    try {
+      fetched = await AlertService.getEvents(
+        deviceId: widget.deviceId,
+        page: nextPage,
+        limit: 50,
+        forceRefresh: true,
+      );
+    } catch (_) {
+      fetched = const <AppNotification>[];
+    }
 
-    if (!mounted) return;
+    if (_disposed || !mounted) return;
 
-    setState(() {
+    _safeSetState(() {
       _isLoadingMore = false;
       if (fetched.isEmpty) {
         _hasMore = false;
@@ -187,7 +262,9 @@ class _NotificationsScreenState extends State<NotificationsScreen>
 
   @override
   void dispose() {
+    _disposed = true;
     _refreshTimer?.cancel();
+    _refreshTimer = null;
     LiveNotificationController.instance.removeListener(_onLiveAlertsChanged);
     NotificationData.alertsRevision.removeListener(_onLiveAlertsChanged);
     VehicleData.revision.removeListener(_onLiveAlertsChanged);
@@ -298,99 +375,224 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                     ),
                     dividerColor: theme.dividerColor,
                     dividerHeight: 1,
-                    tabs: [
-                      Tab(
-                        text: '${context.tr('Alerts')}(${_isLoading ? 0 : _alerts.length})',
-                      ),
-                      Tab(
-                        text: '${context.tr('Announcements')}(${_isLoading ? 0 : NotificationData.announcementCount})',
-                      ),
-                      Tab(
-                        text: '${context.tr('Reminders')}(${_isLoading ? 0 : NotificationData.reminderCount})',
-                      ),
+                    tabs: <Tab>[
+                      Tab(text: _tabTitle('Alerts', _alerts.length)),
+                      Tab(text: _tabTitle('Announcements', _announcements.length)),
+                      Tab(text: _tabTitle('Reminders', _reminders.length)),
                     ],
                   ),
                 ),
               ),
       ),
-      body: _isLoading
-          ? const _ThreeDotLoader()
-          : widget.showAlertsOnly
-              ? RefreshIndicator(
-                  onRefresh: () => _loadEvents(isRefresh: true),
-                  child: _buildNotificationList(_alerts, isAlertTab: true),
-                )
-              : TabBarView(
-                  controller: _tabController,
-                  children: [
-                    RefreshIndicator(
-                      onRefresh: () => _loadEvents(isRefresh: true),
-                      child: _buildNotificationList(_alerts, isAlertTab: true),
-                    ),
-                    RefreshIndicator(
-                      onRefresh: () => _loadEvents(isRefresh: true),
-                      child: _buildNotificationList(NotificationData.announcements),
-                    ),
-                    RefreshIndicator(
-                      onRefresh: () => _loadEvents(isRefresh: true),
-                      child: _buildNotificationList(NotificationData.reminders),
-                    ),
-                  ],
+      body: widget.showAlertsOnly
+          ? (_isLoading && _alerts.isEmpty
+              ? const _ThreeDotLoader()
+              : _buildAlertsFeed())
+          : TabBarView(
+              controller: _tabController,
+              children: <Widget>[
+                _isLoading && _alerts.isEmpty
+                    ? const _ThreeDotLoader()
+                    : _buildAlertsFeed(),
+                _buildCategoryFeed(
+                  items: _announcements,
+                  feedKind: _FeedKind.announcements,
+                  hero: _FeedHeroConfig(
+                    title: context.tr('Announcements'),
+                    subtitle: _announcements.isEmpty
+                        ? context.tr('Company updates and broadcasts')
+                        : _announcements.first.eventTitle,
+                    icon: Icons.campaign_rounded,
+                    gradientStart: const Color(0xFF0EA5E9),
+                    gradientEnd: const Color(0xFF0369A1),
+                    countLabel: _announcements.isEmpty
+                        ? context.tr('Up to date')
+                        : '${_announcements.length} ${context.tr('active')}',
+                  ),
+                  emptyMessage: context.tr('No announcements'),
+                  emptyHint: context.tr(
+                    'Company news and broadcasts from your fleet panel will appear here.',
+                  ),
                 ),
+                _buildCategoryFeed(
+                  items: _reminders,
+                  feedKind: _FeedKind.reminders,
+                  hero: _FeedHeroConfig(
+                    title: context.tr('Reminders'),
+                    subtitle: _reminders.isEmpty
+                        ? context.tr('Maintenance and service due dates')
+                        : _reminders.first.eventTitle,
+                    icon: Icons.notifications_active_rounded,
+                    gradientStart: const Color(0xFFF97316),
+                    gradientEnd: const Color(0xFFC2410C),
+                    countLabel: _reminders.isEmpty
+                        ? context.tr('No due items')
+                        : _overdueCount(_reminders) > 0
+                            ? '${_overdueCount(_reminders)} ${context.tr('overdue')}'
+                            : '${_reminders.length} ${context.tr('scheduled')}',
+                  ),
+                  emptyMessage: context.tr('No reminders'),
+                  emptyHint: context.tr(
+                    'Service intervals and maintenance tasks from your account will show here.',
+                  ),
+                ),
+              ],
+            ),
     );
   }
 
-  Widget _buildNotificationList(
-    List<AppNotification> items, {
-    bool isAlertTab = false,
+  Widget _buildAlertsFeed() {
+    return _buildCategoryFeed(
+      items: _alerts,
+      feedKind: _FeedKind.alerts,
+      hero: _FeedHeroConfig(
+        title: context.tr('Alerts'),
+        subtitle: _alerts.isEmpty
+            ? context.tr('Device events and live alerts')
+            : _alerts.first.eventTitle,
+        icon: Icons.warning_amber_rounded,
+        gradientStart: const Color(0xFFEF4444),
+        gradientEnd: const Color(0xFFB91C1C),
+        countLabel: _alerts.isEmpty
+            ? context.tr('No alerts')
+            : '${_alerts.length} ${context.tr('active')}',
+      ),
+      emptyMessage: context.tr('No notifications'),
+      emptyHint: context.tr(
+        'Ignition, overspeed, geofence and offline events from your devices will appear here.',
+      ),
+    );
+  }
+
+  Widget _buildCategoryFeed({
+    required List<AppNotification> items,
+    required _FeedKind feedKind,
+    required _FeedHeroConfig hero,
+    required String emptyMessage,
+    required String emptyHint,
   }) {
-    if (items.isEmpty) {
-      return Center(
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: SizedBox(
-            height: 300,
-            child: Center(
-              child: Text(
-                context.tr('No notifications'),
-                style: TextStyle(
-                  fontSize: 15,
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                ),
+    final Color accent;
+    final IconData kindIcon;
+    final String leftLabel;
+    final String leftValue;
+    final String rightLabel;
+    final String rightValue;
+
+    switch (feedKind) {
+      case _FeedKind.alerts:
+        accent = const Color(0xFFDC2626);
+        kindIcon = Icons.warning_amber_rounded;
+        leftLabel = context.tr('Total');
+        leftValue = items.length.toString();
+        rightLabel = context.tr('Latest');
+        rightValue = items.isEmpty
+            ? '—'
+            : _formatTimestamp(items.first.timestamp);
+      case _FeedKind.announcements:
+        accent = const Color(0xFF0284C7);
+        kindIcon = Icons.campaign_rounded;
+        leftLabel = context.tr('Total');
+        leftValue = items.length.toString();
+        rightLabel = context.tr('Latest');
+        rightValue = items.isEmpty
+            ? '—'
+            : _formatTimestamp(items.first.timestamp);
+      case _FeedKind.reminders:
+        accent = const Color(0xFFEA580C);
+        kindIcon = Icons.build_circle_outlined;
+        leftLabel = context.tr('Scheduled');
+        leftValue =
+            (items.length - _overdueCount(items)).clamp(0, 999).toString();
+        rightLabel = context.tr('Overdue');
+        rightValue = _overdueCount(items).toString();
+    }
+
+    final bool showAlertLoader =
+        feedKind == _FeedKind.alerts && (_isLoadingMore || _hasMore);
+    final bool showSkeleton = feedKind == _FeedKind.alerts
+        ? _isLoading && items.isEmpty
+        : _feedLoading && items.isEmpty;
+
+    return RefreshIndicator(
+      onRefresh: () => _loadEvents(isRefresh: true),
+      child: CustomScrollView(
+        controller: feedKind == _FeedKind.alerts ? _scrollController : null,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: <Widget>[
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+              child: _FeedHeroCard(config: hero),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+              child: _FeedStatRow(
+                accent: accent,
+                leftLabel: leftLabel,
+                leftValue: leftValue,
+                rightLabel: rightLabel,
+                rightValue: rightValue,
               ),
             ),
           ),
-        ),
-      );
-    }
-
-    final int extraItemCount = (isAlertTab && (_isLoadingMore || _hasMore)) ? 1 : 0;
-
-    return ListView.builder(
-      controller: isAlertTab ? _scrollController : null,
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-      itemCount: items.length + extraItemCount,
-      itemBuilder: (BuildContext context, int index) {
-        if (index == items.length) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Center(
-              child: _isLoadingMore
-                  ? const SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(strokeWidth: 2.5),
-                    )
-                  : const SizedBox.shrink(),
+          if (showSkeleton)
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 20),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (BuildContext context, int index) =>
+                      _FeedSkeletonCard(accent: accent),
+                  childCount: 3,
+                ),
+              ),
+            )
+          else if (items.isEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 20),
+                child: _FeedEmptyCard(
+                  accent: accent,
+                  icon: kindIcon,
+                  title: emptyMessage,
+                  hint: emptyHint,
+                ),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 20),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (BuildContext context, int index) {
+                    if (showAlertLoader && index == items.length) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        child: Center(
+                          child: _isLoadingMore
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                  ),
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                      );
+                    }
+                    return _NotificationCard(
+                      notification: items[index],
+                      formattedTime: _formatTimestamp(items[index].timestamp),
+                    );
+                  },
+                  childCount: items.length + (showAlertLoader ? 1 : 0),
+                ),
+              ),
             ),
-          );
-        }
-        return _NotificationCard(
-          notification: items[index],
-          formattedTime: _formatTimestamp(items[index].timestamp),
-        );
-      },
+        ],
+      ),
     );
   }
 }
@@ -404,14 +606,29 @@ class _NotificationCard extends StatelessWidget {
     required this.formattedTime,
   });
 
-  IconData _getIcon() {
-    if (notification.category == NotificationCategory.announcements) {
-      return Icons.campaign_rounded;
+  _NotificationCardVisual _visualFor(AppNotification n) {
+    if (n.category == NotificationCategory.announcements) {
+      return const _NotificationCardVisual(
+        accent: Color(0xFF0284C7),
+        accentDeep: Color(0xFF0369A1),
+        icon: Icons.campaign_rounded,
+        categoryLabel: 'Announcement',
+      );
     }
-    if (notification.category == NotificationCategory.reminders) {
-      return Icons.event_note_rounded;
+    if (n.category == NotificationCategory.reminders) {
+      return const _NotificationCardVisual(
+        accent: Color(0xFFEA580C),
+        accentDeep: Color(0xFFC2410C),
+        icon: Icons.notifications_active_rounded,
+        categoryLabel: 'Reminder',
+      );
     }
-    return notification.eventType.icon;
+    return _NotificationCardVisual(
+      accent: n.eventType.iconColor,
+      accentDeep: Color.lerp(n.eventType.iconColor, Colors.black, 0.18)!,
+      icon: n.eventType.icon,
+      categoryLabel: 'Alert',
+    );
   }
 
   String _eventLabel(BuildContext context, AppNotification notification) {
@@ -442,131 +659,472 @@ class _NotificationCard extends StatelessWidget {
     }
   }
 
-  Color _getIconColor() {
-    if (notification.category == NotificationCategory.announcements) {
-      return const Color(0xFF0288D1);
-    }
-    if (notification.category == NotificationCategory.reminders) {
-      return const Color(0xFFF57C00);
-    }
-    return notification.eventType.iconColor;
-  }
-
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final Color textColor = theme.colorScheme.onSurface;
-    final Color mutedColor = textColor.withValues(alpha: 0.65);
-    final Color iconColor = _getIconColor();
-    final IconData icon = _getIcon();
+    final Color mutedColor = textColor.withValues(alpha: 0.62);
+    final _NotificationCardVisual visual = _visualFor(notification);
+    final bool isDark = theme.brightness == Brightness.dark;
+    final Color cardFill = context.containerColor;
+    final String location = NotificationLocationText.resolve(notification);
+    final bool isReminder = notification.category == NotificationCategory.reminders;
+    final bool isAnnouncement =
+        notification.category == NotificationCategory.announcements;
+    final bool isOverdue = isReminder &&
+        notification.timestamp.isBefore(DateTime.now());
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: context.containerDecoration(
-        borderRadius: BorderRadius.circular(8),
-      ).copyWith(
-        boxShadow: [
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: visual.accent.withValues(alpha: isDark ? 0.22 : 0.14),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.06),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Material(
+            color: cardFill,
+            child: InkWell(
+              onTap: () => VoiceAlertService.instance.speak(notification),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Container(
+                      width: 5,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: <Color>[
+                            visual.accent,
+                            visual.accentDeep,
+                          ],
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: <Color>[
+                                        visual.accent,
+                                        visual.accentDeep,
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(14),
+                                    boxShadow: <BoxShadow>[
+                                      BoxShadow(
+                                        color: visual.accent
+                                            .withValues(alpha: 0.35),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Icon(
+                                    visual.icon,
+                                    color: Colors.white,
+                                    size: 22,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: <Widget>[
+                                      Row(
+                                        children: <Widget>[
+                                          Expanded(
+                                            child: Text(
+                                              notification.vehicleId,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 15,
+                                                letterSpacing: -0.2,
+                                                color: textColor,
+                                              ),
+                                            ),
+                                          ),
+                                          _CategoryChip(
+                                            label: context
+                                                .tr(visual.categoryLabel),
+                                            accent: visual.accent,
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        _eventLabel(context, notification),
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                          height: 1.25,
+                                          color: textColor
+                                              .withValues(alpha: 0.92),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                _VoiceChip(accent: visual.accent),
+                              ],
+                            ),
+                            if (isOverdue) ...<Widget>[
+                              const SizedBox(height: 10),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFDC2626)
+                                      .withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: const Color(0xFFDC2626)
+                                        .withValues(alpha: 0.28),
+                                  ),
+                                ),
+                                child: Text(
+                                  context.tr('Overdue'),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFFB91C1C),
+                                  ),
+                                ),
+                              ),
+                            ],
+                            if (notification.eventType ==
+                                    NotificationEventType.overSpeed &&
+                                notification.speed != null) ...<Widget>[
+                              const SizedBox(height: 10),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: visual.accent.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color:
+                                        visual.accent.withValues(alpha: 0.25),
+                                  ),
+                                ),
+                                child: Text(
+                                  '${notification.speed!.toStringAsFixed(0)} km/h',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                    color: visual.accentDeep,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 12),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? Colors.white.withValues(alpha: 0.05)
+                                    : visual.accent.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: visual.accent.withValues(alpha: 0.12),
+                                ),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Icon(
+                                    isReminder
+                                        ? Icons.event_note_rounded
+                                        : isAnnouncement
+                                            ? Icons.article_outlined
+                                            : Icons.place_rounded,
+                                    size: 16,
+                                    color: visual.accent,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      location,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        height: 1.35,
+                                        color: mutedColor,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: <Widget>[
+                                Icon(
+                                  Icons.schedule_rounded,
+                                  size: 14,
+                                  color: mutedColor,
+                                ),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    formattedTime,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500,
+                                      color: mutedColor,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+enum _FeedKind { alerts, announcements, reminders }
+
+class _FeedStatRow extends StatelessWidget {
+  const _FeedStatRow({
+    required this.accent,
+    required this.leftLabel,
+    required this.leftValue,
+    required this.rightLabel,
+    required this.rightValue,
+  });
+
+  final Color accent;
+  final String leftLabel;
+  final String leftValue;
+  final String rightLabel;
+  final String rightValue;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color fill = context.containerColor;
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: _FeedStatTile(
+            accent: accent,
+            fill: fill,
+            label: leftLabel,
+            value: leftValue,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _FeedStatTile(
+            accent: accent,
+            fill: fill,
+            label: rightLabel,
+            value: rightValue,
+            compactValue: rightValue.length > 14,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _FeedStatTile extends StatelessWidget {
+  const _FeedStatTile({
+    required this.accent,
+    required this.fill,
+    required this.label,
+    required this.value,
+    this.compactValue = false,
+  });
+
+  final Color accent;
+  final Color fill;
+  final String label;
+  final String value;
+  final bool compactValue;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: fill,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: accent.withValues(alpha: 0.18)),
+        boxShadow: <BoxShadow>[
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
+            color: accent.withValues(alpha: 0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: () {
-            VoiceAlertService.instance.speak(notification);
-          },
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.55),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              maxLines: compactValue ? 2 : 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: compactValue ? 13 : 20,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.3,
+                color: accent,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FeedEmptyCard extends StatelessWidget {
+  const _FeedEmptyCard({
+    required this.accent,
+    required this.icon,
+    required this.title,
+    required this.hint,
+  });
+
+  final Color accent;
+  final IconData icon;
+  final String title;
+  final String hint;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color fill = context.containerColor;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: accent.withValues(alpha: 0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Material(
+          color: fill,
           child: Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+              children: <Widget>[
                 Container(
-                  width: 36,
-                  height: 36,
+                  width: 48,
+                  height: 48,
                   decoration: BoxDecoration(
-                    color: iconColor.withValues(alpha: 0.12),
-                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: <Color>[accent, Color.lerp(accent, Colors.black, 0.15)!],
+                    ),
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  child: Icon(
-                    icon,
-                    color: iconColor,
-                    size: 20,
-                  ),
+                  child: Icon(icon, color: Colors.white, size: 24),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              notification.vehicleId,
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                                color: textColor,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            formattedTime,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: mutedColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
+                    children: <Widget>[
                       Text(
-                        _eventLabel(context, notification),
+                        title,
                         style: TextStyle(
-                          fontSize: 14,
-                          color: textColor.withValues(alpha: 0.85),
-                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
-                      if (notification.eventType ==
-                              NotificationEventType.overSpeed &&
-                          notification.speed != null) ...<Widget>[
-                        const SizedBox(height: 4),
-                        Text(
-                          '${notification.speed!.toStringAsFixed(0)} km/h',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: iconColor,
-                            fontWeight: FontWeight.w700,
-                          ),
+                      const SizedBox(height: 8),
+                      Text(
+                        hint,
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.4,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.62),
                         ),
-                      ],
-                      const SizedBox(height: 4),
+                      ),
+                      const SizedBox(height: 12),
                       Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
                           Icon(
-                            Icons.location_on_outlined,
-                            size: 14,
-                            color: theme.colorScheme.primary,
+                            Icons.refresh_rounded,
+                            size: 16,
+                            color: accent,
                           ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              NotificationLocationText.resolve(notification),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: mutedColor,
-                                height: 1.3,
-                              ),
+                          const SizedBox(width: 6),
+                          Text(
+                            context.tr('Pull down to refresh'),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: accent,
                             ),
                           ),
                         ],
@@ -574,16 +1132,264 @@ class _NotificationCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(width: 6),
-                Icon(
-                  Icons.volume_up_outlined,
-                  size: 18,
-                  color: theme.colorScheme.primary.withValues(alpha: 0.7),
-                ),
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _FeedSkeletonCard extends StatelessWidget {
+  const _FeedSkeletonCard({required this.accent});
+
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color base = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.08);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        height: 118,
+        decoration: BoxDecoration(
+          color: context.containerColor,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: accent.withValues(alpha: 0.1)),
+        ),
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: base,
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Container(
+                    height: 12,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: base,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    height: 10,
+                    width: 180,
+                    decoration: BoxDecoration(
+                      color: base,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    height: 8,
+                    width: 120,
+                    decoration: BoxDecoration(
+                      color: base,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FeedHeroConfig {
+  const _FeedHeroConfig({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.gradientStart,
+    required this.gradientEnd,
+    required this.countLabel,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color gradientStart;
+  final Color gradientEnd;
+  final String countLabel;
+}
+
+class _FeedHeroCard extends StatelessWidget {
+  const _FeedHeroCard({required this.config});
+
+  final _FeedHeroConfig config;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[config.gradientStart, config.gradientEnd],
+        ),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: config.gradientStart.withValues(alpha: isDark ? 0.35 : 0.28),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+              ),
+              child: Icon(config.icon, color: Colors.white, size: 28),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    config.title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    config.subtitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.92),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.28),
+                      ),
+                    ),
+                    child: Text(
+                      config.countLabel,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NotificationCardVisual {
+  const _NotificationCardVisual({
+    required this.accent,
+    required this.accentDeep,
+    required this.icon,
+    required this.categoryLabel,
+  });
+
+  final Color accent;
+  final Color accentDeep;
+  final IconData icon;
+  final String categoryLabel;
+}
+
+class _CategoryChip extends StatelessWidget {
+  const _CategoryChip({
+    required this.label,
+    required this.accent,
+  });
+
+  final String label;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: accent.withValues(alpha: 0.28)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.3,
+          color: accent,
+        ),
+      ),
+    );
+  }
+}
+
+class _VoiceChip extends StatelessWidget {
+  const _VoiceChip({required this.accent});
+
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.12),
+        shape: BoxShape.circle,
+        border: Border.all(color: accent.withValues(alpha: 0.22)),
+      ),
+      alignment: Alignment.center,
+      child: Icon(
+        Icons.volume_up_rounded,
+        size: 18,
+        color: accent,
       ),
     );
   }

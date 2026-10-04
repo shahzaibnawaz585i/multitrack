@@ -64,7 +64,14 @@ class VehicleDetailApiService {
       <String, Future<VehiclePeriodStats>>{};
   static final Map<String, Future<HistoryRoute>> _historyInflight =
       <String, Future<HistoryRoute>>{};
-  static const int _maxCache = 24;
+  static const int _maxCache = 10;
+
+  static void clearMemoryCaches() {
+    _historyCache.clear();
+    _statsCache.clear();
+    _statsInflight.clear();
+    _historyInflight.clear();
+  }
   static const Duration _reportWaitTimeout = Duration(seconds: 45);
 
   static String _key(int deviceId, DateTime from, DateTime to, String kind) {

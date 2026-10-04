@@ -30,11 +30,11 @@ class AcReportScreen extends StatelessWidget {
           time: '12:20 PM',
           duration: 'Duration: Ongoing',
           status: 'AC ON',
-          statusColor: Colors.teal,
+                      statusColor: Colors.teal,
           location: 'M.M. Alam Road, Gulberg, Lahore',
-          isLast: true,
-        ),
-      ],
+                      isLast: true,
+                    ),
+                  ],
     );
   }
 

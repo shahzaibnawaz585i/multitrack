@@ -9,6 +9,7 @@ import 'auth_api.dart';
 import 'fcm_service.dart';
 import 'alert_polling_service.dart';
 import 'live_notification_controller.dart';
+import 'app_cache_service.dart';
 import 'vehicle_service.dart';
 import 'voice_alert_service.dart';
 
@@ -108,6 +109,7 @@ class AuthService {
     AlertService.resetBaseline();
     VehicleService.resetBaseline();
     VehicleService.clearFleetCache();
+    await AppCacheService.clearSessionCaches();
     NotificationData.assignAlerts(<AppNotification>[]);
     LiveNotificationController.instance.clear();
     AlertPollingService.instance.stop();

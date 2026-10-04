@@ -20,6 +20,11 @@ class AppLifecycleGate with WidgetsBindingObserver {
 
   bool get isForeground => state == AppLifecycleState.resumed;
 
+  /// TTS while app is visible (includes notification shade / brief inactive).
+  bool get isForegroundForVoice =>
+      state == AppLifecycleState.resumed ||
+      state == AppLifecycleState.inactive;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     this.state = state;

@@ -11,6 +11,8 @@ class HistoryNumberedStopIcon {
   static final Map<String, BitmapDescriptor> _cache =
       <String, BitmapDescriptor>{};
 
+  static void clearCache() => _cache.clear();
+
   static Future<BitmapDescriptor> forNumber(
     int number, {
     Color fill = const Color(0xFFE53935),

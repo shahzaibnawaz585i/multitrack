@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
 import '../l10n/app_l10n.dart';
+import '../services/api_client.dart';
 import '../services/general_settings_controller.dart';
 import '../services/history_service.dart';
 import '../services/vehicle_detail_api_service.dart';
@@ -65,6 +66,7 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
   final ValueNotifier<Offset?> _stopPopupScreen = ValueNotifier<Offset?>(null);
   List<HistoryStopSession> _stopSessions = const <HistoryStopSession>[];
   List<HistoryTimelineSegment> _timelineSegments = const <HistoryTimelineSegment>[];
+  List<double> _playbackTimeFractions = const <double>[];
   int _stoppageMinutes = 5;
   late int _overspeedLimitKmph;
   final GlobalKey<HistoryMapState> _historyMapKey = GlobalKey<HistoryMapState>();
@@ -101,6 +103,8 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
     _historyPlaybackTimer?.cancel();
     _historyPlaybackTimer = null;
     _historyPlayWallClockStart = null;
+    // Child elements are already unmounted before State.dispose runs, so
+    // HistoryMap has removed its listeners; disposing notifiers is safe here.
     _historySliderValue.dispose();
     _isHistoryPlaying.dispose();
     _stopPopupScreen.dispose();
@@ -166,15 +170,44 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
     _historyTo = range.to;
   }
 
-  Duration _historyFetchTimeout() {
-    final int days = _historyTo.difference(_historyFrom).inDays;
-    if (days <= 1) {
-      return const Duration(seconds: 35);
+  String _historyErrorMessage(Object error) {
+    final String raw = error.toString();
+    if (error is TimeoutException || raw.contains('TimeoutException')) {
+      return context.tr(
+        'History timed out. Showing cached route if available — try again on Wi‑Fi.',
+      );
     }
-    if (days <= 7) {
-      return const Duration(seconds: 75);
+    if (error is ApiException) {
+      return error.message;
     }
-    return const Duration(seconds: 150);
+    if (raw.contains('ApiException')) {
+      return raw.replaceFirst('ApiException: ', '');
+    }
+    return context.tr('Could not load history. Pull down to retry.');
+  }
+
+  HistoryRoute _historyFallbackRoute({
+    required int deviceId,
+    required DateTime fetchFrom,
+    required DateTime fetchTo,
+  }) {
+    final HistoryRoute? cached = VehicleDetailApiService.peekHistory(
+      deviceId: deviceId,
+      from: fetchFrom,
+      to: fetchTo,
+    );
+    if (cached != null && !cached.isEmpty) {
+      return cached;
+    }
+    final HistoryRoute? tail = _routeFromCachedDeviceTail(
+      deviceId: deviceId,
+      from: fetchFrom,
+      to: fetchTo,
+    );
+    if (tail != null && !tail.isEmpty) {
+      return tail;
+    }
+    return const HistoryRoute(points: <HistoryPoint>[]);
   }
 
   void _prepareForHistoryReload() {
@@ -202,6 +235,33 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
               p.time != null && ReportPeriod.contains(p.time!, from, to),
         )
         .toList();
+    if (inRange.length < 2 && timed.length >= 2) {
+      return HistoryRoute(
+        points: HistoryRouteUtils.withInterpolatedTimes(
+          route.points,
+          rangeFrom: from,
+          rangeTo: to,
+        ),
+        distanceKm: route.distanceKm,
+        durationLabel: route.durationLabel,
+        avgSpeed: route.avgSpeed,
+        topSpeedKmph: route.topSpeedKmph,
+        moveDurationLabel: route.moveDurationLabel,
+        stopDurationLabel: route.stopDurationLabel,
+        fuelConsumption: route.fuelConsumption,
+        fuelCost: route.fuelCost,
+        engineHours: route.engineHours,
+        idleDurationLabel: route.idleDurationLabel,
+        overspeedCount: route.overspeedCount,
+        avgFuelMileage: route.avgFuelMileage,
+        engineWorkCost: route.engineWorkCost,
+        odometerKm: route.odometerKm,
+        rangeFrom: from,
+        rangeTo: to,
+        itemCount: timed.length,
+        errorMessage: route.errorMessage,
+      );
+    }
     if (inRange.length >= 2) {
       if (timed.length >= 3 &&
           inRange.length <
@@ -293,8 +353,9 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
       rangeFrom: route.rangeFrom ?? _historyFrom,
       rangeTo: route.rangeTo ?? _historyTo,
     );
-    _timelineSegments = HistoryRouteUtils.buildTimelineSegments(
+    _timelineSegments = HistoryRouteUtils.buildTimelineSegmentsForMapMarkers(
       timed,
+      _stopSessions,
       minStopDuration: minStop,
     );
   }
@@ -349,6 +410,9 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
     }
     final HistoryRoute displayRoute = _routePreparedForPlayback(route);
     _rebuildDerivedHistoryDataFor(displayRoute);
+    _playbackTimeFractions = displayRoute.points.length >= 2
+        ? HistoryRouteUtils.buildPointTimeFractions(displayRoute.points)
+        : const <double>[];
     _safeSetState(() {
       _historyLoading = stillLoading;
       _historyLoaded = true;
@@ -453,7 +517,7 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
         from: fetchFrom,
         to: fetchTo,
         forceRefresh: force,
-      ).timeout(_historyFetchTimeout());
+      );
       if (_screenDisposed || !mounted || loadSeq != _historyLoadSeq) {
         return;
       }
@@ -469,7 +533,25 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
         }
       }
       if (route.isEmpty &&
-          (_historyPeriod == 'today' || _historyPeriod == '1h') &&
+          _historyPeriod == 'today' &&
+          loadSeq == _historyLoadSeq) {
+        final DateTime endOfToday = ReportPeriod.endOfDay(DateTime.now());
+        if (endOfToday.isAfter(fetchTo)) {
+          final HistoryRoute fullDay = await VehicleDetailApiService.loadHistory(
+            deviceId: deviceId,
+            from: fetchFrom,
+            to: endOfToday,
+            forceRefresh: true,
+          );
+          if (!fullDay.isEmpty) {
+            route = fullDay;
+          }
+        }
+      }
+      if (route.isEmpty &&
+          (_historyPeriod == 'today' ||
+              _historyPeriod == 'yesterday' ||
+              _historyPeriod == '1h') &&
           loadSeq == _historyLoadSeq) {
         final HistoryRoute? tailRoute = _routeFromCachedDeviceTail(
           deviceId: deviceId,
@@ -492,6 +574,19 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
       if (loadSeq != _historyLoadSeq) {
         return;
       }
+      final HistoryRoute fallback = _historyFallbackRoute(
+        deviceId: deviceId,
+        fetchFrom: fetchFrom,
+        fetchTo: fetchTo,
+      );
+      if (!fallback.isEmpty) {
+        _applyHistoryRoute(
+          fallback,
+          stillLoading: false,
+          loadSeq: loadSeq,
+        );
+        return;
+      }
       _safeSetState(() {
         _historyLoading = false;
         _historyLoaded = true;
@@ -499,7 +594,7 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
         if (_historyRoute.isEmpty) {
           _historyRoute = const HistoryRoute(points: <HistoryPoint>[]);
         }
-        _historyError = e.toString();
+        _historyError = _historyErrorMessage(e);
       });
     } finally {
       if (!_screenDisposed &&
@@ -851,16 +946,6 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
     return base.withValues(alpha: 0.86);
   }
 
-  String _historyDurationDisplay() {
-    final String raw =
-        _historyRoute.moveDurationLabel ??
-        _historyRoute.durationLabel ??
-        '00:00:00';
-    return raw
-        .replaceAll(RegExp(r'\s*Hrs\s*$', caseSensitive: false), '')
-        .trim();
-  }
-
   String _historyLocationDisplay() {
     if (_historyRoute.points.isEmpty) {
       return widget.fallbackLocation.trim();
@@ -906,24 +991,15 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
     );
   }
 
-  String _playbackTimeLabel() {
-    final Duration total = _historyPlaybackTotalDuration();
-    if (total == Duration.zero) {
-      return '00:00:00 / 00:00:00';
-    }
-    final Duration elapsed = Duration(
-      milliseconds: (total.inMilliseconds * _historySliderValue.value).round(),
+  DateTime? _playbackPositionTime(double fraction) {
+    return HistoryRouteUtils.timeAtFraction(
+      _historyRoute.points,
+      fraction,
+      timeFractions:
+          _playbackTimeFractions.isEmpty ? null : _playbackTimeFractions,
+      rangeFrom: _historyRoute.rangeFrom ?? _historyFrom,
+      rangeTo: _historyRoute.rangeTo ?? _historyTo,
     );
-    String fmt(Duration d) {
-      final int h = d.inHours;
-      final int m = d.inMinutes.remainder(60);
-      final int s = d.inSeconds.remainder(60);
-      return '${h.toString().padLeft(2, '0')}:'
-          '${m.toString().padLeft(2, '0')}:'
-          '${s.toString().padLeft(2, '0')}';
-    }
-
-    return '${fmt(elapsed)} / ${fmt(total)}';
   }
 
   @override
@@ -938,12 +1014,6 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
     final String vehicleLabel = widget.name.isNotEmpty
         ? widget.name
         : (widget.deviceId?.toString() ?? '—');
-    final String fallbackSpeedStat = _historyRoute.points.isEmpty
-        ? '0 ${context.tr('kmph')}'
-        : '${(_historyRoute.avgSpeed ?? _historyRoute.topSpeedKmph ?? 0).toStringAsFixed(0)} ${context.tr('kmph')}';
-    final String distanceStat = _historyRoute.points.isEmpty
-        ? '0.0 km'
-        : '${(_historyRoute.distanceKm ?? 0).toStringAsFixed(1)} km';
     final String speedLabel =
         _historyPlaybackSpeed == _historyPlaybackSpeed.roundToDouble()
         ? '${_historyPlaybackSpeed.toInt()}x'
@@ -1250,15 +1320,13 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
                     SliverPersistentHeader(
                       pinned: true,
                       delegate: _HistoryPlaybackHeaderDelegate(
-                        height: 234,
+                        height: 245,
                         backgroundColor: Colors.transparent,
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(10, 0, 10, 0),
                           child: _buildPlaybackControlCard(
                             accentColor: accentColor,
                             vehicleLabel: vehicleLabel,
-                            fallbackSpeedStat: fallbackSpeedStat,
-                            distanceStat: distanceStat,
                             speedLabel: speedLabel,
                           ),
                         ),
@@ -1272,7 +1340,11 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
                           padding: const EdgeInsets.only(top: 32),
                           child: Center(
                             child: Text(
-                              context.tr('No history for this period'),
+                              _historyError != null &&
+                                      _historyError!.trim().isNotEmpty
+                                  ? _historyError!
+                                  : context.tr('No history for this period'),
+                              textAlign: TextAlign.center,
                               style: TextStyle(
                                 color: context.mutedTextColor,
                                 fontSize: 13,
@@ -1311,13 +1383,11 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
   Widget _buildPlaybackControlCard({
     required Color accentColor,
     required String vehicleLabel,
-    required String fallbackSpeedStat,
-    required String distanceStat,
     required String speedLabel,
   }) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 23),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
@@ -1380,30 +1450,47 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
           ValueListenableBuilder<double>(
             valueListenable: _historySliderValue,
             builder: (BuildContext context, double fraction, _) {
-              final String speedStat = _historyRoute.points.isEmpty
-                  ? fallbackSpeedStat
-                  : '${_speedAtPlaybackFraction(fraction).toStringAsFixed(0)} ${context.tr('kmph')}';
+              final double speedKmph = _historyRoute.points.isEmpty
+                  ? 0
+                  : _speedAtPlaybackFraction(fraction);
+              final DateTime? at = _playbackPositionTime(fraction);
+              final double km = _historyRoute.distanceKm ?? 0;
               return Row(
-                children: [
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
                   Expanded(
-                    child: _historyStatItem(
-                      Icons.speed,
-                      speedStat,
-                      accentColor,
+                    flex: 2,
+                    child: _HistoryPlaybackMetricColumn(
+                      icon: Icons.speed,
+                      accentColor: accentColor,
+                      topValue: speedKmph.toStringAsFixed(0),
+                      bottomValue: context.tr('kmph'),
+                      dividerWidth: 30,
                     ),
                   ),
                   Expanded(
-                    child: _historyStatItem(
-                      Icons.access_time_filled_outlined,
-                      _historyDurationDisplay(),
-                      accentColor,
+                    flex: 4,
+                    child: _HistoryPlaybackMetricColumn(
+                      icon: Icons.access_time_filled_outlined,
+                      accentColor: accentColor,
+                      topValue:
+                          HistoryRouteUtils.formatPlaybackPositionClock(at),
+                      bottomValue:
+                          HistoryRouteUtils.formatPlaybackPositionDate(at),
+                      dividerWidth: 72,
+                      fitTopText: true,
+                      topFontSize: 11,
+                      centerInCell: true,
                     ),
                   ),
                   Expanded(
-                    child: _historyStatItem(
-                      Icons.route_outlined,
-                      distanceStat,
-                      accentColor,
+                    flex: 2,
+                    child: _HistoryPlaybackMetricColumn(
+                      icon: Icons.route_outlined,
+                      accentColor: accentColor,
+                      topValue: km.toStringAsFixed(1),
+                      bottomValue: context.tr('km'),
+                      dividerWidth: 30,
                     ),
                   ),
                 ],
@@ -1805,28 +1892,6 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
     );
   }
 
-  Widget _historyStatItem(IconData icon, String value, Color color) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: color, size: 16),
-        const SizedBox(width: 4),
-        Expanded(
-          child: Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: context.textColor,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _floatingMapButton(
     IconData icon,
     Color iconColor,
@@ -1855,6 +1920,102 @@ class _VehicleHistoryScreenState extends State<VehicleHistoryScreen> {
         child: Icon(icon, color: iconColor, size: 20),
       ),
     );
+  }
+}
+
+class _HistoryPlaybackMetricColumn extends StatelessWidget {
+  const _HistoryPlaybackMetricColumn({
+    required this.icon,
+    required this.accentColor,
+    required this.topValue,
+    required this.bottomValue,
+    this.dividerWidth = 36,
+    this.fitTopText = false,
+    this.topFontSize = 13,
+    bool centerInCell = false,
+    bool centerInColumn = false,
+  }) : _centerContent = centerInCell || centerInColumn;
+
+  final IconData icon;
+  final Color accentColor;
+  final String topValue;
+  final String bottomValue;
+  final double dividerWidth;
+  final bool fitTopText;
+  final double topFontSize;
+  final bool _centerContent;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color lineColor = Colors.grey.shade400.withValues(alpha: 0.55);
+    final TextStyle topStyle = TextStyle(
+      fontSize: topFontSize,
+      fontWeight: FontWeight.w800,
+      color: context.textColor,
+      height: 1.1,
+    );
+    final TextStyle bottomStyle = TextStyle(
+      fontSize: 10,
+      fontWeight: FontWeight.w600,
+      color: context.mutedTextColor,
+      height: 1.1,
+    );
+    final Widget topLabel = fitTopText
+        ? FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              topValue,
+              maxLines: 1,
+              softWrap: false,
+              style: topStyle,
+            ),
+          )
+        : Text(
+            topValue,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: topStyle,
+          );
+
+    final Widget textColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        topLabel,
+        const SizedBox(height: 4),
+        Container(
+          height: 1,
+          width: dividerWidth,
+          color: lineColor,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          bottomValue,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: bottomStyle,
+        ),
+      ],
+    );
+
+    final Widget metricBlock = Row(
+      mainAxisSize: _centerContent ? MainAxisSize.min : MainAxisSize.max,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Icon(icon, color: accentColor, size: 17),
+        ),
+        const SizedBox(width: 4),
+        if (_centerContent) textColumn else Expanded(child: textColumn),
+      ],
+    );
+
+    if (_centerContent) {
+      return Center(child: metricBlock);
+    }
+    return metricBlock;
   }
 }
 

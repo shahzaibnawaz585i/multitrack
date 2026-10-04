@@ -24,6 +24,7 @@ class TrackingApiService {
     required DateTime to,
     int? page,
     int? limit,
+    bool messages = false,
   }) async {
     final String server = await AuthService.server();
     final String? token = await AuthService.token();
@@ -31,22 +32,36 @@ class TrackingApiService {
       return null;
     }
     try {
-      final Uri uri = ApiConfig.getHistoryUri(
-        server,
-        token: token,
-        deviceId: deviceId,
-        from: from,
-        to: to,
-        page: page,
-        limit: limit,
-      );
+      final Uri uri = messages
+          ? ApiConfig.getHistoryMessagesUri(
+              server,
+              token: token,
+              deviceId: deviceId,
+              from: from,
+              to: to,
+              page: page,
+              limit: limit,
+            )
+          : ApiConfig.getHistoryUri(
+              server,
+              token: token,
+              deviceId: deviceId,
+              from: from,
+              to: to,
+              page: page,
+              limit: limit,
+            );
       developer.log(
-        'getHistory device_id=$deviceId '
+        '${messages ? 'getHistoryMessages' : 'getHistory'} device_id=$deviceId '
         '${uri.queryParameters['from_date']} ${uri.queryParameters['from_time']} -> '
         '${uri.queryParameters['to_date']} ${uri.queryParameters['to_time']}',
         name: 'TrackingApiService',
       );
-      HttpJsonResponse response = await ApiClient.getWithStatus(uri, token: token);
+      HttpJsonResponse response = await ApiClient.getWithStatus(
+        uri,
+        token: token,
+        timeout: ApiConfig.historyRequestTimeout,
+      );
       developer.log(
         'getHistory status=${response.statusCode} device_id=$deviceId',
         name: 'TrackingApiService',
@@ -63,15 +78,25 @@ class TrackingApiService {
         name: 'TrackingApiService',
       );
       try {
-        final Uri uri = ApiConfig.getHistoryUri(
-          server,
-          token: token,
-          deviceId: deviceId,
-          from: from,
-          to: to,
-          page: page,
-          limit: limit,
-        );
+        final Uri uri = messages
+            ? ApiConfig.getHistoryMessagesUri(
+                server,
+                token: token,
+                deviceId: deviceId,
+                from: from,
+                to: to,
+                page: page,
+                limit: limit,
+              )
+            : ApiConfig.getHistoryUri(
+                server,
+                token: token,
+                deviceId: deviceId,
+                from: from,
+                to: to,
+                page: page,
+                limit: limit,
+              );
         final HttpJsonResponse response = await ApiClient.getWithStatus(
           uri,
           token: token,
@@ -82,7 +107,11 @@ class TrackingApiService {
           body: response.body,
         );
       } catch (e, stack) {
-        developer.log('getHistory retry failed: $e', error: e, stackTrace: stack);
+        developer.log(
+          'getHistory retry failed: $e',
+          error: e,
+          stackTrace: stack,
+        );
         rethrow;
       }
     } catch (e, stack) {
@@ -164,11 +193,15 @@ class TrackingApiService {
     final String? token = await AuthService.token();
     if (token == null || token.isEmpty) return null;
     try {
-      final dynamic response =
-          await ApiClient.get(ApiConfig.getUserDataUri(server, token: token), token: token);
+      final dynamic response = await ApiClient.get(
+        ApiConfig.getUserDataUri(server, token: token),
+        token: token,
+      );
       if (response is Map<String, dynamic>) return response;
       if (response is Map) {
-        return response.map((Object? k, Object? v) => MapEntry(k.toString(), v));
+        return response.map(
+          (Object? k, Object? v) => MapEntry(k.toString(), v),
+        );
       }
       return null;
     } catch (_) {
@@ -176,17 +209,26 @@ class TrackingApiService {
     }
   }
 
-  static Future<List<Map<String, dynamic>>> getDeviceCommands(int deviceId) async {
+  static Future<List<Map<String, dynamic>>> getDeviceCommands(
+    int deviceId,
+  ) async {
     final String server = await AuthService.server();
     final String? token = await AuthService.token();
     if (token == null || token.isEmpty) return <Map<String, dynamic>>[];
     try {
       final dynamic response = await ApiClient.get(
-        ApiConfig.getDeviceCommandsUri(server, token: token, deviceId: deviceId),
+        ApiConfig.getDeviceCommandsUri(
+          server,
+          token: token,
+          deviceId: deviceId,
+        ),
         token: token,
       );
       if (response is List) {
-        return response.whereType<Map>().map((Map e) => Map<String, dynamic>.from(e)).toList();
+        return response
+            .whereType<Map>()
+            .map((Map e) => Map<String, dynamic>.from(e))
+            .toList();
       }
       return <Map<String, dynamic>>[];
     } catch (_) {
@@ -194,7 +236,9 @@ class TrackingApiService {
     }
   }
 
-  static Future<Map<String, dynamic>?> sendCommandData(Map<String, dynamic> body) async {
+  static Future<Map<String, dynamic>?> sendCommandData(
+    Map<String, dynamic> body,
+  ) async {
     final String server = await AuthService.server();
     final String? token = await AuthService.token();
     if (token == null || token.isEmpty) return null;
@@ -209,7 +253,9 @@ class TrackingApiService {
     }
   }
 
-  static Future<Map<String, dynamic>?> sharing(Map<String, dynamic> body) async {
+  static Future<Map<String, dynamic>?> sharing(
+    Map<String, dynamic> body,
+  ) async {
     final String server = await AuthService.server();
     final String? token = await AuthService.token();
     if (token == null || token.isEmpty) return null;
@@ -244,6 +290,23 @@ class TrackingApiService {
         ApiConfig.deleteFcmTokenUri(server, fcmToken: fcmToken.trim()),
       );
     } catch (_) {}
+  }
+
+  static Future<List<Map<String, dynamic>>> getServices({int? deviceId}) async {
+    final String server = await AuthService.server();
+    final String? token = await AuthService.token();
+    if (token == null || token.isEmpty) {
+      return <Map<String, dynamic>>[];
+    }
+    try {
+      final dynamic response = await ApiClient.get(
+        ApiConfig.getServicesUri(server, token: token, deviceId: deviceId),
+        token: token,
+      );
+      return ReportResponseParser.listFromDynamic(response);
+    } catch (_) {
+      return <Map<String, dynamic>>[];
+    }
   }
 
   static Future<List<Map<String, dynamic>>> getTasks() async {

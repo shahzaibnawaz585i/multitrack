@@ -87,7 +87,9 @@ class HistoryService {
 
   static final DateFormat _apiFormat = DateFormat('yyyy-MM-dd HH:mm:ss');
   static final Map<String, HistoryRoute> _cache = <String, HistoryRoute>{};
-  static const int _maxCacheEntries = 32;
+  static const int _maxCacheEntries = 12;
+
+  static void clearMemoryCache() => _cache.clear();
   static const Duration _historyChunk = Duration(days: 3);
   static const int _pageSize = 500;
   static const int _maxParseDepth = 24;
@@ -259,25 +261,61 @@ class HistoryService {
     final List<HistoryPoint> all = <HistoryPoint>[];
     Map<String, dynamic>? meta;
 
-    final GetHistoryResult? firstResponse = await TrackingApiService.getHistory(
+    final _HistoryFetchAttempt primary = await _fetchHistoryAttempt(
       deviceId: deviceId,
       from: from,
       to: to,
+      messages: false,
     );
-    if (firstResponse == null) {
+    if (primary.response == null) {
       throw const ApiException('Session expired. Please log in again.');
     }
 
-    final HistoryRoute parsed = _parse(
-      firstResponse.body,
-      rangeFrom: from,
-      rangeTo: to,
-    );
+    GetHistoryResult firstResponse = primary.response!;
+    HistoryRoute parsed = primary.route;
     all.addAll(parsed.points);
-    if (firstResponse.body is Map) {
-      meta = (firstResponse.body as Map).map(
-        (Object? k, Object? v) => MapEntry(k.toString(), v),
+    meta = primary.meta;
+
+    final int primaryItemCount = _itemCount(firstResponse.body);
+    if (parsed.points.isEmpty && primaryItemCount == 0) {
+      final _HistoryFetchAttempt withLimit = await _fetchHistoryAttempt(
+        deviceId: deviceId,
+        from: from,
+        to: to,
+        messages: false,
+        limit: 8000,
       );
+      if (withLimit.route.points.isNotEmpty) {
+        firstResponse = withLimit.response ?? firstResponse;
+        parsed = withLimit.route;
+        all
+          ..clear()
+          ..addAll(parsed.points);
+        meta ??= withLimit.meta;
+      }
+    }
+
+    if (parsed.points.isEmpty) {
+      final _HistoryFetchAttempt messagesAttempt = await _fetchHistoryAttempt(
+        deviceId: deviceId,
+        from: from,
+        to: to,
+        messages: true,
+        limit: 8000,
+      );
+      if (messagesAttempt.route.points.isNotEmpty) {
+        firstResponse = messagesAttempt.response ?? firstResponse;
+        parsed = messagesAttempt.route;
+        all
+          ..clear()
+          ..addAll(parsed.points);
+        meta ??= messagesAttempt.meta;
+        developer.log(
+          'HistoryService used get_history_messages device_id=$deviceId '
+          'points=${parsed.points.length}',
+          name: 'HistoryService',
+        );
+      }
     }
 
     developer.log(
@@ -344,8 +382,112 @@ class HistoryService {
     if (response is! Map) {
       return 0;
     }
-    final dynamic items = response['items'];
-    return items is List ? items.length : 0;
+    final List<dynamic>? rows = _historyItemsList(
+      response.map((Object? k, Object? v) => MapEntry(k.toString(), v)),
+    );
+    return rows?.length ?? 0;
+  }
+
+  /// GPSWOX often returns `{ items: [...] }` or `{ items: { data: [...] } }`.
+  static List<dynamic>? _historyItemsList(Map<String, dynamic>? meta) {
+    if (meta == null) {
+      return null;
+    }
+    final dynamic items = meta['items'];
+    if (items is List && items.isNotEmpty) {
+      return items;
+    }
+    if (items is Map) {
+      final dynamic data = items['data'];
+      if (data is List && data.isNotEmpty) {
+        return data;
+      }
+      final List<dynamic> flattened = <dynamic>[];
+      for (final dynamic value in items.values) {
+        if (value is List) {
+          flattened.addAll(value);
+        } else if (value is Map) {
+          flattened.add(value);
+        }
+      }
+      if (flattened.isNotEmpty) {
+        return flattened;
+      }
+    }
+    final dynamic data = meta['data'];
+    if (data is List && data.isNotEmpty) {
+      return data;
+    }
+    final dynamic messages = meta['messages'];
+    if (messages is List && messages.isNotEmpty) {
+      return messages;
+    }
+    return null;
+  }
+
+  static Future<_HistoryFetchAttempt> _fetchHistoryAttempt({
+    required int deviceId,
+    required DateTime from,
+    required DateTime to,
+    required bool messages,
+    int? limit,
+  }) async {
+    final GetHistoryResult? response = await TrackingApiService.getHistory(
+      deviceId: deviceId,
+      from: from,
+      to: to,
+      limit: limit,
+      messages: messages,
+    );
+    Map<String, dynamic>? meta;
+    if (response?.body is Map) {
+      meta = (response!.body as Map).map(
+        (Object? k, Object? v) => MapEntry(k.toString(), v),
+      );
+    }
+    final HistoryRoute route = response == null
+        ? const HistoryRoute(points: <HistoryPoint>[])
+        : _parse(
+            response.body,
+            rangeFrom: from,
+            rangeTo: to,
+          );
+    final String? apiError = _readApiStatusError(meta);
+    if (apiError != null && route.isEmpty) {
+      return _HistoryFetchAttempt(
+        response: response,
+        route: HistoryRoute(
+          points: const <HistoryPoint>[],
+          rangeFrom: from,
+          rangeTo: to,
+          errorMessage: apiError,
+        ),
+        meta: meta,
+      );
+    }
+    return _HistoryFetchAttempt(
+      response: response,
+      route: route,
+      meta: meta,
+    );
+  }
+
+  static String? _readApiStatusError(Map<String, dynamic>? meta) {
+    if (meta == null) {
+      return null;
+    }
+    final dynamic status = meta['status'];
+    if (status == 0 ||
+        status == '0' ||
+        status == false ||
+        status == 'error') {
+      final dynamic message = meta['message'] ?? meta['error'];
+      if (message != null && message.toString().trim().isNotEmpty) {
+        return message.toString();
+      }
+      return 'History not available from server';
+    }
+    return null;
   }
 
   static bool _shouldFetchNextPage(
@@ -360,12 +502,17 @@ class HistoryService {
       (Object? k, Object? v) => MapEntry(k.toString(), v),
     );
 
-    final dynamic lastPage = map['last_page'] ?? map['total_pages'];
+    dynamic lastPage = map['last_page'] ?? map['total_pages'];
+    dynamic current = map['current_page'] ?? map['page'];
+    final dynamic items = map['items'];
+    if (items is Map) {
+      lastPage ??= items['last_page'] ?? items['total_pages'];
+      current ??= items['current_page'] ?? items['page'];
+    }
     if (lastPage is num && currentPage < lastPage.toInt()) {
       return true;
     }
 
-    final dynamic current = map['current_page'] ?? map['page'];
     if (lastPage is num &&
         current is num &&
         current.toInt() < lastPage.toInt()) {
@@ -444,8 +591,8 @@ class HistoryService {
       durationLabel = '$moveDuration / $stopDuration';
     }
 
-    final int itemCount = responseMeta != null && responseMeta['items'] is List
-        ? (responseMeta['items'] as List).length
+    final int itemCount = responseMeta != null
+        ? (_historyItemsList(responseMeta)?.length ?? 0)
         : 0;
 
     return HistoryRoute(
@@ -533,11 +680,9 @@ class HistoryService {
       _collectPoints(response, points, fromList: true);
     }
 
-    if (meta != null && meta['items'] is List) {
-      final List<dynamic> rawItems = meta['items'] as List<dynamic>;
-      if (rawItems.isNotEmpty) {
-        points.addAll(_pointsFromItems(meta));
-      }
+    final List<dynamic>? itemRows = _historyItemsList(meta);
+    if (itemRows != null) {
+      points.addAll(_pointsFromRawItems(itemRows));
     }
     if (points.isEmpty) {
       _collectPoints(response, points, fromList: false);
@@ -554,6 +699,8 @@ class HistoryService {
           'routes',
           'history',
           'result',
+          'positions',
+          'latest_positions',
         ]) {
           final dynamic nested = meta[key];
           if (nested is List && nested.isNotEmpty) {
@@ -564,14 +711,36 @@ class HistoryService {
       if (points.isEmpty && meta['device'] is Map) {
         _collectPoints(meta['device'], points, fromList: false);
       }
+      if (points.isEmpty) {
+        for (final String key in <String>[
+          'polyline',
+          'encoded_polyline',
+          'route_polyline',
+          'c',
+        ]) {
+          final dynamic raw = meta[key];
+          if (raw is String && raw.isNotEmpty) {
+            _addPolylinePoints(raw, points, time: rangeFrom);
+          }
+        }
+      }
     }
 
     if (points.length > _maxPointsPerChunk) {
       points.removeRange(_maxPointsPerChunk, points.length);
     }
 
+    final List<HistoryPoint> sorted = HistoryRouteUtils.sortByTime(points);
+    final List<HistoryPoint> withTimes = sorted.any((HistoryPoint p) => p.time != null)
+        ? sorted
+        : HistoryRouteUtils.withInterpolatedTimes(
+            sorted,
+            rangeFrom: rangeFrom,
+            rangeTo: rangeTo,
+          );
+
     return _enrichRoute(
-      points: HistoryRouteUtils.sortByTime(points),
+      points: withTimes,
       responseMeta: meta,
       rangeFrom: rangeFrom,
       rangeTo: rangeTo,
@@ -689,13 +858,9 @@ class HistoryService {
     );
   }
 
-  static List<HistoryPoint> _pointsFromItems(Map<String, dynamic> map) {
-    final dynamic items = map['items'];
-    if (items is! List) {
-      return <HistoryPoint>[];
-    }
+  static List<HistoryPoint> _pointsFromRawItems(List<dynamic> rawItems) {
     final List<HistoryPoint> points = <HistoryPoint>[];
-    for (final dynamic item in items) {
+    for (final dynamic item in rawItems) {
       if (points.length >= _maxPointsPerChunk) {
         break;
       }
@@ -996,19 +1161,37 @@ class HistoryService {
       }
       return DateTime.fromMillisecondsSinceEpoch(value * 1000);
     }
+    if (value is num) {
+      final int n = value.round();
+      if (n > 9999999999) {
+        return DateTime.fromMillisecondsSinceEpoch(n);
+      }
+      return DateTime.fromMillisecondsSinceEpoch(n * 1000);
+    }
     final String raw = value.toString().trim();
     if (raw.isEmpty) {
       return null;
     }
     try {
       return DateTime.parse(raw);
-    } catch (_) {
+    } catch (_) {}
+    const List<String> patterns = <String>[
+      'dd-MM-yyyy hh:mm:ss a',
+      'dd-MM-yyyy HH:mm:ss',
+      'dd-MM-yyyy hh:mm a',
+      'dd MMM yyyy hh:mm:ss a',
+      'dd MMM yyyy HH:mm:ss',
+      'yyyy-MM-dd HH:mm:ss',
+      'yyyy-MM-dd hh:mm:ss a',
+      'yyyy/MM/dd HH:mm:ss',
+      'MM/dd/yyyy HH:mm:ss',
+    ];
+    for (final String pattern in patterns) {
       try {
-        return DateFormat('dd-MM-yyyy hh:mm:ss a').parse(raw);
-      } catch (_) {
-        return null;
-      }
+        return DateFormat(pattern).parse(raw);
+      } catch (_) {}
     }
+    return null;
   }
 }
 
@@ -1020,4 +1203,16 @@ class _ChunkFetchResult {
 
   final List<HistoryPoint> points;
   final Map<String, dynamic>? responseMeta;
+}
+
+class _HistoryFetchAttempt {
+  const _HistoryFetchAttempt({
+    required this.response,
+    required this.route,
+    this.meta,
+  });
+
+  final GetHistoryResult? response;
+  final HistoryRoute route;
+  final Map<String, dynamic>? meta;
 }

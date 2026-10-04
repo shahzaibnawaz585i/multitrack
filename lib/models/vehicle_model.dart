@@ -1,7 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../services/reverse_geocoding_service.dart';
 import '../utils/coordinate_parser.dart';
+import '../utils/vehicle_speed_utils.dart';
 
 class VehicleTrackPoint {
   const VehicleTrackPoint({
@@ -1271,58 +1274,275 @@ class VehicleModel {
     return 'Today';
   }
 
+  /// GPSWOX `get_devices` top-level `speed` (km/h when `distance_unit_hour` is kph).
+  static double? _readGpswoxPanelSpeed(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+  ) {
+    for (final Map<String, dynamic> source in <Map<String, dynamic>>[
+      json,
+      deviceData,
+    ]) {
+      if (!source.containsKey('speed')) {
+        continue;
+      }
+      final dynamic raw = source['speed'];
+      if (raw == null) {
+        continue;
+      }
+      final double kmh = _applyDisplaySpeedUnit(
+        _coerceSpeedToKmh(raw),
+        json,
+        deviceData,
+      );
+      return kmh < 0 ? 0 : kmh;
+    }
+    return null;
+  }
+
+  static String _resolveSpeedUnit(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+  ) {
+    return (json['distance_unit_hour'] ??
+            deviceData['distance_unit_hour'] ??
+            json['speed_unit'] ??
+            deviceData['speed_unit'] ??
+            json['distance_unit'] ??
+            deviceData['distance_unit'] ??
+            json['unit_of_distance'] ??
+            deviceData['unit_of_distance'] ??
+            '')
+        .toString()
+        .toLowerCase();
+  }
+
   static double _resolveRawSpeed(
     Map<String, dynamic> json,
     Map<String, dynamic> deviceData,
   ) {
-    final dynamic speedVal = json['speed'] ??
-        deviceData['speed'] ??
-        json['latest_position']?['speed'] ??
-        json['position']?['speed'] ??
-        json['device_speed'] ??
-        json['last_speed'] ??
-        json['other_arr']?['speed'];
+    final double? panelSpeed = _readGpswoxPanelSpeed(json, deviceData);
+    if (panelSpeed != null) {
+      return panelSpeed;
+    }
 
-    if (speedVal != null) {
-      final double? spd = double.tryParse(speedVal.toString());
-      if (spd != null && !spd.isNaN) {
-        return spd;
+    final List<double> displayKmh = <double>[];
+    final List<double> positionKmh = <double>[];
+
+    void addDisplay(dynamic value) {
+      if (value == null) return;
+      final double kmh = _applyDisplaySpeedUnit(
+        _coerceSpeedToKmh(value),
+        json,
+        deviceData,
+      );
+      if (kmh > 0 && kmh <= 220) {
+        displayKmh.add(kmh);
       }
     }
 
-    // Check sensors if speed sensor exists
+    void addPosition(dynamic value) {
+      if (value == null) return;
+      final double raw = _coerceSpeedToKmh(value);
+      if (raw <= 0 || raw > 220) return;
+      final double kmh = _knotsToKmhIfNeeded(raw, json, deviceData);
+      if (kmh > 0 && kmh <= 220) {
+        positionKmh.add(kmh);
+      }
+    }
+
+    void readSpeedKeysFromMap(Map<String, dynamic> m, void Function(dynamic) add) {
+      for (final String key in <String>[
+        'speed',
+        'speed_kmh',
+        'speedKmh',
+        'device_speed',
+        'last_speed',
+        'current_speed',
+        'spd',
+        'velocity',
+      ]) {
+        add(m[key]);
+      }
+      final dynamic attributes = m['attributes'];
+      if (attributes is Map) {
+        final Map<String, dynamic> attr = attributes.map(
+          (Object? k, Object? v) => MapEntry(k.toString(), v),
+        );
+        add(attr['speed'] ?? attr['speed_kmh']);
+      }
+    }
+
+    // GPSWOX panel speed — already in user display units (usually km/h).
+    readSpeedKeysFromMap(json, addDisplay);
+    readSpeedKeysFromMap(deviceData, addDisplay);
+
+    if (json['icon'] is Map) {
+      final Map<String, dynamic> icon = (json['icon'] as Map).map(
+        (Object? k, Object? v) => MapEntry(k.toString(), v),
+      );
+      readSpeedKeysFromMap(icon, addDisplay);
+    }
+
+    addDisplay(json['other_arr']?['speed']);
+    addDisplay(json['other']?['speed']);
+    addDisplay(json['parameters']?['speed']);
+    addDisplay(json['params']?['speed']);
+
+    final dynamic traccar = json['traccar'] ?? deviceData['traccar'];
+    if (traccar is Map) {
+      final Map<String, dynamic> t = traccar.map(
+        (Object? k, Object? v) => MapEntry(k.toString(), v),
+      );
+      readSpeedKeysFromMap(t, addPosition);
+    }
+
+    for (final String nestedKey in <String>[
+      'latest_position',
+      'position',
+      'last_position',
+      'current_position',
+    ]) {
+      final dynamic nested = json[nestedKey] ?? deviceData[nestedKey];
+      if (nested is Map) {
+        final Map<String, dynamic> m = nested.map(
+          (Object? k, Object? v) => MapEntry(k.toString(), v),
+        );
+        readSpeedKeysFromMap(m, addPosition);
+      }
+    }
+
+    for (final String listKey in <String>[
+      'latest_positions',
+      'latestPositions',
+      'positions',
+      'tail',
+    ]) {
+      final dynamic list = json[listKey] ?? deviceData[listKey];
+      if (list is! List || list.isEmpty) continue;
+      for (int i = list.length - 1; i >= 0 && i >= list.length - 3; i--) {
+        final dynamic item = list[i];
+        if (item is Map) {
+          final Map<String, dynamic> m = item.map(
+            (Object? k, Object? v) => MapEntry(k.toString(), v),
+          );
+          readSpeedKeysFromMap(m, addPosition);
+        }
+      }
+    }
+
     final dynamic sensors = json['sensors'] ?? deviceData['sensors'];
     if (sensors is List) {
       for (final dynamic sensor in sensors) {
-        if (sensor is Map) {
-          final String sType =
-              (sensor['type'] ?? sensor['name'] ?? '').toString().toLowerCase();
-          if (sType.contains('speed')) {
-            final dynamic val = sensor['value'] ?? sensor['val'];
-            final double? spd = double.tryParse(val?.toString() ?? '');
-            if (spd != null && !spd.isNaN) {
-              return spd;
-            }
-          }
+        if (sensor is! Map) continue;
+        final String sType =
+            (sensor['type'] ?? sensor['name'] ?? sensor['tag_name'] ?? '')
+                .toString()
+                .toLowerCase();
+        if (sType.contains('speed') ||
+            sType.contains('velocity') ||
+            sType.contains('spd')) {
+          addDisplay(
+            sensor['text_value'] ??
+                sensor['value'] ??
+                sensor['val'] ??
+                sensor['data'] ??
+                sensor['scale_value'],
+          );
         }
       }
     }
 
-    // Check tail if latest point has speed
-    if (json['tail'] is List && (json['tail'] as List).isNotEmpty) {
-      final dynamic lastTail = (json['tail'] as List).last;
-      if (lastTail is Map) {
-        final dynamic tailSpeed = lastTail['speed'];
-        if (tailSpeed != null) {
-          final double? spd = double.tryParse(tailSpeed.toString());
-          if (spd != null && !spd.isNaN) {
-            return spd;
-          }
-        }
-      }
+    final String rawStatus = (json['status'] ??
+            json['online'] ??
+            deviceData['status'] ??
+            deviceData['online'] ??
+            json['time'] ??
+            deviceData['time'] ??
+            '')
+        .toString();
+    final double? fromText = _speedKmhFromText(rawStatus);
+    if (fromText != null && fromText > 0 && fromText <= 220) {
+      displayKmh.add(fromText);
     }
 
+    if (displayKmh.isNotEmpty) {
+      return displayKmh.reduce(math.max);
+    }
+    if (positionKmh.isNotEmpty) {
+      return positionKmh.reduce(math.max);
+    }
     return 0.0;
+  }
+
+  static double _coerceSpeedToKmh(dynamic value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+    return parseSpeedKmh(value.toString());
+  }
+
+  static double? _speedKmhFromText(String text) {
+    if (text.trim().isEmpty) return null;
+    final RegExpMatch? match = RegExp(
+      r'(\d+(?:\.\d+)?)\s*(?:km/h|kmph|kph|kmh|km\s*h)',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (match != null) {
+      return double.tryParse(match.group(1)!);
+    }
+    return null;
+  }
+
+  static double _applyDisplaySpeedUnit(
+    double value,
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+  ) {
+    if (value <= 0) return 0;
+    final String unit = _resolveSpeedUnit(json, deviceData);
+    if (unit.contains('kn')) {
+      return value * 1.852;
+    }
+    if (unit.contains('mi')) {
+      return value * 1.60934;
+    }
+    return value;
+  }
+
+  /// Traccar position records store speed in knots unless the server says otherwise.
+  static double _knotsToKmhIfNeeded(
+    double value,
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+  ) {
+    if (value <= 0) return 0;
+    final String unit = _resolveSpeedUnit(json, deviceData);
+    if (unit.contains('kp') ||
+        unit.contains('km') ||
+        unit == 'kph' ||
+        unit == 'km/h') {
+      return value;
+    }
+    if (unit.contains('mi')) {
+      return value * 1.60934;
+    }
+    if (unit.contains('kn')) {
+      return value * 1.852;
+    }
+    return value * 1.852;
+  }
+
+  static String? _resolveIconColor(
+    Map<String, dynamic> json,
+    Map<String, dynamic> deviceData,
+  ) {
+    final dynamic raw = json['icon_color'] ?? deviceData['icon_color'];
+    if (raw == null) {
+      return null;
+    }
+    final String color = raw.toString().trim().toLowerCase();
+    return color.isEmpty ? null : color;
   }
 
   static bool _checkIfExpired(
@@ -1415,17 +1635,57 @@ class VehicleModel {
       return 'Not Reporting';
     }
 
-    // 3. Server-reported stop/park beats noisy GPS speed while parked.
+    final String? iconColor = _resolveIconColor(json, deviceData);
+    if (iconColor == 'red') {
+      return 'Not Reporting';
+    }
+    if (iconColor == 'green') {
+      if (speed >= 8) {
+        return 'RUNNING';
+      }
+      if (speed >= 3) {
+        return 'IDLE';
+      }
+    }
+    if (iconColor == 'yellow') {
+      return speed >= 3 ? 'IDLE' : 'STOPPED';
+    }
+    if (iconColor == 'blue') {
+      return 'IDLE';
+    }
+
+    // 3. Speed-based (match GPSWOX web: 0 idle when parked, RUNNING when clearly moving).
+    if (speed >= 8) {
+      return 'RUNNING';
+    }
+
+    // 4. Server-reported stop/park beats noisy GPS speed while parked.
     if (lower == 'stop' ||
         lower == 'stopped' ||
         lower == 'parked' ||
         lower == 'stop detected') {
-      return 'STOPPED';
+      return speed >= 3 ? 'IDLE' : 'STOPPED';
     }
 
-    // 4. Real movement: speed above idle threshold → RUNNING
-    if (speed > 0.5) {
-      return 'RUNNING';
+    if (lower == 'idle' ||
+        lower == 'engine' ||
+        lower == 'standby' ||
+        lower.contains('idle')) {
+      return 'IDLE';
+    }
+
+    if (lower == 'running' ||
+        lower == 'move' ||
+        lower == 'moving' ||
+        lower.contains('drive')) {
+      if (speed >= 8) {
+        return 'RUNNING';
+      }
+      return speed >= 3 ? 'IDLE' : 'IDLE';
+    }
+
+    if (speed >= 3) {
+      return 'IDLE';
     }
 
     // Check ignition / engine status
@@ -1448,20 +1708,16 @@ class VehicleModel {
         ignition == 'off' ||
         ignition == 'false';
 
-    if (lower == 'idle' || lower == 'engine' || lower == 'standby' || isEngineOn) {
-      return 'IDLE';
+    if (isEngineOn && speed > 0) {
+      return speed >= 8 ? 'RUNNING' : 'IDLE';
     }
 
     if (isEngineOff) {
       return 'STOPPED';
     }
 
-    // If online/ack or other status with speed == 0, it is STOPPED
-    if (lower == 'online' ||
-        lower == 'ack' ||
-        lower == 'running' ||
-        lower == 'moving') {
-      return 'STOPPED';
+    if (lower == 'online' || lower == 'ack') {
+      return speed >= 8 ? 'RUNNING' : (speed >= 3 ? 'IDLE' : 'STOPPED');
     }
 
     return raw.isNotEmpty ? raw.toUpperCase() : 'Not Reporting';
@@ -1517,6 +1773,18 @@ class VehicleModel {
       'status': base.status,
     };
     json.addAll(patch);
+    for (final String metaKey in <String>[
+      'online',
+      'icon_color',
+      'icon_colors',
+      'distance_unit_hour',
+      'distance_unit',
+      'speed_unit',
+    ]) {
+      if (!json.containsKey(metaKey) && patch.containsKey(metaKey)) {
+        json[metaKey] = patch[metaKey];
+      }
+    }
 
     final double? lat = _readFirstDouble(
       json,
@@ -1567,8 +1835,7 @@ class VehicleModel {
     final double parsed = speed is num
         ? speed.toDouble()
         : parseSpeedKmh(speed.toString());
-    if (parsed <= 0) return '00';
-    return parsed.round().toString().padLeft(2, '0');
+    return VehicleSpeed.formatLabel(parsed);
   }
 
   static String _resolveOdometer(

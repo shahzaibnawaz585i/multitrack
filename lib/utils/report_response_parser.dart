@@ -33,6 +33,7 @@ class ReportResponseParser {
         'results',
         'report',
         'tasks',
+        'services',
         'events',
       ]) {
         if (root[key] is List) {
